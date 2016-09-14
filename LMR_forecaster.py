@@ -49,6 +49,7 @@ class LIMForecaster(BaseForecaster):
         is_anomaly = cfg.calib_is_anomaly
         is_runmean = cfg.calib_is_runmean
         do_detrend = cfg.detrend
+        self.use_ens_mean_fcast = cfg.use_ens_mean_fcast
 
         # Search for pre-calibrated LIM to save time
         fpath, fname = path.split(infile)
@@ -122,7 +123,6 @@ class LIMForecaster(BaseForecaster):
             os.makedirs(precalib_path)
 
         self.lim.save_precalib(precalib_pathfname)
-        self.use_ens_mean_fcast = cfg.use_ens_mean_fcast
 
     def forecast(self, state_obj):
 
