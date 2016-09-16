@@ -62,19 +62,18 @@ fsave = False
 #
 #nexp = 'production_gis_ccsm4_pagesall_0.75'
 #nexp = 'testdev_paramsearch_noxbblend_a7_d0_100itr'
-nexp = 'testdev_paramsearch_ccm4gis_ccsm4lim_a0.9'
-nexp = 'testdev_gis_ccsm4_pagesall_75_seeded'
-nexp = 'testdev_paramsearch_priorblend_noinflate_a0.9'
+nexp = 'ensmean_limfcast_ccsm4limpri_gispsm_pages2k_a1pt0'
 
 # specify directories for LMR and calibration data
 #datadir_output = '/home/disk/kalman3/rtardif/LMR/output'
 #datadir_output = './data/'
 #datadir_output = '/home/disk/kalman2/wperkins/LMR_output/archive'
-#datadir_output = '/home/disk/kalman2/wperkins/LMR_output/testing'
-datadir_output = '/home/disk/p/wperkins/Research/LMR/scratch/ipynbs/new_thesis/exp_symlinks_100itr'
+datadir_output = '/home/disk/chaos3/wperkins/LMR_output/testing'
+#datadir_output = '/home/disk/p/wperkins/Research/LMR/scratch/ipynbs
+# /new_thesis/exp_symlinks_100itr'
 #datadir_output = '/home/chaos3/wperkins/LMR_output/testing'
 
-datadir_calib = '/home/disk/kalman3/rtardif/LMR/data/analyses'
+datadir_calib = '/home/disk/chaos2/wperkins/data/LMR/data/analyses'
 
 # plotting preferences
 nlevs = 30 # number of contours
@@ -175,7 +174,7 @@ MLOST_time = np.array(mlost_time)
 # Reanalysis products
 # ===================
 
-datadir = '/home/disk/kalman3/rtardif/LMR/data/model/era20c'
+datadir = '/home/disk/chaos2/wperkins/data/LMR/data/model/era20c'
 datafile = 'tas_sfc_Amon_ERA20C_190001-201212.nc'
 vardef = 'tas_sfc_Amon'
 
@@ -204,7 +203,7 @@ for i in xrange(0,len(ERA20C_time)):
 
 
 # load 20th century reanalysis (TCR) reanalysis --------------------------------
-datadir = '/home/disk/kalman3/rtardif/LMR/data/model/20cr'
+datadir = '/home/disk/chaos2/wperkins/data/LMR/data/model/20cr'
 datafile = 'tas_sfc_Amon_20CR_185101-201112.nc'
 vardef = 'tas_sfc_Amon'
 

@@ -52,8 +52,7 @@ class constants:
 
 
 class wrapper:
-    param_search = {'core.hybrid_a': [0.6, 0.7, 0.8],
-                    'core.inf_factor': [1.1, 1.2, 1.3]}
+    param_search = None
 
     multi_seed = [9271, 687, 4312, 7175, 4999, 3318, 3344, 3667, 6975, 1766, 7374, 1820,
                   2598, 1729, 9674, 3394, 239, 6039, 5670, 2679, 3334, 7684, 8701, 8719,
@@ -91,9 +90,9 @@ class core:
     archive_dir: str
         Absolute path to LMR reconstruction archive directory
     """
-    nexp = 'testdev_paramsearch_integration'
+    nexp = 'testdev_limobj_init_ens_fcast_use'
     lmr_path = '/home/disk/chaos2/wperkins/data/LMR'
-    online_reconstruction = False
+    online_reconstruction = True
     clean_start = True
     ignore_pre_avg_file = False
     save_pre_avg_file = True
@@ -111,12 +110,12 @@ class core:
     # Forecasting Hybrid Update
     hybrid_update = True
     hybrid_update &= online_reconstruction
-    hybrid_a = 0.70
+    hybrid_a = 0.85
     blend_prior = True
 
     # Adaptive Covariance Inflation
     adaptive_inflate = False
-    reg_inflate = True
+    reg_inflate = False
     inf_factor = 1.1
 
     # TODO: add rules for shift?
@@ -135,7 +134,7 @@ class core:
     #datadir_output  = '/home/disk/ekman/rtardif/nobackup/LMR/output'
     #datadir_output  = '/home/disk/ice4/hakim/svnwork/python-lib/trunk/src/ipython_notebooks/data'
 
-    archive_dir = '/home/chaos2/wperkins/data/LMR/output/archive'
+    archive_dir = '/home/chaos2/wperkins/data/LMR/output/testing'
     #archive_dir = '/home/disk/chaos/wperkins/LMR_output/testing'
     #archive_dir = '/home/disk/kalman2/wperkins/LMR_output/testing'
     #archive_dir = '/home/disk/kalman3/rtardif/LMR/output'
@@ -290,7 +289,7 @@ class psm:
         psm_r_crit: float
             Usage threshold for correlation of linear PSM
         """
-        datatag_calib = 'MLOST'
+        datatag_calib = 'GISTEMP'
         sub_base_res = core.sub_base_res
         datadir_calib = join(core.lmr_path, 'data', 'analyses', datatag_calib)
         datafile_calib = constants.calib[datatag_calib]['fname']
@@ -330,8 +329,8 @@ class prior:
         List of variables to use in the state vector for the prior
     """
     # Prior data directory & model source
-    #prior_source = 'ccsm4_last_millenium'
-    prior_source = 'mpi-esm-p_last_millenium'
+    prior_source = 'ccsm4_last_millenium'
+    # prior_source = 'mpi-esm-p_last_millenium'
 
     datadir_prior = join(core.lmr_path, 'data', 'model', prior_source)
     datafile_prior   = constants.prior[prior_source]['fname']
@@ -363,14 +362,14 @@ class forecaster:
         #calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model/20cr'
         #                  '/tas_sfc_Amon_20CR_185101-201112.nc')
         #calib_varname = 'tas'
-        #calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
-        #                  '/ccsm4_last_millenium/'
-        #                  'tas_sfc_Amon_CCSM4_past1000_085001-185012.nc')
-        #calib_varname = 'tas'
         calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
-                          '/mpi-esm-p_last_millenium/'
-                          'tas_sfc_Amon_MPI-ESM-P_past1000_085001-185012.nc')
+                         '/ccsm4_last_millenium/'
+                         'tas_sfc_Amon_CCSM4_past1000_085001-185012.nc')
         calib_varname = 'tas'
+        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
+        #                   '/mpi-esm-p_last_millenium/'
+        #                   'tas_sfc_Amon_MPI-ESM-P_past1000_085001-185012.nc')
+        # calib_varname = 'tas'
         #calib_filename = ('/home/disk/chaos2/wperkins/data/20CR/air.2m.mon.mean.nc')
         #calib_varname = 'air'
         #calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/'
