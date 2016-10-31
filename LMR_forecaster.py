@@ -79,6 +79,9 @@ class LIMForecaster(BaseForecaster):
         elif fmt == 'PCKL':
             data_obj = DT.BaseDataObject.from_pickle(infile)
             do_regrid = False
+        elif fmt == 'POSNPZ':
+            data_obj = DT.posterior_npz_to_data_obj(infile)
+            do_regrid = False
         else:
             raise TypeError('Unsupported calibration data'
                             ' type for LIM: {}'.format(fmt))

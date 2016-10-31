@@ -362,10 +362,10 @@ class forecaster:
         #calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model/20cr'
         #                  '/tas_sfc_Amon_20CR_185101-201112.nc')
         #calib_varname = 'tas'
-        calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
-                         '/ccsm4_last_millenium/'
-                         'tas_sfc_Amon_CCSM4_past1000_085001-185012.nc')
-        calib_varname = 'tas'
+        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
+        #                  '/ccsm4_last_millenium/'
+        #                  'tas_sfc_Amon_CCSM4_past1000_085001-185012.nc')
+        # calib_varname = 'tas'
         # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
         #                   '/mpi-esm-p_last_millenium/'
         #                   'tas_sfc_Amon_MPI-ESM-P_past1000_085001-185012.nc')
@@ -376,9 +376,14 @@ class forecaster:
         #                  'analyses/Experimental/tas_run_mean_berkely_'
         #                  'earth_monthly_195701-201412.nc')
         #calib_varname = 'tas_run_mean'
-        calib_is_anomaly = False
-        calib_is_runmean = False
-        dataformat = 'NCD'
+        calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/'
+                          'reconstruction/'
+                          'limexper_infoboot_ccsm4pri_gispsm_pages2k_ccsm4lim_a'
+                          '0pt85_1000_1850.npz')
+        calib_varname = None
+        dataformat = 'POSNPZ'
+        calib_is_anomaly = True
+        calib_is_runmean = True
         fcast_times = [1]
         wsize = 12
         fcast_num_pcs = 8
