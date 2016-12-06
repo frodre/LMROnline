@@ -227,7 +227,7 @@ def verify_grid(data_dir, nexp, output_dir, iplot=False, fsave=True):
     # load ERA20C reanalysis -------------------------------------------------------
     #infile = '/home/disk/kalman3/rtardif/LMR/data/model/era20c/tas_sfc_Amon_ERA20C_190001-201212.nc'
     datadir = '/home/disk/kalman3/rtardif/LMR/data/model/era20c'
-    datafile = 'tas_sfc_Amon_ERA20C_190001-201212.nc'
+    datafile = 'tas_sfc_Amon_ERA20C_190001-201012.nc'
     vardef = 'tas_sfc_Amon'
 
     dd = read_gridded_data_CMIP5_model(datadir,datafile,[vardef])
