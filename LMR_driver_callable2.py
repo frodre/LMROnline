@@ -94,6 +94,7 @@ def LMR_driver_callable(cfg=None):
     workdir = core.datadir_output
     recon_period = core.recon_period
     online = core.online_reconstruction
+    persistence = core.persistence_forecast
     hybrid_update = core.hybrid_update
     hybrid_a_val = core.hybrid_a
     blend_prior = core.blend_prior
@@ -255,7 +256,7 @@ def LMR_driver_callable(cfg=None):
 
     ens_calib_check = np.zeros((total_proxy_count, 5))
 
-    nelem_pr_yr = np.ceil(1.0 / base_res)
+    nelem_pr_yr = int(np.ceil(1.0 / base_res))
     start_yr, end_yr = recon_period
     assim_times = np.arange(start_yr, end_yr+1, base_res)
 
@@ -450,26 +451,27 @@ def LMR_driver_callable(cfg=None):
                 inext_yr = curr_yr_idx + 1
                 Xb_one.insert_upcoming_prior(curr_yr_idx, use_curr=True)
 
-                # Forecast
-                forecaster.forecast(Xb_one)
+                if not persistence:
+                    # Forecast
+                    forecaster.forecast(Xb_one)
 
-                # Propagate forecast average to next year
-                Xb_one.propagate_avg_to_backend(inext_yr, 0)
+                    # Propagate forecast average to next year
+                    Xb_one.propagate_avg_to_backend(inext_yr, 0)
 
-                # Get next year to calc Ye values
-                Xb_one.xb_from_backend(inext_yr, sub_base_res, 0)
+                    # Get next year to calc Ye values
+                    Xb_one.xb_from_backend(inext_yr, sub_base_res, 0)
 
-                #Recalculate Ye values
-                ye_all = _calc_yevals_from_prior(assim_res_vals, res_yr_shift,
-                                                 ye_shp, Xb_one, prox_manager)
-                Xb_one.reset_augmented_ye(ye_all)
+                    #Recalculate Ye values
+                    ye_all = _calc_yevals_from_prior(assim_res_vals, res_yr_shift,
+                                                     ye_shp, Xb_one, prox_manager)
+                    Xb_one.reset_augmented_ye(ye_all)
 
-                # Inflation Adjustment
-                if reg_inf:
-                    Xb_one.reg_inflate_xb(inf_factor)
+                    # Inflation Adjustment
+                    if reg_inf:
+                        Xb_one.reg_inflate_xb(inf_factor)
 
-                # Propagate forecasted state and Ye values back down to h5
-                Xb_one.propagate_avg_to_backend(inext_yr, 0.0)
+                    # Propagate forecasted state and Ye values back down to h5
+                    Xb_one.propagate_avg_to_backend(inext_yr, 0.0)
 
     end_time = time() - begin_time
 
