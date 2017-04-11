@@ -156,7 +156,7 @@ class core:
     ##** BEGIN User Parameters **##
 
     nexp = 'testdev_persistence'
-    lmr_path = '/home/disk/chaos2/wperkins/data/LMR'
+    lmr_path = '/home/disk/katabatic2/wperkins/cp_lim_archive/LMR_slim'
     online_reconstruction = True
     persistence_forecast = False
     clean_start = True
@@ -467,13 +467,13 @@ class forecaster:
             modes.
         """
 
-        #calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model/20cr'
+        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model/20cr'
         #                  '/tas_sfc_Amon_20CR_185101-201112.nc')
-        #calib_varname = 'tas'
-        calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
-                         '/ccsm4_last_millenium/'
-                         'tas_sfc_Amon_CCSM4_past1000_085001-185012.nc')
-        calib_varname = 'tas'
+        # calib_varname = 'tas'
+        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
+        #                  '/ccsm4_last_millenium/'
+        #                  'tas_sfc_Amon_CCSM4_past1000_085001-185012.nc')
+        # calib_varname = 'tas'
         # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
         #                   '/mpi-esm-p_last_millenium/'
         #                   'tas_sfc_Amon_MPI-ESM-P_past1000_085001-185012.nc')
@@ -481,14 +481,14 @@ class forecaster:
 
         # NOTE: for BerkeleyEarth data switch calib_is_anomaly and
         # calib_is_run_mean to TRUE
-        #calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/'
-        #                  'analyses/Experimental/tas_run_mean_berkely_'
-        #                  'earth_monthly_195701-201412.nc')
-        #calib_varname = 'tas_run_mean'
+        calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/'
+                         'analyses/Experimental/tas_run_mean_berkely_'
+                         'earth_monthly_195701-201412.nc')
+        calib_varname = 'tas_run_mean'
 
         dataformat = 'NCD'
-        calib_is_anomaly = False
-        calib_is_runmean = False
+        calib_is_anomaly = True
+        calib_is_runmean = True
         fcast_times = [1]
         wsize = 12
         fcast_num_pcs = 8

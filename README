@@ -16,7 +16,7 @@ to a directory where you will unpack it; here we will call that directory
 /home/disk/foo/LMR. This directory must be readable from wherever you plan to
 perform the experiment.
 
-tar -xvf LMR_input_data.tar
+tar -xvf LMR_slim_input_data.tar.gz
 
 -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
@@ -59,6 +59,11 @@ disk space; often the archive is located across a network, but speed is no
 longer an issue). Note that data is lost in this step (ensemble mean from full
 ensemble), which you may wish to change at some point. Again, if the directory
 does not exist, you need to create it before running an experiment.
+
+4. Make sure core.ignore_pre_avg_files, and forecaster.LIM.ignore_precalib are
+both set to false.  We didin't include the source data with
+LMR_slim_input_data.tar.gz, which is necessary to run the experiments without
+ any pre-processed information.
 
 4. Run the experiment:
 
