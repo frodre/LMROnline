@@ -10,22 +10,17 @@ Revisions:
 
 
 """
-import sys
-import os
 import glob
-import re
-import cPickle
+import os
+import sys
+
+import matplotlib.pyplot as plt
 import numpy as np
+from mpl_toolkits.basemap import Basemap
 from scipy.interpolate import griddata
 
-from mpl_toolkits.basemap import Basemap, addcyclic
-import matplotlib
-import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-
-
 sys.path.append('../')
-from LMR_plot_support import truncate_colormap
+from verification.LMR_plot_support import truncate_colormap
 from LMR_utils import global_hemispheric_means
 
 mapcolor = truncate_colormap(plt.cm.jet,0.15,1.0)

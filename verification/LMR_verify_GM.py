@@ -13,34 +13,25 @@ Revisions:
                          to do: make functions to do the repetetive actions
 """
 
-import matplotlib
-import sys
-import csv
-import glob, os, fnmatch
-import numpy as np
-import mpl_toolkits.basemap as bm
-import matplotlib.colors as colors
-import matplotlib.pyplot as plt
-from matplotlib import ticker
-from mpl_toolkits.axes_grid1 import make_axes_locatable, axes_size
-from scipy import stats
-from netCDF4 import Dataset
-from datetime import datetime, timedelta
 import cPickle
+import csv
+import glob
+import sys
 import warnings
 
+import matplotlib.colors as colors
+import matplotlib.pyplot as plt
 import pandas as pd
+from scipy import stats
 
 # LMR specific imports
 sys.path.append('../')
-from LMR_plot_support import *
-from LMR_utils import global_hemispheric_means, assimilated_proxies, coefficient_efficiency, rank_histogram
+from LMR_utils import global_hemispheric_means, assimilated_proxies, coefficient_efficiency
 from load_gridded_data import read_gridded_data_GISTEMP
 from load_gridded_data import read_gridded_data_HadCRUT
 from load_gridded_data import read_gridded_data_BerkeleyEarth
-from load_gridded_data import read_gridded_data_MLOST
 from load_gridded_data import read_gridded_data_CMIP5_model
-from LMR_plot_support import *
+from verification.LMR_plot_support import *
 
 # =============================================================================
 def truncate_colormap(cmap, minval=0.0,maxval=1.0,n=100):

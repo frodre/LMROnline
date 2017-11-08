@@ -15,19 +15,15 @@ import matplotlib
 matplotlib.use('Agg')
 
 # generic imports
-import numpy as np
-import glob, os, sys, calendar
-from datetime import datetime, timedelta
-from netCDF4 import Dataset, date2num, num2date
-import mpl_toolkits.basemap as bm
-import matplotlib.pyplot as plt
+import glob, sys, calendar
+from netCDF4 import Dataset, num2date
 from matplotlib import ticker
-from spharm import Spharmt, getspecindx, regrid
+from spharm import Spharmt, regrid
 # LMR specific imports
 sys.path.append('../')
-from LMR_utils import global_hemispheric_means, assimilated_proxies, coefficient_efficiency
+from LMR_utils import global_hemispheric_means, coefficient_efficiency
 from load_gridded_data import read_gridded_data_CMIP5_model
-from LMR_plot_support import *
+from verification.LMR_plot_support import *
 
 # change default value of latlon kwarg to True.
 bm.latlon_default = True

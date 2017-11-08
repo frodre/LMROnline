@@ -13,30 +13,24 @@ Revisions:
 import matplotlib
 # need to do this when running remotely, and to suppress figures
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 # need to do this backend when running remotely or to suppress figures interactively
 
 # generic imports
-import numpy as np
-import glob, os, sys
-from datetime import datetime, timedelta
-from netCDF4 import Dataset
-import mpl_toolkits.basemap as bm
-from matplotlib import ticker
-from spharm import Spharmt, getspecindx, regrid
+import glob, sys
+from spharm import Spharmt, regrid
 import cPickle
 import warnings
 
 # LMR specific imports
 sys.path.append('../')
-from LMR_utils import global_hemispheric_means, assimilated_proxies, coefficient_efficiency
+from LMR_utils import global_hemispheric_means, coefficient_efficiency
 from load_gridded_data import read_gridded_data_GISTEMP
 from load_gridded_data import read_gridded_data_HadCRUT
 from load_gridded_data import read_gridded_data_BerkeleyEarth
 from load_gridded_data import read_gridded_data_MLOST
 from load_gridded_data import read_gridded_data_CMIP5_model
 
-from LMR_plot_support import *
+from verification.LMR_plot_support import *
 
 # change default value of latlon kwarg to True.
 bm.latlon_default = True

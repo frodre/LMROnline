@@ -4,21 +4,15 @@ import matplotlib
 matplotlib.use('Agg')
 
 # generic imports
-import numpy as np
 import glob, os
 import sys
 import cPickle as cpk
-from datetime import datetime, timedelta
-from netCDF4 import Dataset
-import mpl_toolkits.basemap as bm
-import matplotlib.pyplot as plt
-from matplotlib import ticker
-from spharm import Spharmt, getspecindx, regrid
+from spharm import Spharmt, regrid
 
 sys.path.append('/home/disk/p/wperkins/Research/LMR')
 
 # LMR specific imports
-from LMR_utils2 import global_hemispheric_means, assimilated_proxies, coefficient_efficiency
+from LMR_utils2 import global_hemispheric_means, coefficient_efficiency
 from load_gridded_data import read_gridded_data_GISTEMP
 from load_gridded_data import read_gridded_data_HadCRUT
 from load_gridded_data import read_gridded_data_BerkeleyEarth
@@ -26,7 +20,7 @@ from load_gridded_data import read_gridded_data_MLOST
 from load_gridded_data import read_gridded_data_CMIP5_model
 
 from LMR_exp_NAMELIST import *
-from LMR_plot_support import *
+from verification.LMR_plot_support import *
 
 
 def verify_grid(data_dir, nexp, output_dir, iplot=False, fsave=True):
