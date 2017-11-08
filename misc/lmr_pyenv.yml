@@ -1,0 +1,22 @@
+name: lmr
+
+channels:
+  - conda-forge
+  - ajdawson
+
+dependencies:
+  - python=2.*
+  - netCDF4
+  - numpy
+  - scipy
+  - matplotlib
+  - statsmodels
+  - pyspharm
+  - pyyaml
+  - pandas=0.19.2 # currently necessary for loading pages2k v2 pckl file?
+  - xlrd
+  - pytest
+  - ipython
+  - jpeg
+  - basemap
+  - esmpy

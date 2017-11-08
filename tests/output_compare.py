@@ -11,28 +11,50 @@ import os.path as path
 from itertools import izip
 
 # proxy-first version vs time-first version comparison
-off_v_on = True
+is_proxy_first_driver_loop = False
 
-#dir1 = '/home/disk/ekman/rtardif/kalman3/LMR/output/validationWithAndre/r0/'
-dir1 = '/home/chaos2/wperkins/data/LMR/output/archive/testdev_onlineDA_comparison/r0/'
-dir2 = '/home/chaos2/wperkins/data/LMR/output/archive/testdev_multires_yrshift/r0/'
-#dir2 = '/home/chaos2/wperkins/data/LMR/output/archive/testdev_prior_new_comparison/r1/'
+# Use this if the two reconstructions use different state variables
+# Also use the
+diff_state_vectors = True
 
-d1_npfiles = glob.glob(dir1 + '*.npz')
-d1_pckl_files = glob.glob(dir1 + '*.pckl')
+# All close testing tolerances (checks for diff > atol + rtol*desired_value)
+rtol = 1e-4
+atol = 1e-6
+
+#base_dir = '/home/chaos2/wperkins/data/LMR/output/testing'
+base_dir = '/home/katabatic2/wperkins/LMR_output/testing'
+# sim_dir1 = 'testdev_production_comparison_1900_1960_seed0_nens10/r0/'
+# sim_dir2 = 'testdev_ncdc_add_comparison_seed0_1900_1960_10nens/r0/'
+#sim_dir1 = 'testdev_precalcye_pages_linearTorP_no_tas/r0/'
+#sim_dir2 = 'testdev_production_pages_linearTorP_comparison/r0/'
+# --
+#sim_dir1 = 'test_ncdc_bilinear_precalc_tp/r0'
+#sim_dir1 = 'test_ncdc_bilinear_precalc_t/r0'
+# sim_dir1 = 'test_ncdc_bilinear_precalc_p/r0'
+# sim_dir2 = 'test_ncdc_bilinear_noprecalc_tp/r0'
+
+sim_dir1 = 'testdev_yaml_config_update/r0'
+sim_dir2 = 'reference_pages/r0'
+
+
+dir1 = path.join(base_dir, sim_dir1)
+dir2 = path.join(base_dir, sim_dir2)
+
+d1_npfiles = glob.glob(path.join(dir1, '*.npz'))
+d1_pckl_files = glob.glob(path.join(dir1, '*.pckl'))
 d1_files = d1_npfiles + d1_pckl_files
 d1_names = [path.split(fpath)[1] for fpath in d1_files]
 
-d2_npfiles = glob.glob(dir2 + '*.npz')
-d2_pckl_files = glob.glob(dir2 + '*.pckl')
+d2_npfiles = glob.glob(path.join(dir2, '*.npz'))
+d2_pckl_files = glob.glob(path.join(dir1, '*.pckl'))
 d2_files = d2_npfiles + d2_pckl_files
 d2_names = [path.split(fpath)[1] for fpath in d2_files]
 
 # Match assimilated proxies
 assim_fname = 'assimilated_proxies.npy'
 
-assim1 = np.load(dir1 + assim_fname)
-assim2 = np.load(dir2 + assim_fname)
+assim1 = np.load(path.join(dir1, assim_fname))
+assim2 = np.load(path.join(dir2, assim_fname))
 
 assim2_idx_match_to1 = []
 for proxy2 in assim2:
@@ -50,7 +72,8 @@ for proxy2 in assim2:
 nproxies = len(assim2)
 assert len(assim2) == len(assim1)
 
-#Test that they created the same files.
+#Test that they created the same files. NOTE: if first dir is missing files
+# they will not be checked.  Reference (first directory) should be the benchmark
 for name in d1_names:
     assert name in d2_names
 
@@ -59,6 +82,11 @@ for idx, file in enumerate(d1_files):
 
     idx2 = d2_names.index(d1_names[idx])
     print d1_names[idx]
+
+    if diff_state_vectors:
+        exclude = ['Xb_one.npz', 'gmt.npz', 'gmt_ensemble.npz']
+        if d1_names[idx] in exclude:
+            continue
 
     if path.splitext(file)[1] == '.npz':
         f1 = np.load(file)
@@ -73,7 +101,7 @@ for idx, file in enumerate(d1_files):
                 for i1, i2 in izip(values, values2):
                     assert i1 == i2
             elif not values.dtype == np.object:
-                if off_v_on:
+                if is_proxy_first_driver_loop:
                     if key == 'Xb_one_aug':
                         # Need to re arrange proxie order
                         p1 = values[0][:-nproxies]
@@ -87,15 +115,16 @@ for idx, file in enumerate(d1_files):
                     elif key == 'gmt_save':
                         # Proxies assimilated in different order check ending
                         np.testing.assert_allclose(values[-1], values2[-1],
-                                                   rtol=1e-4,
-                                                   atol=1e-4)
+                                                   rtol=rtol,
+                                                   atol=atol)
                 elif len(values.shape) > 1:
                     np.testing.assert_allclose(values.mean(axis=1),
                                                values2.mean(axis=1),
-                                               rtol=1e-4,
-                                               atol=1e-4)
+                                               rtol=rtol,
+                                               atol=atol)
                 else:
-                    np.testing.assert_allclose(values, values2, rtol=1e-4)
+                    np.testing.assert_allclose(values, values2, rtol=rtol,
+                                               atol=atol)
             else:
                 assert values == values2
 
@@ -110,7 +139,7 @@ for idx, file in enumerate(d1_files):
 
             for sub_key, value in dict.iteritems():
                 value2 = dict2[sub_key]
-                if off_v_on and sub_key == 'HXa':
+                if is_proxy_first_driver_loop and sub_key == 'HXa':
                     # Proxy order is different between the two right now
                     continue
                 elif type(value) == np.ndarray:

@@ -6,66 +6,59 @@ Originators: R. Tardif, W. A. Perkins, G. J. Hakim
              University of Washington
              January 2016
 
-How to run an experiment.
+How to run the control experiment in Hakim et al. (2016).
 
--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-First you must have the data in position to perform an experiment.  Download and
-untar the LMR_input_data.tar file from the data repository (doi:10.6069/H5VD6WC0)
-to a directory where you will unpack it; here we will call that directory
-/home/disk/foo/LMR. This directory must be readable from wherever you plan to
-perform the experiment.
+First you must have the data in position to perform an experiment. Download this tar file:
 
-tar -xvf LMR_slim_input_data.tar.gz
+http://www.atmos.washington.edu/~hakim/lmr_data/LMR_data_control.tar
 
--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+and move it to a directory where you will unpack it; here we will call that directory /home/disk/foo/LMR. This directory must be readable from wherever you plan to perform the experiment.
 
+tar -xvf LMR_data_control.tar
 
-Second, your environment must have all of the dependencies needed by the LMR
-code. We strongly recommend using the Anaconda Python distribution.
+will give you something that looks like this in the /home/disk/foo/LMR directory:
+
+data/  LMR_data_control.tar  PSM/
+
+You need to softlink one file in the data/model/ccsm4_last_millenium/ subdirectory:
+
+cd data/model/ccsm4_last_millenium/
+ln -s tas_Amon_CCSM4_past1000_085001-185012.nc tas_sfc_Amon_CCSM4_past1000_085001-185012.nc
+
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+Second, your environment must have all of the dependencies needed by the LMR code. We strongly recommend using the Anaconda Python distribution.
 
 https://www.continuum.io/downloads
 
-Install the latest 2.x version. If at any point there is an error for a missing
-dependency, install it using conda (the installer that comes with Anaconda).
-Currently, you need to install spharm (the Python-wrapped version is called
-pyspharm) with special handling:
+Install the latest 2.x version. If at any point there is an error for a missing dependency, install it using conda (the installer that comes with Anaconda). Currently, you need to install spharm (the Python-wrapped version is called pyspharm) with special handling:
 
-conda install -c ajdawson pyspharm
+conda install -c https://conda.anaconda.org/ajdawson pyspharm
 
--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-You are now ready to run an experiment in the code src directory (where this
-README file is located).
+You are now ready to run an experiment in the code src directory (where this README file is located).
 
--=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-To run an experiment, you must edit configuration file LMR_config.py.  
+To run an experiment, you must edit configuration file LMR_config.py. First copy LMR_config_src.py, which is under version control, to LMR_config.py, which is not.
 
-At a minimum, do the following.
+cp LMR_config_src.py LMR_config.py
 
-1. set lmr_path to the directory containing the proxy, prior, and calibration
-data for the experiment (see details below). use the /home/disk/foo/LMR path
-where you unpacked the tar file in the steps described at the top of this file.
+Now edit LMR_config.py. At a minimum, do the following.
 
-2. set datadir_output to the working directory output for LMR. This is where
-data will be written during the experiment, so local disk is better (faster)
-than over a network. If the directory does not exist, you need to create it
-before running an experiment.
+1. set lmr_path to the directory containing the proxy, prior, and calibration data for the experiment (see details below). If you are at UW, use R. Tardif's path as set by default in the config file. Otherwise, use the /home/disk/foo/LMR path where you unpacked the tar file in the steps described at the top of this file.
 
-3. set archive_dir to the LMR reconstruction archive directory. This is where
-the experiment is archived, and datadir_output is scrubbed clean (frees up local
-disk space; often the archive is located across a network, but speed is no
-longer an issue). Note that data is lost in this step (ensemble mean from full
-ensemble), which you may wish to change at some point. Again, if the directory
-does not exist, you need to create it before running an experiment.
+2. set datadir_output to the working directory output for LMR. This is where data will be written during the experiment, so local disk is better (faster) than over a network. If the directory does not exist, you need to create it before running an experiment.
 
-4. Make sure core.ignore_pre_avg_files, and forecaster.LIM.ignore_precalib are
-both set to false.  We didin't include the source data with
-LMR_slim_input_data.tar.gz, which is necessary to run the experiments without
- any pre-processed information.
+3. set archive_dir to the LMR reconstruction archive directory. This is where the experiment is archived, and datadir_output is scrubbed clean (frees up local disk space; often the archive is located across a network, but speed is no longer an issue). Note that data is lost in this step (ensemble mean from full ensemble), which you may wish to change at some point. Again, if the directory does not exist, you need to create it before running an experiment.
 
 4. Run the experiment:
 
-python LMR_wrapper2.py
+python LMR_wrapper.py
 
+Basic plotting:
+
+---add this later---

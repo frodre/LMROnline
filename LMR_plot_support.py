@@ -1,4 +1,15 @@
+"""
+Module: LMR_plot_support.py
 
+Purpose: Contains various definitions and functions related to plotting of LMR results.
+
+Originator: Greg Hakim | Dept. of Atmospheric Sciences, Univ. of Washington
+
+Revisions: 
+          - Added plotting of parallels & meridians in maps produced in LMR_plotter
+            [R. Tardif, U. of Washington, March 2016]
+
+"""
 
 import numpy as np
 import mpl_toolkits.basemap as bm
@@ -59,7 +70,11 @@ def LMR_plotter(data,lat,lon,cmap,nlevs,vmin=None,vmax=None,extend=None,backg=No
         cb.locator = tick_locator
         cb.ax.yaxis.set_major_locator(ticker.AutoLocator())
         cb.update_ticks()
-
+    # draw parallels & meridians
+    parallels = np.arange(-90.,90,30.)
+    m.drawparallels(parallels,labels=[1,0,0,0],fontsize=6,color='gray')
+    meridians = np.arange(0.,360.,60.)
+    m.drawmeridians(meridians,labels=[0,0,0,1],fontsize=6,color='gray')
 
 #
 # read the Central England Temperature dataset
@@ -113,8 +128,34 @@ def find_date_indices(time,stime,etime):
     # input: time: an array of time values
     #        stime: the starting time
     #        etime: the ending time
+
+    # initialize returned variables
+    begin_index = None
+    end_index = None
     
     smatch = np.where(time==stime)
     ematch = np.where(time==etime)
 
-    return smatch[0], ematch[0]
+    # make sure valid integers are returned
+    if type(smatch) is tuple:
+        smatch = smatch[0]
+        ematch = ematch[0]
+        
+    if type(smatch) is np.ndarray:
+        try:
+            smatch = smatch[0]
+        except IndexError:
+            pass
+        try:
+            ematch = ematch[0]
+        except IndexError:
+            pass
+
+    
+    if isinstance(smatch,(int,np.integer)):
+        begin_index = smatch
+    if isinstance(ematch,(int,np.integer)):
+        end_index = ematch
+
+    return begin_index, end_index
+

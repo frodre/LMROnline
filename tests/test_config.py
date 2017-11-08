@@ -1,340 +1,246 @@
-"""
-Class based config module to help with passing information to LMR modules for
-reconstruction experiments.
+import sys
+sys.path.append('../')
 
-Adapted from LMR_exp_NAMELIST by AndreP
-"""
+import pytest
+import yaml
+import LMR_config as cfg
+import os
 
-from os.path import join
-import random
-
-
-class constants:
-
-    class file_types:
-        netcdf = 'NCD'
-        ascii = 'ASC'
-        numpy = 'NPY'
-        numpy_zip = 'NPZ'
-        dataframe = 'DF'
-
-    calib = {}
-    calib['GISTEMP'] = {'fname': 'gistemp1200_ERSST.nc',
-                       'varname': 'tempanomaly',
-                       'type': 'NCD'}
-
-    calib['HadCRUT'] = {'fname': 'HadCRUT.4.3.0.0.median.nc',
-                        'varname': 'temperature_anomaly',
-                        'type': 'NCD'}
-
-    calib['BerkeleyEarth'] = {'fname': 'Land_and_Ocean_LatLong1.nc',
-                              'varname': 'temperature',
-                              'type': 'NCD'}
-
-    calib['MLOST'] = {'fname': 'MLOST_air.mon.anom.V3.5.4.nc',
-                      'varname': 'air',
-                      'type': 'NCD'}
-
-    calib['NOAA'] = {'fname': 'er-ghcn-sst.nc',
-                     'varname': 'data',
-                     'type': 'NCD'}
-
-    prior = {}
-    prior['ccsm4_last_millenium'] = \
-        {'fname': 'tas_Amon_CCSM4_past1000_r1i1p1_085001-185012.nc',
-         'type': 'NCD',
-         'state_vars': ['tas_sfc_Amon']}
-
-    prior['mpi-esm-p_last_millenium'] = \
-        {'fname': '[vardef_template]_MPI-ESM-P_past1000_085001-185012.nc',
-         'type': 'NCD',
-         'state_vars': ['tas_sfc_Amon']}
+from copy import deepcopy
 
 
-class core:
-    """
-    High-level parameters of reconstruction experiment
+@pytest.fixture(scope='function')
+def data_descr(request):
+    with open(os.path.join(cfg._DEFAULT_DIR, 'datasets.yml'), 'r') as f:
+        tmp = yaml.load(f)
 
-    Attributes
-    ----------
-    nexp: str
-        Name of reconstruction experiment
-    lmr_path: str
-        Absolute path for the experiment
-    clean_start: bool
-        Delete existing files in output directory (otherwise they will be used
-        as the prior!)
-    recon_period: list(int)
-        Time period for reconstruction
-    nens: int
-        Ensemble size
-    iter_range: list(int)
-        Number of Monte-Carlo iterations to perform
-    loc_rad: float
-        Localization radius for DA (in km)
-    datadir_output: str
-        Absolute path to working directory output for LMR
-    archive_dir: str
-        Absolute path to LMR reconstruction archive directory
-    """
-    nexp = 'testdev_priordir_change'
-    lmr_path = '/home/chaos2/wperkins/data/LMR'
-    online_reconstruction = False
-    clean_start = True
-    ignore_pre_avg_file = False
-    save_pre_avg_file = True
-    # TODO: More pythonic to make last time a non-inclusive edge
-    recon_period = [1950, 1953]
-    nens = 2
-    seed = None
-    iter_range = [0, 0]
-    curr_iter = iter_range[0]
-    loc_rad = None
-    assimilation_time_res = [0.5, 1.]  # in yrs
-
-    # What we're defining as year start
-    # 0-11 where 0 indicates start at Jan.
-    res_yr_shift = {0.5: 0.25, 1.0: 0.0}
-
-    # Forecasting Hybrid Update
-    hybrid_update = False
-    hybrid_update &= online_reconstruction
-    hybrid_a = 0.75
-    blend_prior = True
-
-    # Adaptive Covariance Inflation
-    adaptive_inflate = True
+    return tmp
 
 
-    # TODO: add rules for shift?
-    # If shifting on smaller time scales than smallest time chunk it becomes
-    # the base resolution
-    sub_base_res = assimilation_time_res[0]
-    for res, shift in res_yr_shift.iteritems():
-        if (res in assimilation_time_res and
-           shift < sub_base_res and
-           shift != 0.0):
-            sub_base_res = shift
+# Test that Config instance has all configuration objects attached and that
+# core has the correct instance only attributes
+def test_default_configuration_core():
+    cfg_object = cfg.Config()
 
-    datadir_output = '/home/chaos2/wperkins/data/LMR/output/working'
-    #datadir_output  = '/home/disk/kalman3/rtardif/LMR/output/wrk'
-    #datadir_output  = '/home/disk/ekman/rtardif/nobackup/LMR/output'
-    #datadir_output  = '/home/disk/ice4/hakim/svnwork/python-lib/trunk/src/ipython_notebooks/data'
+    attrs = ['wrapper', 'core', 'proxies', 'psm', 'prior']
+    for attr in attrs:
+        assert hasattr(cfg_object, attr)
 
-    archive_dir = '/home/chaos2/wperkins/data/LMR/output/archive'
-    #archive_dir = '/home/disk/kalman3/rtardif/LMR/output'
-    #archive_dir = '/home/disk/kalman3/hakim/LMR/'
+    assert cfg.core.lmr_path == cfg_object.core.lmr_path
+    assert hasattr(cfg_object.core, 'curr_iter')
 
-class proxies:
-    """
-    Parameters for proxy data
+    assert hasattr(cfg_object.prior, 'datadir_prior')
 
-    Attributes
-    ----------
-    use_from: list(str)
-        A list of keys for proxy classes to load from.  Keys available are
-        stored in LMR_proxy2.
-    proxy_frac: float
-        Fraction of available proxy data (sites) to assimilate
-    """
+# Test that the seed is propagated to the correct configuration modules.
+def test_default_configuration_seed():
+    new_seed = 1234
+    update_dict = {'core': {'seed': new_seed}}
+    cfg_object = cfg.Config(**update_dict)
 
-    use_from = ['pages']
-    proxy_frac = 0.75
+    assert hasattr(cfg_object.core, 'seed')
+    assert hasattr(cfg_object.proxies, 'seed')
+    assert hasattr(cfg_object.prior, 'seed')
 
-    class pages:
-        """
-        Parameters for PagesProxy class
+    assert cfg_object.proxies.seed == new_seed
+    assert cfg_object.prior.seed == new_seed
 
-        Attributes
-        ----------
-        datadir_proxy: str
-            Absolute path to proxy data
-        datafile_proxy: str
-            Absolute path to proxy records file
-        metafile_proxy: str
-            Absolute path to proxy meta data
-        dataformat_proxy: str
-            File format of the proxy data
-        regions: list(str)
-            List of proxy data regions (data keys) to use.
-        proxy_resolution: list(float)
-            List of proxy time resolutions to use
-        proxy_order: list(str):
-            Order of assimilation by proxy type key
-        proxy_assim2: dict{ str: list(str)}
-            Proxy types to be assimilated.
-            Uses dictionary with structure {<<proxy type>>: [.. list of measuremant
-            tags ..] where "proxy type" is written as
-            "<<archive type>>_<<measurement type>>"
-        proxy_type_mapping: dict{(str,str): str}
-            Maps proxy type and measurement to our proxy type keys.
-            (e.g. {('Tree ring', 'TRW'): 'Tree ring_Width'} )
-        simple_filters: dict{'str': Iterable}
-            List mapping Pages2k metadata sheet columns to a list of values
-            to filter by.
-        """
+# Test that the instance only attributes in pages are set
+def test_default_configuration_proxies_pages():
+    cfg_object = cfg.Config()
 
-        datadir_proxy = join(core.lmr_path, 'data', 'proxies')
-        datafile_proxy = join(datadir_proxy,
-                              'Pages2k_Proxies.df.pckl')
-        metafile_proxy = join(datadir_proxy,
-                              'Pages2k_Metadata.df.pckl')
-        dataformat_proxy = 'DF'
+    assert hasattr(cfg_object.proxies, 'pages')
+    assert hasattr(cfg_object.proxies.pages, 'datadir_proxy')
+    assert hasattr(cfg_object.proxies.pages, 'datafile_proxy')
+    assert hasattr(cfg_object.proxies.pages, 'metafile_proxy')
+    assert hasattr(cfg_object.proxies.pages, 'proxy_type_mapping')
+    assert hasattr(cfg_object.proxies.pages, 'simple_filters')
 
-        regions = ['Antarctica', 'Arctic', 'Asia', 'Australasia', 'Europe',
-                   'North America', 'South America']
-        proxy_resolution = core.assimilation_time_res
-
-        # DO NOT CHANGE FORMAT BELOW
-
-        proxy_order = ['Tree ring_Width',
-                       'Tree ring_Density',
-                       'Ice core_d18O',
-                       'Ice core_d2H',
-                       'Ice core_Accumulation',
-                       'Coral_d18O',
-                       'Coral_Luminescence',
-                       'Lake sediment_All',
-                       'Marine sediment_All',
-                       'Speleothem_All']
-
-        proxy_assim2 = {
-            'Tree ring_Width': ['Ring width',
-                                'Tree ring width',
-                                'Total ring width',
-                                'TRW'],
-            'Tree ring_Density': ['Maximum density',
-                                  'Minimum density',
-                                  'Earlywood density',
-                                  'Latewood density',
-                                  'MXD'],
-            'Ice core_d18O': ['d18O'],
-            'Ice core_d2H': ['d2H'],
-            'Ice core_Accumulation': ['Accumulation'],
-            'Coral_d18O': ['d18O'],
-            'Coral_Luminescence': ['Luminescence'],
-            'Lake sediment_All': ['Varve thickness',
-                                  'Thickness',
-                                  'Mass accumulation rate',
-                                  'Particle-size distribution',
-                                  'Organic matter',
-                                  'X-ray density'],
-            'Marine sediment_All': ['Mg/Ca'],
-            'Speleothem_All': ['Lamina thickness'],
-            }
-
-        # Create mapping for Proxy Type/Measurement Type to type names above
-        proxy_type_mapping = {}
-        for type, measurements in proxy_assim2.iteritems():
-            # Fetch proxy type name that occurs before underscore
-            type_name = type.split('_', 1)[0]
-            for measure in measurements:
-                proxy_type_mapping[(type_name, measure)] = type
-
-        simple_filters = {'PAGES 2k Region': regions,
-                          'Resolution (yr)': proxy_resolution}
+    assert cfg_object.core.lmr_path in cfg_object.proxies.pages.datadir_proxy
 
 
-class psm:
-    """
-    Parameters for PSM classes
+# Test that the instance only attributes of the linear psm are set
+def test_default_configuration_psm_linear():
+    cfg_object = cfg.Config()
 
-    Attributes
-    ----------
-    use_psm: dict{str: str}
-        Maps proxy class key to psm class key.  Used to determine which psm
-        is associated with what Proxy type.
-    """
+    assert hasattr(cfg_object.psm, 'linear')
+    assert hasattr(cfg_object.psm.linear, 'datadir_calib')
+    assert hasattr(cfg_object.psm.linear, 'avgPeriod')
 
-    use_psm = {'pages': 'linear'}
-
-    class linear:
-        """
-        Parameters for the linear fit PSM.
-
-        Attributes
-        ----------
-        datatag_calib: str
-            Source of calibration data for PSM
-        datadir_calib: str
-            Absolute path to calibration data
-        datafile_calib: str
-            Filename for calibration data
-        dataformat_calib: str
-            Data storage type for calibration data
-        pre_calib_datafile: str
-            Absolute path to precalibrated Linear PSM data
-        psm_r_crit: float
-            Usage threshold for correlation of linear PSM
-        """
-        datatag_calib = 'GISTEMP'
-        sub_base_res = core.sub_base_res
-        datadir_calib = join(core.lmr_path, 'data', 'analyses', datatag_calib)
-        datafile_calib = constants.calib[datatag_calib]['fname']
-        varname_calib = constants.calib[datatag_calib]['varname']
-        dataformat_calib = constants.calib[datatag_calib]['type']
-
-        ignore_pre_avg_file = core.ignore_pre_avg_file
-        overwrite_pre_avg_file = core.save_pre_avg_file
-
-        pre_calib_datafile = join(core.lmr_path,
-                                  'PSM',
-                                  'PSMs_' + datatag_calib + '.pckl')
-        psm_r_crit = 0.20
-        min_data_req_frac = 1.0
+    assert cfg_object.core.lmr_path in cfg_object.psm.linear.datadir_calib
 
 
-class prior:
-    """
-    Parameters for the ensDA prior
+def test_default_configuration_psm_linear_t_or_p():
+    cfg_object = cfg.Config()
 
-    Attributes
-    ----------
-    prior_source: str
-        Source of prior data
-    datadir_prior: str
-        Absolute path to prior data
-    datafile_prior: str
-        Name of prior file to use
-    dataformat_prior: str
-        Datatype of prior container
-    state_variables: list(str)
-        List of variables to use in the state vector for the prior
-    """
-    # Prior data directory & model source
-    prior_source = 'ccsm4_last_millenium'
-    datadir_prior = '/home/disk/p/wperkins/Research/LMR/tests/data'
-    #datafile_prior = 'tas_Amon_CCSM4_past1000_r1i1p1_085001-185012.nc'
-    datafile_prior   = '[vardef_template]_gridded_dat.nc'
-    dataformat_prior = 'NCD'
-    state_variables = ['air', 'tseries']
-
-    truncate_state = True
-    backend_type = 'NPY'
+    assert hasattr(cfg_object.psm, 'linear_TorP')
+    assert hasattr(cfg_object.psm.linear_TorP, 'datadir_calib_T')
+    assert hasattr(cfg_object.psm.linear_TorP, 'datadir_calib_P')
+    assert hasattr(cfg_object.psm.linear_TorP, 'pre_calib_datafile_T')
+    assert hasattr(cfg_object.psm.linear_TorP, 'pre_calib_datafile_P')
 
 
-class forecaster:
-    """
-    Parameters for the online DA forecasting method.
-    """
+# test default and then changed default
+def test_default_configuration_change_default_path():
+    orig_path = cfg.core.lmr_path
+    cfg1 = cfg.Config()
+    new_path = 'new_path/is/here'
+    update_dict = {'core': {'lmr_path': new_path}}
+    cfg2 = cfg.Config(**update_dict)
 
-    # Which forecaster class to use
-    use_forecaster = 'lim'
+    assert cfg1.core.lmr_path != cfg2.core.lmr_path
+    assert new_path in cfg2.prior.datadir_prior
+    assert new_path in cfg2.psm.linear.datadir_calib
+    assert new_path in cfg2.proxies.pages.datadir_proxy
+    assert orig_path not in cfg2.prior.datadir_prior
+    assert orig_path not in cfg2.psm.linear.datadir_calib
+    assert orig_path not in cfg2.proxies.pages.datadir_proxy
 
-    class LIM:
-        """
-        calib_filename: Filename for LIM calibration data.  Should be netcdf
-                        file or an HDF5 file from the DataTools.netcdf_to_hdf5_
-                        container.
-        calib_varname: Variable name to grab from calib_filename
-        fcast_times: A list of lead times (in years) to forecast
-        """
-        calib_filename = '/home/chaos2/wperkins/data/20CR/air.2m.mon.mean.nc'
-        calib_varname = 'air'
-        dataformat = 'NCD'
-        fcast_times = [1]
-        wsize = 12
-        fcast_num_pcs = 15
-        detrend = True
+    cfg.core.lmr_path = orig_path
 
-        eig_adjust = 0.2
+
+# Test class, subclass, and instances are recognized by is_config_class
+def test_is_config_class_check():
+    CfgClass = cfg.ConfigGroup
+
+    class CfgSubclass(CfgClass):
+        pass
+
+    assert cfg.is_config_class(CfgClass)
+    assert cfg.is_config_class(CfgSubclass)
+    assert cfg.is_config_class(CfgClass())
+    assert not cfg.is_config_class(1)
+
+
+# Test that instances are not sharing attribute referencess
+def test_class_instance_separation():
+    # Only tests non-hashable attributes for reference exclusivity
+    cfg_obj = cfg.Config()
+
+    def test_references(cfg_class, cfg_object):
+
+        for attr in dir(cfg_class):
+            class_attr = getattr(cfg_class, attr)
+
+            try:
+                obj_attr = getattr(cfg_object, attr)
+
+                # If True it's a ConfigGroup attribute
+                if callable(class_attr) and cfg.is_config_class(class_attr):
+                    test_references(class_attr, obj_attr)
+                # Else see if it's a mutable attribute using hash() and test
+                elif not callable(class_attr) and not attr.startswith('__'):
+                    try:
+                        hash(class_attr)
+                    except TypeError:
+                        assert class_attr is not obj_attr
+            except AttributeError as e:
+                pass
+
+    test_references(cfg, cfg_obj)
+
+
+# Use a yaml file to update the configuration class attributes
+def test_config_update_with_yaml():
+
+    with open('test_config.yml', 'r') as f:
+        yaml_dict = yaml.load(f)
+
+    ref_yaml_dict = deepcopy(yaml_dict)
+    cfg.update_config_class_yaml(yaml_dict, cfg)
+
+    # Recursive comparison function between instance and yaml dict
+    def compare_obj_to_refdict(cfg_obj, ref_dict):
+        for attr in dir(cfg_obj):
+            if not attr.startswith('__') and attr in ref_dict:
+                obj_attr = getattr(cfg_obj, attr)
+                if callable(obj_attr):
+                    compare_obj_to_refdict(obj_attr, ref_dict[attr])
+                else:
+                    assert obj_attr == ref_dict[attr]
+
+    compare_obj_to_refdict(cfg, ref_yaml_dict)
+    reload(cfg)
+
+
+# Test that unused attributes in the yaml update are returned
+def test_config_update_with_yaml_unused_attrs():
+
+    yaml_dict = {'core': {'unused1': 1},
+                 'psm': {'linear': {'unused2': 2}}}
+
+    result = cfg.update_config_class_yaml(yaml_dict, cfg)
+
+    assert result['core']['unused1'] == 1
+    assert result['psm']['linear']['unused2'] == 2
+
+
+# Test alteration of attributes using keyword arguments during object init
+def test_config_update_with_kwarg():
+
+    kwargs = {'wrapper': {'multi_seed': [1, 2, 3]},
+              'psm': {'linear': {'datatag_calib': 'BerkeleyEarth'}}}
+
+    tmp = cfg.Config(**kwargs)
+
+    # Was instance updated?
+    assert tmp.wrapper.multi_seed == [1, 2, 3]
+    assert tmp.psm.linear.datatag_calib == 'BerkeleyEarth'
+    # Was the class left unaltered?
+    assert cfg.wrapper.multi_seed != [1, 2, 3]
+    assert cfg.psm.linear.datatag_calib != 'BerkeleyEarth'
+
+
+# DatasetDescriptor Tests #
+def test_datadescr_initialize():
+    tmp = cfg._DatasetDescriptors()
+    assert hasattr(tmp, 'datasets')
+    assert type(tmp.datasets) == type(dict())
+
+
+def test_datadescr_file_not_found():
+
+    tmp = cfg.SRC_DIR
+    cfg.SRC_DIR = '/dir/not/right'
+    with pytest.raises(IOError):
+        cfg._DatasetDescriptors()
+
+    cfg._DEFAULT_DIR = tmp
+
+
+def test_datadescr_config_init():
+
+    assert hasattr(cfg, '_DataInfo')
+    res = cfg._DataInfo.get_dataset_dict('GISTEMP')
+
+    assert 'info' in res.keys()
+    assert 'datadir' in res.keys()
+    assert 'datafile' in res.keys()
+    assert 'dataformat' in res.keys()
+
+
+def test_datadescr_null_datadir():
+
+    cfg._DataInfo.datasets['GISTEMP']['datadir'] = None
+    cfg_update = {'psm': {'linear': {'datatag_calib': 'GISTEMP'}}}
+    cfg_obj = cfg.Config(**cfg_update)
+
+    path = os.path.join(cfg_obj.core.lmr_path, 'data', 'analyses')
+    assert cfg_obj.psm.linear.datadir_calib == path
+
+
+def test_datadescr_non_default_datadir():
+
+    cfg._DataInfo.datasets['GISTEMP']['datadir'] = '/new/data/dir/path'
+    cfg_update = {'psm': {'linear': {'datatag_calib': 'GISTEMP'}}}
+    cfg_obj = cfg.Config(**cfg_update)
+
+    assert cfg_obj.psm.linear.datadir_calib == '/new/data/dir/path'
+
+
+
+
+
+
+
+
+
