@@ -12,70 +12,11 @@ NOTE:  All general user parameters that should be edited are displayed
        ##** END User Parameters **##
 
 Adapted from LMR_exp_NAMELIST by AndreP
-
-Revisions:
- - Introduction of definitions related to use of newly developed NCDC proxy
-   database.
-   [ R. Tardif, Univ. of Washington, January 2016 ]
- - Added functionality restricting assimilated proxy records to those belonging
-   to specific databases (e.g. PAGES1, PAGES2, LMR) (only for NCDC proxies).
-   [ R. Tardif, Univ. of Washington, February 2016 ]
- - Introduction of "blacklist" to prevent the assimilation of specific proxy
-   records as defined (through a python list) by the user. Applicable for both
-   NCDC and Pages proxy sets.
-   [ R. Tardif, Univ. of Washington, February 2016 ]
- - Added boolean allowing the user to indicate whether the prior is to be
-   detrended or not.
-   [ R. Tardif, Univ. of Washington, February 2016 ]
- - Added definitions associated with a new psm class (linear_TorP) allowing the
-   use of temperature-calibrated OR precipitation-calibrated linear PSMs.
-   [ R. Tardif, Univ. of Washington, March 2016 ]
- - Added definitions associated with a new psm class (h_interp) for use of
-   isotope-enabled GCM data as prior: Ye values are taken as the prior isotope
-   field either at the nearest grid pt. or as the weighted-average of values at
-   grid points surrounding the isotope proxy site assimilated.
-   [ R. Tardif, Univ. of Washington, June 2016 ]
- - Added definitions associated with a new psm class (bilinear) for bivariate
-   linear regressions w/ temperature AND precipitation/PSDI as independent
-   variables.
-   [ R. Tardif, Univ. of Washington, June 2016 ]
- - Added initialization features to all configuration classes and sub_classes
-   The new usage should now grab an instance of Config and use that object.
-   This instance variable copies most values and generates some intermediate
-   values used by the reconstruction process.  This helps the configuration
-   stay consistent if one is altering values on the fly.
-   [ A. Perkins, Univ. of Washington, June 2016 ]
- - Use of PSMs calibrated on the basis of a proxy record seasonality metadata
-   can now be activated (see avgPeriod parameter in the "psm" class)
-   [ R. Tardif, Univ. of Washington, July 2016 ]
- - PSM classes can now be specified per proxy type. 
-   See proxy_psm_type dictionaries in the "proxies" class below.
-   [ R. Tardif, Univ. of Washington, August 2016 ]
- - Addition of filters for selecting the set of proxy records available for
-   assimilation based on data availability over reconstruction period.
-   [ R. Tardif, Univ. of Washington, October 2016 ]
- - Added features associated with the use of low-resolution marine
-   proxies (uk37 from marine cores) and production of reconstructions at 
-   lower temporal resolutions (i.e. other than annual).
-   [ R. Tardif, Univ. of Washington, Jan-Feb 2017 ]
- - Added flexibility to regridding capabilities: added option to by-pass 
-   the regridding, added new option using simple distance-weighted averaging
-   and replaced the hared-coded truncation resolution (T42) of spatial fields 
-   by a user-specified value. This value applies to both the simple
-   interpolation and the original spherical harmonic-based regridding.
-   [ R. Tardif, Univ. of Washington, March 2017 ]
- - Added functionalities associated with the use of the simplified 
-   config.yml configuration file. 
-   [ A. Perkins & R. Tardif, Univ. of Washington, April 2017 ]
- - Added a boolean flag to activate/deactivate output to analysis_Ye.pckl file.
-   [G. Hakim, Univ. of Washington, August 2017] 
 """
 
 from os.path import join
 from copy import deepcopy
 import yaml
-#import matlab.engine
-
 
 # If true, uses only LMR_config.  No yaml loading
 LEGACY_CONFIG = False
@@ -209,6 +150,9 @@ class core(ConfigGroup):
         Absolute path for the experiment
     online_reconstruction: bool
         Perform reconstruction with (True) or without (False) cycling
+    persistence_forecast: bool
+        If online is True, this flag defines whether to use a persistence (True)
+        or LIM (False) forecast.
     clean_start: bool
         Delete existing files in output directory (otherwise they will be used
         as the prior!)
@@ -227,6 +171,28 @@ class core(ConfigGroup):
     seed: int, None
         RNG seed.  Passed to all random function calls. (e.g. prior and proxy
         record sampling)  Overridden by wrapper.multi_seed.
+    assimilation_time_res: tup(float)
+        Which resolution to assimilate data (in years)
+    res_yr_shift: dict{float: float}
+        Mapping dictionary for each assimilation resolution to a shifting
+        coefficient in years. E.g. 0.5yr resolution could be shifted by 1/4
+        year to roughly match with growing season
+    hybrid_update: bool
+        Use hybrid data assimilation technique for blending forecast and
+        static information sources
+    hybrid_a: float
+        Blending coefficient between 0 and 1 for hybrid DA
+    hybrid_blend_prior: bool
+        Blend the prior state vector in addition to the covariance matrices.
+        When this is True, the blending transitions the reconstruction from
+        offline (a=0) to online(a=1)
+    adaptive_inflate: bool
+        DOES NOT CURRENTLY WORK
+        Use EnKF adaptive inflation on the prior
+    reg_inflate: bool
+        Use ensemble variance inflation on the prior
+    inf_factor: float
+        Variance inflation factor to use when ``reg_inflate`` is True
     datadir_output: str
         Absolute path to working directory output for LMR
     archive_dir: str
@@ -241,50 +207,46 @@ class core(ConfigGroup):
 
     ##** BEGIN User Parameters **##
 
-    nexp = 'test'
-
-    #lmr_path = '/home/disk/ice4/nobackup/hakim/lmr'
-    #lmr_path = '/home/chaos2/wperkins/data/LMR'
-    lmr_path = '/home/disk/kalman3/rtardif/LMR'
-
-    online_reconstruction = False
-    clean_start = True
-    use_precalc_ye = True
-
-    # TODO: More pythonic to make last time a non-inclusive edge
-    #recon_period = (-20000, 2000)
-    #recon_period = (-150000, 2000)
-    recon_period = (1850, 2000)
-    
-    # time interval of reconstructed fields (in years). Note: should be of type integer
-    recon_timescale = 1    # annual
-    #recon_timescale = 100
-    #recon_timescale = 250
-    #recon_timescale = 500
-    
-    nens = 100
-
-    seed = None
-
-    loc_rad = None
-
-    inflation_fact = None
-    
-    #datadir_output = '/home/disk/ice4/hakim/svnwork/lmr/trunk/data'
-    #datadir_output = '/home/chaos2/wperkins/data/LMR/output/working'
-    datadir_output  = '/home/disk/kalman3/rtardif/LMR/output/wrk'
-    #datadir_output  = '/home/disk/kalman3/rtardif/LMR/output/wrk'
-    
-    #archive_dir = '/home/disk/kalman3/hakim/LMR/'
-    #archive_dir = '/home/chaos2/wperkins/data/LMR/output/testing'
-    archive_dir = '/home/disk/kalman3/rtardif/LMR/output'
-    #archive_dir = '/home/disk/ekman4/rtardif/LMR/output'
+    nexp = 'testdev_persistence'
+    lmr_path = '/home/disk/katabatic2/wperkins/cp_lim_archive/LMR_slim'
+    datadir_output = '/home/katabatic2/wperkins/LMR_output/working'
+    archive_dir = '/home/katabatic2/wperkins/LMR_output/testing'
 
     # Whether or not to produce the analysis_Ye.pckl file
     write_posterior_Ye = False
     # Whether or not to write the full ensemble
     save_full_field = False
-    
+
+    online_reconstruction = False
+    persistence_forecast = False
+    clean_start = True
+    use_precalc_ye = True
+    ignore_pre_avg_file = False
+    save_pre_avg_file = True
+    recon_period = [1950, 1960]
+    nens = 10
+    recon_timescale = 1  # annual
+    seed = None
+
+    loc_rad = None
+
+    assimilation_time_res = [1.0]  # in yrs
+    # maps year shift (in years) to resolution
+    res_yr_shift = {0.5: 0.25, 1.0: 0.0}
+
+    # Forecasting Hybrid Update
+    hybrid_update = True
+    hybrid_update &= online_reconstruction
+    hybrid_a = 0.85
+    blend_prior = True
+
+    # Adaptive Covariance Inflation
+    adaptive_inflate = False
+    reg_inflate = False
+    inflation_factor = 1.1
+
+
+
     ##** END User Parameters **##
 
     def __init__(self, curr_iter=None, **kwargs):
@@ -292,25 +254,48 @@ class core(ConfigGroup):
 
         # some checks
         if type(self.recon_timescale) != 'int': self.recon_timescale = int(self.recon_timescale)
-        
+
         self.nexp = self.nexp
         self.lmr_path = self.lmr_path
-        self.online_reconstruction = self.online_reconstruction
-        self.clean_start = self.clean_start
-        self.use_precalc_ye = self.use_precalc_ye
-        self.recon_period = self.recon_period
-        self.nens = self.nens
-        self.loc_rad = self.loc_rad
-        self.inflation_fact = self.inflation_fact
-        self.seed = self.seed
         self.datadir_output = self.datadir_output
         self.archive_dir = self.archive_dir
         self.write_posterior_Ye = self.write_posterior_Ye
+        self.save_full_field = self.save_full_field
+        self.online_reconstruction = self.online_reconstruction
+        self.persistence_forecast = self.persistence_forecast
+        self.clean_start = self.clean_start
+        self.use_precalc_ye = self.use_precalc_ye
+        self.ignore_pre_avg_file = self.ignore_pre_avg_file
+        self.save_pre_avg_file = self.save_pre_avg_file
+        self.recon_period = self.recon_period
+        self.nens = self.nens
+        self.recon_timescale = list(self.recon_timescale)
+        self.seed = self.seed
+        self.loc_rad = self.loc_rad
+        self.inflation_factor = self.inflation_factor
+        self.assimilation_time_res = list(self.assimilation_time_res)
+        self.res_yr_shift = deepcopy(self.res_yr_shift)
+        self.hybrid_update = self.hybrid_update
+        self.hybrid_a = self.hybrid_a
+        self.blend_prior = self.blend_prior
+        self.adaptive_inflate = self.adaptive_inflate
+        self.reg_inflate = self.reg_inflate
+        self.inflation_factor = self.inflation_factor
+        self.sub_base_res = self.sub_base_res
 
         if curr_iter is None:
             self.curr_iter = wrapper.iter_range[0]
         else:
             self.curr_iter = curr_iter
+
+        # TODO: add rules for shift?
+        # If shifting on smaller time scales than smallest time chunk it becomes
+        # the base resolution
+        sub_base_res = self.assimilation_time_res[0]
+        for res, shift in self.res_yr_shift.iteritems():
+            if (res in self.assimilation_time_res and shift < sub_base_res and shift != 0.0):
+                sub_base_res = shift
+
 
 class proxies(ConfigGroup):
     """
@@ -320,19 +305,19 @@ class proxies(ConfigGroup):
     ----------
     use_from: list(str)
         A list of keys for proxy classes to load from.  Keys available are
-        stored in LMR_proxy_pandas_rework.
+        stored in LMR_proxy2.
     proxy_frac: float
         Fraction of available proxy data (sites) to assimilate
     proxy_timeseries_kind: string
-        Type of proxy timeseries to use. 'anom' for animalies or 'asis'
+        Type of proxy timeseries to use. 'anom' for anomalies or 'asis'
         to keep records as included in the database. 
     proxy_availability_filter: boolean
         True/False flag indicating whether filtering of proxy records
         according to data availability over reconstruction period is
         to be performed. If True, only proxies with data covering the
         reconstruction period are retained for assimilation. 
-        Condition on record completeness is controlled with the next 
-        config. parameter (see just below).
+        Condition on record completeness is controlled with
+        proxy_availability_fraction.
     proxy_availability_fraction: float
         Minimum threshold on the fraction of available proxy annual data 
         over the reconstruction period. i.e. control on the fraction of 
@@ -356,7 +341,7 @@ class proxies(ConfigGroup):
     proxy_timeseries_kind = 'asis'
 
     # Filtering proxy records on conditions of data availability during
-    # the reconstruction period. 
+    # the reconstruction period.
     # - Filtrering disabled if proxy_availability_filter = False.
     # - If proxy_availability_filter = True, only records with
     #   oldest and youngest data outside or at edges of the recon. period
@@ -365,22 +350,22 @@ class proxies(ConfigGroup):
     #   on data availability fraction (proxy_availability_fraction parameter).
     #   Records with a fraction of available data (ratio of valid data over
     #   the maximum data expected within the reconstruction period) below the
-    #   user-defined threshold are omitted. 
+    #   user-defined threshold are omitted.
     #   Set this threshold to 0.0 if you do not want this threshold applied.
     #   Set this threshold to 1.0 to prevent assimilation of records with
-    #   any missing data within the reconstruction period. 
+    #   any missing data within the reconstruction period.
     proxy_availability_filter = False
     proxy_availability_fraction = 1.0
-    
+
     ##** END User Parameters **##
 
-    # -----------------
-    # PAGES2kv1 proxies
-    # -----------------
-    class PAGES2kv1(ConfigGroup):
+    # -------------------
+    # Generic Proxy Config Group
+    # -------------------
+    class ProxyConfigGroup(ConfigGroup):
         """
-        Parameters for PAGES2kv1Proxy class
-
+        Parameters for a ProxyGroup Class
+    
         Notes
         -----
         proxy_type_mappings and simple_filters are creating during instance
@@ -420,6 +405,61 @@ class proxies(ConfigGroup):
             (e.g. {('Tree ring', 'TRW'): 'Tree ring_Width'} )
         """
 
+        # This class can't be instantiated.  Just used to share docstring and
+        # initialization of the proxy group configurations.
+
+        def __init__(self, lmr_path=None, **kwargs):
+            super(self.__class__, self).__init__(**kwargs)
+            if lmr_path is None:
+                lmr_path = core.lmr_path
+
+            if self.datadir_proxy is None:
+                self.datadir_proxy = join(lmr_path, 'data', 'proxies')
+            else:
+                self.datadir_proxy = self.datadir_proxy
+
+            self.datafile_proxy = join(self.datadir_proxy,
+                                       self.datafile_proxy)
+            self.metafile_proxy = join(self.datadir_proxy,
+                                       self.metafile_proxy)
+
+            self.dataformat_proxy = self.dataformat_proxy
+            self.regions = list(self.regions)
+            self.proxy_resolution = list(self.proxy_resolution)
+            self.proxy_timeseries_kind = proxies.proxy_timeseries_kind
+            self.proxy_order = list(self.proxy_order)
+            self.proxy_psm_type = deepcopy(self.proxy_psm_type)
+            self.proxy_assim2 = deepcopy(self.proxy_assim2)
+            self.proxy_blacklist = list(self.proxy_blacklist)
+            self.proxy_availability_filter = self.proxy_availability_filter
+            self.proxy_availability_fraction = self.proxy_availability_fraction
+
+            # Create mapping for Proxy Type/Measurement Type to type names above
+            self.proxy_type_mapping = {}
+            for ptype, measurements in self.proxy_assim2.iteritems():
+                # Fetch proxy type name that occurs before underscore
+                type_name = ptype.split('_', 1)[0]
+                for measure in measurements:
+                    self.proxy_type_mapping[(type_name, measure)] = ptype
+
+    # -----------------
+    # PAGES2kv1 proxies
+    # -----------------
+    class PAGES2kv1(ProxyConfigGroup):
+        """
+        Parameters for a PAGES2kv1 Class
+        
+        See ProxyConfigGroup for a description of common Proxy configuration 
+        attributes.
+        
+        Attributes
+        ----------
+        simple_filters: dict{'str': Iterable}
+            List mapping proxy metadata sheet columns to a list of values
+            to filter by.
+        
+        """
+
         ##** BEGIN User Parameters **##
 
         datadir_proxy = None
@@ -429,6 +469,7 @@ class proxies(ConfigGroup):
 
         regions = ['Antarctica', 'Arctic', 'Asia', 'Australasia', 'Europe',
                    'North America', 'South America']
+        proxy_resolution = core.assimilation_time_res
 
         proxy_resolution = [1.0]
 
@@ -453,7 +494,7 @@ class proxies(ConfigGroup):
         #  The linear_TorP and bilinear w.r.t. temperature or/and moisture
         #  PSMs are aimed at *tree ring* proxies in particular
         #  The h_interp forward model is to be used for isotope proxies when
-        #  the prior is taken from an isotope-enabled GCM model output. 
+        #  the prior is taken from an isotope-enabled GCM model output.
         proxy_psm_type = {
             'Tree ring_Width'      : 'linear',
             'Tree ring_Density'    : 'linear',
@@ -466,7 +507,7 @@ class proxies(ConfigGroup):
             'Marine sediment_All'  : 'linear',
             'Speleothem_All'       : 'linear',
             }
-        
+
         proxy_assim2 = {
             'Tree ring_Width': ['Ring width',
                                 'Tree ring width',
@@ -499,38 +540,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(**kwargs)
-            if lmr_path is None:
-                lmr_path = core.lmr_path
-
-            if self.datadir_proxy is None:
-                self.datadir_proxy = join(lmr_path, 'data', 'proxies')
-            else:
-                self.datadir_proxy = self.datadir_proxy
-
-            self.datafile_proxy = join(self.datadir_proxy,
-                                       self.datafile_proxy)
-            self.metafile_proxy = join(self.datadir_proxy,
-                                       self.metafile_proxy)
-
-            self.dataformat_proxy = self.dataformat_proxy
-            self.regions = list(self.regions)
-            self.proxy_resolution = list(self.proxy_resolution)
-            self.proxy_timeseries_kind = proxies.proxy_timeseries_kind
-            self.proxy_order = list(self.proxy_order)
-            self.proxy_psm_type = deepcopy(self.proxy_psm_type)
-            self.proxy_assim2 = deepcopy(self.proxy_assim2)
-            self.proxy_blacklist = list(self.proxy_blacklist)
-            self.proxy_availability_filter = proxies.proxy_availability_filter
-            self.proxy_availability_fraction = proxies.proxy_availability_fraction
-            
-            # Create mapping for Proxy Type/Measurement Type to type names above
-            self.proxy_type_mapping = {}
-            for ptype, measurements in self.proxy_assim2.iteritems():
-                # Fetch proxy type name that occurs before underscore
-                type_name = ptype.split('_', 1)[0]
-                for measure in measurements:
-                    self.proxy_type_mapping[(type_name, measure)] = ptype
+            super(self.__class__, self).__init__(lmr_path=lmr_path, **kwargs)
 
             self.simple_filters = {'PAGES 2k Region': self.regions,
                                    'Resolution (yr)': self.proxy_resolution}
@@ -538,46 +548,22 @@ class proxies(ConfigGroup):
     # -------------
     # LMRdb proxies
     # -------------
-    class LMRdb(ConfigGroup):
+    class LMRdb(ProxyConfigGroup):
         """
         Parameters for LMRdb proxy class
-
-        Notes
-        -----
-        proxy_type_mappings and simple_filters are creating during instance
-        creation.
+        
+        See ProxyConfigGroup for a description of common Proxy configuration 
+        attributes.
 
         Attributes
         ----------
-        datadir_proxy: str
-            Absolute path to proxy data *or* None if using default lmr_path
-        datafile_proxy: str
-            proxy records filename
-        metafile_proxy: str
-            proxy metadata filename
-        dataformat_proxy: str
-            File format of the proxy data
-        regions: list(str)
-            List of proxy data regions (data keys) to use.
-        proxy_resolution: list(float)
-            List of proxy time resolutions to use
+        dbversion: str
+            Version string of the database file to use.
         database_filter: list(str)
             List of databases from which to limit the selection of proxies.
             Use [] (empty list) if no restriction, or ['db_name1', db_name2'] to
             limit to proxies contained in "db_name1" OR "db_name2".
             Possible choices are: 'PAGES1', 'PAGES2', 'LMR_FM'
-        proxy_order: list(str):
-            Order of assimilation by proxy type key
-        proxy_assim2: dict{ str: list(str)}
-            Proxy types to be assimilated.
-            Uses dictionary with structure {<<proxy type>>: [.. list of
-            measuremant tags ..] where "proxy type" is written as
-            "<<archive type>>_<<measurement type>>"
-        proxy_type_mapping: dict{(str,str): str}
-            Maps proxy type and measurement to our proxy type keys.
-            (e.g. {('Tree ring', 'TRW'): 'Tree ring_Width'} )
-        proxy_psm_type: dict{str:str}
-            Association between proxy type and psm type.
         simple_filters: dict{'str': Iterable}
             List mapping proxy metadata sheet columns to a list of values
             to filter by.
@@ -712,42 +698,8 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(**kwargs)
-            if lmr_path is None:
-                lmr_path = core.lmr_path
-
-            if self.datadir_proxy is None:
-                self.datadir_proxy = join(lmr_path, 'data', 'proxies')
-            else:
-                self.datadir_proxy = self.datadir_proxy
-
-            self.datafile_proxy = self.datafile_proxy.format(self.dbversion)
-            self.metafile_proxy = self.metafile_proxy.format(self.dbversion)
-                
-            self.datafile_proxy = join(self.datadir_proxy,
-                                       self.datafile_proxy)
-            self.metafile_proxy = join(self.datadir_proxy,
-                                       self.metafile_proxy)
-
-            self.dataformat_proxy = self.dataformat_proxy
-            self.regions = list(self.regions)
-            self.proxy_resolution = list(self.proxy_resolution)
-            self.proxy_timeseries_kind = proxies.proxy_timeseries_kind
-            self.proxy_order = list(self.proxy_order)
-            self.proxy_psm_type = deepcopy(self.proxy_psm_type)
-            self.proxy_assim2 = deepcopy(self.proxy_assim2)
+            super(self.__class__, self).__init__(lmr_path=lmr_path, **kwargs)
             self.database_filter = list(self.database_filter)
-            self.proxy_blacklist = list(self.proxy_blacklist)
-            self.proxy_availability_filter = proxies.proxy_availability_filter
-            self.proxy_availability_fraction = proxies.proxy_availability_fraction
-            
-            self.proxy_type_mapping = {}
-            for ptype, measurements in self.proxy_assim2.iteritems():
-                # Fetch proxy type name that occurs before underscore
-                type_name = ptype.split('_', 1)[0]
-                for measure in measurements:
-                    self.proxy_type_mapping[(type_name, measure)] = ptype
-
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
 
             
@@ -755,47 +707,15 @@ class proxies(ConfigGroup):
     # --------------------------------------------------------
     # proxies specific to Deep Times Data Assimilation project
     # --------------------------------------------------------
-    class ncdcdtda(ConfigGroup):
+    class ncdcdtda(ProxyConfigGroup):
         """
         Parameters for NCDCdtda proxy class
-
-        Notes
-        -----
-        proxy_type_mappings and simple_filters are creating during instance
-        creation.
-
+        
+        See ProxyConfigGroup for a description of common Proxy configuration 
+        attributes.
+        
         Attributes
         ----------
-        datadir_proxy: str
-            Absolute path to proxy data *or* None if using default lmr_path
-        datafile_proxy: str
-            proxy records filename
-        metafile_proxy: str
-            proxy metadata filename
-        dataformat_proxy: str
-            File format of the proxy data
-        regions: list(str)
-            List of proxy data regions (data keys) to use.
-        proxy_resolution: list(float or tuple)
-            List of proxy time resolutions to use. 
-            If tuple, indicates a *range* of resolutions. 
-        database_filter: list(str)
-            List of databases from which to limit the selection of proxies.
-            Use [] (empty list) if no restriction, or ['db_name1', db_name2'] to
-            limit to proxies contained in "db_name1" OR "db_name2".
-            Possible choices are: 'PAGES1', 'PAGES2', 'LMR'
-        proxy_order: list(str):
-            Order of assimilation by proxy type key
-        proxy_assim2: dict{ str: list(str)}
-            Proxy types to be assimilated.
-            Uses dictionary with structure {<<proxy type>>: [.. list of
-            measuremant tags ..] where "proxy type" is written as
-            "<<archive type>>_<<measurement type>>"
-        proxy_type_mapping: dict{(str,str): str}
-            Maps proxy type and measurement to our proxy type keys.
-            (e.g. {('Tree ring', 'TRW'): 'Tree ring_Width'} )
-        proxy_psm_type: dict{str:str}
-            Association between proxy type and psm type.
         simple_filters: dict{'str': Iterable}
             List mapping proxy metadata sheet columns to a list of values
             to filter by.
@@ -854,42 +774,9 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(**kwargs)
-            if lmr_path is None:
-                lmr_path = core.lmr_path
+            super(self.__class__, self).__init__(lmr_path=lmr_path, **kwargs)
 
-            if self.datadir_proxy is None:
-                self.datadir_proxy = join(lmr_path, 'data', 'proxies')
-            else:
-                self.datadir_proxy = self.datadir_proxy
-
-            self.datafile_proxy = self.datafile_proxy.format(self.dbversion)
-            self.metafile_proxy = self.metafile_proxy.format(self.dbversion)
-            
-            self.datafile_proxy = join(self.datadir_proxy,
-                                       self.datafile_proxy)
-            self.metafile_proxy = join(self.datadir_proxy,
-                                       self.metafile_proxy)
-
-            self.dataformat_proxy = self.dataformat_proxy
-            self.regions = list(self.regions)
-            self.proxy_resolution = list(self.proxy_resolution)
-            self.proxy_timeseries_kind = proxies.proxy_timeseries_kind
-            self.proxy_order = list(self.proxy_order)
-            self.proxy_psm_type = deepcopy(self.proxy_psm_type)
-            self.proxy_assim2 = deepcopy(self.proxy_assim2)
             self.database_filter = list(self.database_filter)
-            self.proxy_blacklist = list(self.proxy_blacklist)
-            self.proxy_availability_filter = proxies.proxy_availability_filter
-            self.proxy_availability_fraction = proxies.proxy_availability_fraction
-            
-            self.proxy_type_mapping = {}
-            for ptype, measurements in self.proxy_assim2.iteritems():
-                # Fetch proxy type name that occurs before underscore
-                type_name = ptype.split('_', 1)[0]
-                for measure in measurements:
-                    self.proxy_type_mapping[(type_name, measure)] = ptype
-
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
 
     
@@ -908,7 +795,6 @@ class proxies(ConfigGroup):
         self.seed = seed
 
 
-
 class psm(ConfigGroup):
     """
     Parameters for PSM classes
@@ -916,27 +802,33 @@ class psm(ConfigGroup):
     Attributes
     ----------
     avgPeriod: str
-        Indicates use of PSMs calibrated on annual or seasonal data: 
-        allowed tags are 'annual' or 'season'
+        Indicates use of PSMs calibrated on annual or seasonal data. 
+        Allowed tags are 'annual' or 'season'.
+    season_source: str
+        Use seasonality from proxy metadata or objectively derived 
+        seasonality from PSM calibration.
+        Allowed values are 'proxy_metadata' or 'psm_calib'
+    all_calib_sources: dict{str: list(str)}
+        Mapping of climate variable type (temperature or moisture) to a list
+        of calibration data sources.
     """
 
     ##** BEGIN User Parameters **##
 
-    # Averaging period for the PSM: 'annual' or 'season'
-    avgPeriod = 'annual'
-    #avgPeriod = 'season'
+    avg_period = 'annual'
+    # avgPeriod = 'season'
 
-    # If avgPeriod = 'season', use seasonality from proxy metadata or objectively derived on the basis of psm calibration?
     season_source = 'proxy_metadata'
-    #season_source = 'psm_calib'
+    # season_source = 'psm_calib'
     
     # Mapping of calibration sources w/ climate variable
     # To be modified only if a new calibration source is added. 
-    all_calib_sources = {'temperature': ['GISTEMP', 'MLOST', 'HadCRUT', 'BerkeleyEarth'], 'moisture': ['GPCC','DaiPDSI']}
+    all_calib_sources = {'temperature': ['GISTEMP', 'MLOST',
+                                         'HadCRUT', 'BerkeleyEarth'],
+                         'moisture': ['GPCC', 'DaiPDSI']}
     
     ##** END User Parameters **##
 
-    
     class linear(ConfigGroup):
         """
         Parameters for the linear fit PSM.
@@ -966,10 +858,19 @@ class psm(ConfigGroup):
         datatag_calib = 'GISTEMP'
 
         pre_calib_datafile = None
+        ignore_pre_avg_file = core.ignore_pre_avg_file
+        overwrite_pre_avg_file = core.save_pre_avg_file
 
-        psm_r_crit = 0.0
-
-
+        # pre_calib_datafile = join(core.lmr_path,
+        #                           'PSM',
+        #                           'PSMs_' + datatag_calib +
+        #                           '_0pt5_1pt0_res.pckl')
+        pre_calib_datafile = join(core.lmr_path,
+                                  'PSM', 'test_psms',
+                                  'PSMs_' + datatag_calib +
+                                  '_1pt0res_1.00datfrac')
+        psm_r_crit = 0.2
+        min_data_req_frac = 1.0  # 0.0 no data required, 1.0 all data required
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
@@ -985,30 +886,29 @@ class psm(ConfigGroup):
 
             self.psm_r_crit = self.psm_r_crit
 
-            if '-'.join(proxies.use_from) == 'PAGES2kv1' and 'season' in psm.avgPeriod:
-                print 'ERROR: Trying to use seasonality information with the PAGES2kv1 proxy records.'
-                print '       No seasonality metadata provided in that dataset. Exiting!'
-                print '       Change avgPeriod to "annual" in your configuration.'
-                raise SystemExit()
+            if 'PAGES2kv1' in proxies.use_from and 'season' in psm.avg_period:
+                raise ValueError('No seasonality information in PAGES2kv1 '
+                                 'database.  Change avg_period to "annual" in '
+                                 'your configuration')
 
             if lmr_path is None:
                 lmr_path = core.lmr_path
 
             try:
-                if psm.avgPeriod == 'annual':
-                    self.avgPeriod = psm.avgPeriod
-                elif psm.avgPeriod == 'season' and psm.season_source:
+                if psm.avg_period == 'annual':
+                    self.avgPeriod = psm.avg_period
+                elif psm.avg_period == 'season' and psm.season_source:
                     if psm.season_source == 'proxy_metadata':
-                        self.avgPeriod = psm.avgPeriod+'META'
+                        self.avgPeriod = psm.avg_period + 'META'
                     elif psm.season_source == 'psm_calib':
-                        self.avgPeriod = psm.avgPeriod+'PSM'
+                        self.avgPeriod = psm.avg_period + 'PSM'
                     else:
                         print('ERROR: unrecognized psm.season_source attribute!')
                         raise SystemExit()
                 else:
-                    self.avgPeriod = psm.avgPeriod
+                    self.avgPeriod = psm.avg_period
             except:
-                self.avgPeriod = psm.avgPeriod
+                self.avgPeriod = psm.avg_period
 
 
             if self.datadir_calib is None:
@@ -1121,27 +1021,27 @@ class psm(ConfigGroup):
 
             self.psm_r_crit = self.psm_r_crit
             
-            if '-'.join(proxies.use_from) == 'PAGES2kv1' and 'season' in psm.avgPeriod:
+            if '-'.join(proxies.use_from) == 'PAGES2kv1' and 'season' in psm.avg_period:
                 print 'ERROR: Trying to use seasonality information with the PAGES2kv1 proxy records.'
                 print '       No seasonality metadata provided in that dataset. Exiting!'
                 print '       Change avgPeriod to "annual" in your configuration.'
                 raise SystemExit()
 
             try:
-                if psm.avgPeriod == 'annual':
-                    self.avgPeriod = psm.avgPeriod
-                elif psm.avgPeriod == 'season' and psm.season_source:
+                if psm.avg_period == 'annual':
+                    self.avgPeriod = psm.avg_period
+                elif psm.avg_period == 'season' and psm.season_source:
                     if psm.season_source == 'proxy_metadata':
-                        self.avgPeriod = psm.avgPeriod+'META'
+                        self.avgPeriod = psm.avg_period + 'META'
                     elif psm.season_source == 'psm_calib':
-                        self.avgPeriod = psm.avgPeriod+'PSM'
+                        self.avgPeriod = psm.avg_period + 'PSM'
                     else:
                         print('ERROR: unrecognized psm.season_source attribute!')
                         raise SystemExit()
                 else:
-                    self.avgPeriod = psm.avgPeriod
+                    self.avgPeriod = psm.avg_period
             except:
-                self.avgPeriod = psm.avgPeriod
+                self.avgPeriod = psm.avg_period
 
 
             if lmr_path is None:
@@ -1264,27 +1164,27 @@ class psm(ConfigGroup):
 
             self.psm_r_crit = self.psm_r_crit
 
-            if '-'.join(proxies.use_from) == 'PAGES2kv1' and 'season' in psm.avgPeriod:
+            if '-'.join(proxies.use_from) == 'PAGES2kv1' and 'season' in psm.avg_period:
                 print 'ERROR: Trying to use seasonality information with the PAGES2kv1 proxy records.'
                 print '       No seasonality metadata provided in that dataset. Exiting!'
                 print '       Change avgPeriod to "annual" in your configuration.'
                 raise SystemExit()
 
             try:
-                if psm.avgPeriod == 'annual':
-                    self.avgPeriod = psm.avgPeriod
-                elif psm.avgPeriod == 'season' and psm.season_source:
+                if psm.avg_period == 'annual':
+                    self.avgPeriod = psm.avg_period
+                elif psm.avg_period == 'season' and psm.season_source:
                     if psm.season_source == 'proxy_metadata':
-                        self.avgPeriod = psm.avgPeriod+'META'
+                        self.avgPeriod = psm.avg_period + 'META'
                     elif psm.season_source == 'psm_calib':
-                        self.avgPeriod = psm.avgPeriod+'PSM'
+                        self.avgPeriod = psm.avg_period + 'PSM'
                     else:
                         print('ERROR: unrecognized psm.season_source attribute!')
                         raise SystemExit()
                 else:
-                    self.avgPeriod = psm.avgPeriod
+                    self.avgPeriod = psm.avg_period
             except:
-                self.avgPeriod = psm.avgPeriod
+                self.avgPeriod = psm.avg_period
 
             
             if lmr_path is None:
@@ -1467,7 +1367,7 @@ class psm(ConfigGroup):
         self.bayesreg_uk37 = self.bayesreg_uk37(**kwargs.pop('bayesreg_uk37', {}))
 
         super(self.__class__, self).__init__(**kwargs)
-        self.avgPeriod = self.avgPeriod
+        self.avg_period = self.avg_period
         self.all_calib_sources = deepcopy(self.all_calib_sources)
 
 
@@ -1486,6 +1386,12 @@ class prior(ConfigGroup):
     dataformat_prior: str
         Datatype of prior container ('NCD' for netCDF, 'TXT' for ascii files).
         Note: Currently not used. 
+    truncate_state: bool
+        Flag to truncate state vector to T42 spherical harmonic space
+    backend_type: str
+        Which backend to use for storing prior data during updates with
+        shifted assimilation resolution.  Allowed flags are 'NPY' for numpy
+        and 'H5' for HDF5 backends.
     state_variables: dict.
        Dict. of the form {'var1': 'kind1', 'var2':'kind2', etc.} where 'var1', 'var2', etc.
        (keys of the dict) are the names of the state variables to be included in the state
@@ -1574,6 +1480,9 @@ class prior(ConfigGroup):
     # by default, considers the entire length of the simulation
     detrend = False
 
+    truncate_state = True
+    backend_type = 'NPY'
+
     # Method for regridding to lower resolution grid.
     # Possible methods:
     # 1) None : No regridding performed. 
@@ -1588,16 +1497,17 @@ class prior(ConfigGroup):
     regrid_resolution = 42
     esmpy_interp_method = 'bilinear'
     esmpy_regrid_to = 't42'
-    
+
     # Dict. defining which variables represent temperature or moisture.
     # To be modified only if a new temperature or moisture state variable is added. 
     state_variables_info = {'temperature': ['tas_sfc_Amon'],
-                            'moisture': ['pr_sfc_Amon','scpdsi_sfc_Amon']}
+                            'moisture': ['pr_sfc_Amon', 'scpdsi_sfc_Amon']}
 
-    
+
+
     ##** END User Parameters **##
 
-    
+
     def __init__(self, lmr_path=None, seed=None, **kwargs):
         super(self.__class__, self).__init__(**kwargs)
 
@@ -1615,7 +1525,6 @@ class prior(ConfigGroup):
         self.regrid_method = self.regrid_method
         self.anom_reference = self.anom_reference
 
-        
         if seed is None:
             seed = core.seed
         self.seed = seed
@@ -1628,14 +1537,15 @@ class prior(ConfigGroup):
                                       self.prior_source)
 
         if core.recon_timescale == 1:
-            self.avgInterval = {'annual': [1,2,3,4,5,6,7,8,9,10,11,12]} # annual (calendar) as default
+            self.avgInterval = {'annual': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+                                           12]}  # annual (calendar) as default
         elif core.recon_timescale > 1:
             # new format for CCSM3 TraCE21ka:
             self.avgInterval = {'multiyear': [core.recon_timescale]}
         else:
             print('ERROR in config.: unrecognized core.recon_timescale!')
             raise SystemExit()
-        
+
         if self.regrid_method != 'esmpy':
             self.regrid_resolution = int(self.regrid_resolution)
         elif self.regrid_method == 'esmpy':
@@ -1645,7 +1555,6 @@ class prior(ConfigGroup):
         else:
             self.regrid_resolution = None
 
-        
         # Is variable requested in list of those specified as available?
         var_mismat = [varname for varname in self.state_variables
                       if varname not in self.datainfo_prior['available_vars']]
@@ -1656,12 +1565,87 @@ class prior(ConfigGroup):
                                                 self.prior_source))
 
 
-            
+class forecaster:
+    """
+    Parameters for the online DA forecasting method.
+
+    Attributes
+    ----------
+    use_forecaster: str
+        Key of forecasting class to use for the current reconstruction.
+    """
+
+    # Which forecaster class to use
+    use_forecaster = 'lim'
+
+    class LIM:
+        """
+        calib_filename: Filename for LIM calibration data.  Should be netcdf
+                        file or an HDF5 file from the DataTools.netcdf_to_hdf5_
+                        container.
+        calib_varname: Variable name to grab from calib_filename
+        fcast_times: list(float)
+            A list of lead times (in years) to forecast
+        calib_is_anomaly: bool
+            Flag if calibration data is in anomaly format
+        calib_is_runmean: bool
+            Flag if data has seasonal information removed. E.g. annual
+            running mean was applied...
+        wsize: int
+            Window size for the annual running mean calculation.  Should be
+            equivalent to the number of timesteps in a year for the source data.
+        fcast_num_pcs: int
+            Number of principle components to retain during LIM forecast
+            calibration.
+        detrend: bool
+            Flag to detrend source data prior to calibration step.
+        ignore_precalib: bool
+            Ignore pre-calibrated LIM files
+        use_ens_mean_fcast: bool
+            Perform a forecast on the ensemble mean rather than each ensemble
+            member
+        eig_adjust: float
+            CURRENTLY NOT USED.  Value to adjust eigenvalues of the forecast
+            modes.
+        """
+
+        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model/20cr'
+        #                  '/tas_sfc_Amon_20CR_185101-201112.nc')
+        # calib_varname = 'tas'
+        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
+        #                  '/ccsm4_last_millenium/'
+        #                  'tas_sfc_Amon_CCSM4_past1000_085001-185012.nc')
+        # calib_varname = 'tas'
+        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
+        #                   '/mpi-esm-p_last_millenium/'
+        #                   'tas_sfc_Amon_MPI-ESM-P_past1000_085001-185012.nc')
+        # calib_varname = 'tas'
+
+        # NOTE: for BerkeleyEarth data switch calib_is_anomaly and
+        # calib_is_run_mean to TRUE
+        calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/'
+                         'analyses/Experimental/tas_run_mean_berkely_'
+                         'earth_monthly_195701-201412.nc')
+        calib_varname = 'tas_run_mean'
+
+        dataformat = 'NCD'
+        calib_is_anomaly = True
+        calib_is_runmean = True
+        fcast_times = [1]
+        wsize = 12
+        fcast_num_pcs = 8
+        detrend = True
+        ignore_precalib = False
+        use_ens_mean_fcast = False
+
+        eig_adjust = None
+
+
 class Config(ConfigGroup):
     """
     An instanceable container for all the configuration objects.
     """
-    
+
     def __init__(self, **kwargs):
         self.LEGACY_CONFIG = LEGACY_CONFIG
         self.SRC_DIR = SRC_DIR
@@ -1752,6 +1736,7 @@ def update_config_class_yaml(yaml_dict, cfg_module):
 
 
 if __name__ == "__main__":
-    kwargs = {'wrapper': {'multi_seed': [1, 2, 3]}, 'psm': {'linear': {'datatag_calib': 'BE'}}}
+    kwargs = {'wrapper': {'multi_seed': [1, 2, 3]},
+              'psm': {'linear': {'datatag_calib': 'BE'}}}
     tmp = Config(**kwargs)
     pass

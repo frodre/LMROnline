@@ -42,6 +42,8 @@ docs/_build/
 
 # Config Update
 config.yml
+LMR_config.py
+
 #Ignore figures
 *.jpg
 *.pdf

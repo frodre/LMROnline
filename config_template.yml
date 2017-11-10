@@ -39,7 +39,7 @@ core:
   nens: 100
   seed: null
   loc_rad: null
-  inflation_fact: null
+  inflation_factor: null
 
 proxies:
 #  use_from: [PAGES2kv1]
