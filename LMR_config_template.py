@@ -885,6 +885,10 @@ class psm(ConfigGroup):
             self.dataformat_calib = dataset_descr['dataformat']
 
             self.psm_r_crit = self.psm_r_crit
+            self.min_data_req_frac = self.min_data_req_frac
+
+            self.avg_period = psm.avg_period
+            self.season_source = psm.season_source
 
             if 'PAGES2kv1' in proxies.use_from and 'season' in psm.avg_period:
                 raise ValueError('No seasonality information in PAGES2kv1 '
@@ -894,30 +898,13 @@ class psm(ConfigGroup):
             if lmr_path is None:
                 lmr_path = core.lmr_path
 
-            try:
-                if psm.avg_period == 'annual':
-                    self.avgPeriod = psm.avg_period
-                elif psm.avg_period == 'season' and psm.season_source:
-                    if psm.season_source == 'proxy_metadata':
-                        self.avgPeriod = psm.avg_period + 'META'
-                    elif psm.season_source == 'psm_calib':
-                        self.avgPeriod = psm.avg_period + 'PSM'
-                    else:
-                        print('ERROR: unrecognized psm.season_source attribute!')
-                        raise SystemExit()
-                else:
-                    self.avgPeriod = psm.avg_period
-            except:
-                self.avgPeriod = psm.avg_period
-
-
             if self.datadir_calib is None:
                 self.datadir_calib = join(lmr_path, 'data', 'analyses')
             else:
                 self.datadir_calib = self.datadir_calib
 
             if self.pre_calib_datafile is None:
-                if '-'.join(proxies.use_from) == 'LMRdb':
+                if 'LMRdb' in proxies.use_from:
                     dbversion = proxies.LMRdb.dbversion
                     filename = ('PSMs_' + '-'.join(proxies.use_from) +
                                 '_' + dbversion +
@@ -932,22 +919,7 @@ class psm(ConfigGroup):
             else:
                 self.pre_calib_datafile = self.pre_calib_datafile
 
-            # association of calibration source and state variable needed to calculate Ye's
-            if self.datatag_calib in psm.all_calib_sources['temperature']:
-                self.psm_required_variables = {'tas_sfc_Amon': 'anom'}
-
-            elif self.datatag_calib in psm.all_calib_sources['moisture']:
-                if self.datatag_calib == 'GPCC':
-                    self.psm_required_variables = {'pr_sfc_Amon':'anom'}
-                elif self.datatag_calib == 'DaiPDSI':
-                    self.psm_required_variables = {'scpdsi_sfc_Amon': 'anom'}
-                else:
-                    raise KeyError('Unrecognized moisture calibration source.'
-                                   ' State variable not identified for Ye calculation.')
-            else:
-                raise KeyError('Unrecognized calibration source.'
-                               ' State variable not identified for Ye calculation.')
-
+            self.psm_required_variables = self.datainfo_calib['psm_vartype']
                 
     class linear_TorP(ConfigGroup):                
         """

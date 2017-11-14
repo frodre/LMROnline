@@ -7,6 +7,8 @@ GISTEMP:
     multiple_vars: False
     template: null
     available_vars: [tempanomaly]
+    psm_vartype:
+      temperature: tas
 
   datadir: null
   datafile: gistemp1200_ERSSTv4.nc
@@ -17,6 +19,8 @@ MLOST:
     multiple_vars: False
     template: null
     available_vars: [air]
+    psm_vartype:
+      temperature: tas
 
   datadir: null
   datafile: MLOST_air.mon.anom_V3.5.4.nc
@@ -27,6 +31,8 @@ HadCRUT:
     multiple_vars: False
     template: null
     available_vars: [temperature_anomaly]
+    psm_vartype:
+      temperature: tas
 
   datadir: null
   datafile: HadCRUT.4.3.0.0.median.nc
@@ -37,6 +43,8 @@ BerkeleyEarth:
     multiple_vars: False
     template: null
     available_vars: [temperature]
+    psm_vartype:
+      temperature: tas
 
   datadir: null
   datafile: Land_and_Ocean_LatLong1.nc
@@ -47,6 +55,8 @@ NOAA:
     multiple_vars: False
     template: null
     available_vars: [data]
+    psm_vartype:
+      temperature: tas
 
   datadir: null
   datafile: er-ghcn-sst.nc
@@ -57,6 +67,8 @@ GPCC:
     multiple_vars: False
     template: null
     available_vars: [precip]
+    psm_vartype:
+      moisture: precip
 
   datadir: null
   datafile: GPCC_precip.mon.flux.1x1.v6.nc
@@ -67,6 +79,8 @@ DaiPDSI:
     multiple_vars: False
     template: null
     available_vars: [pdsi]
+    psm_vartype:
+      moisture: pdsi
 
   datadir: null
   datafile: Dai_pdsi.mon.mean.selfcalibrated_185001-201412.nc
@@ -116,6 +130,11 @@ ccsm4_last_millenium:
                      AMOCstreamfct_Omon,
                      AMOCindex_Omon, AMOC26Nmax_Omon, AMOC26N1000m_Omon,
                      AMOC45N1000_Omon]
+    psm_var_map:
+      temperature: tas_sfc_Amon
+      moisture:
+        precip: pr_sfc_Amon
+        pdsi: scpdsi_sfc_Amon
 
   datadir: null
   datafile: '[vardef_template]_CCSM4_past1000_085001-185012.nc'
@@ -162,6 +181,10 @@ gfdl-cm3_preindustrial_control:
                       'ua_850hPa_Amon', 'ua_925hPa_Amon', 'va_1000hPa_Amon',
                       'va_250hPa_Amon', 'va_500hPa_Amon', 'va_700hPa_Amon',
                       'va_850hPa_Amon', 'va_925hPa_Amon']
+    psm_var_map:
+      temperature: tas_sfc_Amon
+      moisture:
+        precip: pr_sfc_Amon
 
 
   datadir: null
@@ -183,6 +206,10 @@ mpi-esm-p_last_millenium:
                      'ua_925hPa_Amon', 'va_1000hPa_Amon', 'va_250hPa_Amon',
                      'va_500hPa_Amon', 'va_700hPa_Amon', 'va_850hPa_Amon',
                      'va_925hPa_Amon']
+    psm_var_map:
+      temperature: tas_sfc_Amon
+      moisture:
+        precip: pr_sfc_Amon
 
   datadir: null
   datafile: '[vardef_template]_MPI-ESM-P_past1000_085001-185012.nc'
@@ -201,6 +228,10 @@ mpi-esm-p_last_millenium:
                      'va_1000hPa_Amon', 'va_250hPa_Amon', 'va_500hPa_Amon',
                      'va_700hPa_Amon', 'va_850hPa_Amon', 'va_950hPa_Amon',
                      'ua_600hPa_Amon', 'va_600hPa_Amon']
+    psm_var_map:
+      temperature: tas_sfc_Amon
+      moisture:
+        precip: pr_sfc_Amon
 
   datadir: null
   datafile: '[vardef_template]_20CR_185101-201112.nc'
