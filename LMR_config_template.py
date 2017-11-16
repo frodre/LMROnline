@@ -23,11 +23,12 @@ LEGACY_CONFIG = False
 
 # Absolute path to LMR source code directory
 #SRC_DIR = '/home/disk/ekman/rtardif/codes/LMR/pyLMR'
-SRC_DIR = '/home/disk/ice4/hakim/gitwork/LMR'
+# SRC_DIR = '/home/disk/ice4/hakim/gitwork/LMR'
+SRC_DIR = '/home/disk/p/wperkins/Research/LMR'
 
 # Control logging output. (0 = none; 1 = most important; 2 = many; 3 = a lot;
 #   >=4 all)
-LOG_LEVEL = 4
+LOG_LEVEL = 2
 
 # Class for distinction of configuration classes
 class ConfigGroup(object):
@@ -267,9 +268,9 @@ class core(ConfigGroup):
         self.use_precalc_ye = self.use_precalc_ye
         self.ignore_pre_avg_file = self.ignore_pre_avg_file
         self.save_pre_avg_file = self.save_pre_avg_file
-        self.recon_period = self.recon_period
+        self.recon_period = tuple(self.recon_period)
         self.nens = self.nens
-        self.recon_timescale = list(self.recon_timescale)
+        self.recon_timescale = self.recon_timescale
         self.seed = self.seed
         self.loc_rad = self.loc_rad
         self.inflation_factor = self.inflation_factor
@@ -281,7 +282,6 @@ class core(ConfigGroup):
         self.adaptive_inflate = self.adaptive_inflate
         self.reg_inflate = self.reg_inflate
         self.inflation_factor = self.inflation_factor
-        self.sub_base_res = self.sub_base_res
 
         if curr_iter is None:
             self.curr_iter = wrapper.iter_range[0]
@@ -409,7 +409,7 @@ class proxies(ConfigGroup):
         # initialization of the proxy group configurations.
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(**kwargs)
+            super(proxies.ProxyConfigGroup, self).__init__(**kwargs)
             if lmr_path is None:
                 lmr_path = core.lmr_path
 
@@ -431,8 +431,8 @@ class proxies(ConfigGroup):
             self.proxy_psm_type = deepcopy(self.proxy_psm_type)
             self.proxy_assim2 = deepcopy(self.proxy_assim2)
             self.proxy_blacklist = list(self.proxy_blacklist)
-            self.proxy_availability_filter = self.proxy_availability_filter
-            self.proxy_availability_fraction = self.proxy_availability_fraction
+            self.proxy_availability_filter = proxies.proxy_availability_filter
+            self.proxy_availability_fraction = proxies.proxy_availability_fraction
 
             # Create mapping for Proxy Type/Measurement Type to type names above
             self.proxy_type_mapping = {}
@@ -540,7 +540,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(lmr_path=lmr_path, **kwargs)
+            super(proxies.PAGES2kv1, self).__init__(lmr_path=lmr_path, **kwargs)
 
             self.simple_filters = {'PAGES 2k Region': self.regions,
                                    'Resolution (yr)': self.proxy_resolution}
@@ -698,7 +698,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(lmr_path=lmr_path, **kwargs)
+            super(proxies.LMRdb, self).__init__(lmr_path=lmr_path, **kwargs)
             self.database_filter = list(self.database_filter)
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
 
@@ -774,7 +774,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(lmr_path=lmr_path, **kwargs)
+            super(proxies.ncdcdtda, self).__init__(lmr_path=lmr_path, **kwargs)
 
             self.database_filter = list(self.database_filter)
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
@@ -1353,7 +1353,6 @@ class prior(ConfigGroup):
         self.dataformat_prior = dataset_descr['dataformat']
 
         self.state_variables = deepcopy(self.state_variables)
-        self.state_variables_info = deepcopy(self.state_variables_info)
         self.detrend = self.detrend
         self.regrid_method = self.regrid_method
         self.anom_reference = self.anom_reference
@@ -1455,22 +1454,20 @@ class forecaster(ConfigGroup):
 
         # NOTE: for BerkeleyEarth data switch calib_is_anomaly and
         # calib_is_run_mean to TRUE
-        datatag_calib = ('/home/disk/chaos2/wperkins/data/LMR/data/'
-                         'analyses/Experimental/tas_run_mean_berkely_'
-                         'earth_monthly_195701-201412.nc')
+        datatag_calib = 'ccsm4_last_millenium'
         calib_varname = 'tas_run_mean'
 
-        dataformat = 'NCD'
-        calib_is_anomaly = True
-        calib_is_runmean = True
-        fcast_times = [1]
-        wsize = 12
-        fcast_num_pcs = 8
-        detrend = True
-        ignore_precalib = False
-        use_ens_mean_fcast = False
-
-        eig_adjust = None
+        # dataformat = 'NCD'
+        # calib_is_anomaly = True
+        # calib_is_runmean = True
+        # fcast_times = [1]
+        # wsize = 12
+        # fcast_num_pcs = 8
+        # detrend = True
+        # ignore_precalib = False
+        # use_ens_mean_fcast = False
+        #
+        # eig_adjust = None
 
         def __init__(self, lmr_path=None, **kwargs):
 
@@ -1493,13 +1490,15 @@ class forecaster(ConfigGroup):
                 analysis_dir = join(lmr_path, 'data', 'analyses',
                                     self.datatag_calib)
 
-                if exists(join(model_dir, self.datafile_calib)):
-                    self.datadir_calib = model_dir
-                elif exists(join(analysis_dir, self.datafile_calib)):
-                    self.datadir_calib = analysis_dir
-                else:
-                    raise ValueError('Could not find calibration datafile in '
-                                     'default model or analyses directory.')
+                self.datadir_calib = model_dir
+
+                # if exists(join(model_dir, self.datafile_calib)):
+                #     self.datadir_calib = model_dir
+                # elif exists(join(analysis_dir, self.datafile_calib)):
+                #     self.datadir_calib = analysis_dir
+                # else:
+                #     raise ValueError('Could not find calibration datafile in '
+                #                      'default model or analyses directory.')
 
     def __init__(self, lmr_path=None, **kwargs):
         self.lim = self.lim(lmr_path=lmr_path, **kwargs.pop('lim', {}))
@@ -1529,6 +1528,8 @@ class Config(ConfigGroup):
         self.prior = prior(lmr_path=lmr_path,
                            seed=seed,
                            **kwargs.pop('prior', {}))
+        self.forecaster = forecaster(lmr_path=lmr_path,
+                                     **kwargs.pop('forecaster', {}))
 
 
 def is_config_class(obj):
@@ -1603,7 +1604,7 @@ def update_config_class_yaml(yaml_dict, cfg_module):
 
 
 if __name__ == "__main__":
-    kwargs = {'wrapper': {'multi_seed': [1, 2, 3]},
-              'psm': {'linear': {'datatag_calib': 'BE'}}}
-    tmp = Config(**kwargs)
+    # kwargs = {'wrapper': {'multi_seed': [1, 2, 3]},
+    #           'psm': {'linear': {'datatag_calib': 'BE'}}}
+    tmp = Config()
     pass
