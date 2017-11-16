@@ -381,3 +381,11 @@ prior:
       'pr_sfc_Amon',
       'scpdsi_sfc_Amon',
       ]
+
+forecaster:
+  use_forecaster: lim
+
+  lim:
+    datatag_calib: ccsm4_last_millenium
+    calib_varname: tas_sfc_Amon
+
