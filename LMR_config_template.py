@@ -80,19 +80,21 @@ class _GridDefinitions(_YamlStorage):
     def __init__(self):
         super(_GridDefinitions, self).__init__('grid_def.yml')
 
+
+class _ConstantDefinitions(_YamlStorage):
+    """Stores constant information for LMR reconstructions"""
+
+    def __init__(self):
+        super(_ConstantDefinitions, self).__init__('constants.yml')
+
+
 # Load dataset information on configuration import
 _DataInfo = _DatasetDescriptors()
 _GridDef = _GridDefinitions()
 
+# TODO: these should probably be attached to config objects that will need them
+_Constants = _ConstantDefinitions()
 
-class constants:
-
-    class file_types:
-        netcdf = 'NCD'
-        ascii = 'ASC'
-        numpy = 'NPY'
-        numpy_zip = 'NPZ'
-        dataframe = 'DF'
 
 class wrapper(ConfigGroup):
     """
