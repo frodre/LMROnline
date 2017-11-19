@@ -17,6 +17,7 @@ Adapted from LMR_exp_NAMELIST by AndreP
 from os.path import join, exists
 from copy import deepcopy
 import yaml
+import numpy as np
 
 # If true, uses only LMR_config.  No yaml loading
 LEGACY_CONFIG = False
@@ -67,8 +68,8 @@ class _DatasetDescriptors(_YamlStorage):
     and forecaster configuration classes.
     """
 
-    def __init__(self):
-        super(_DatasetDescriptors, self).__init__('datasets.yml')
+    def __init__(self, filename=join(SRC_DIR, 'datasets.yml')):
+        super(_DatasetDescriptors, self).__init__(filename)
 
 
 class _GridDefinitions(_YamlStorage):
@@ -77,15 +78,43 @@ class _GridDefinitions(_YamlStorage):
     information necessary to construct a given grid in ESMpy regridding.
     """
 
-    def __init__(self):
-        super(_GridDefinitions, self).__init__('grid_def.yml')
+    def __init__(self, filename=join(SRC_DIR, 'grid_def.yml')):
+        super(_GridDefinitions, self).__init__(filename)
 
 
 class _ConstantDefinitions(_YamlStorage):
     """Stores constant information for LMR reconstructions"""
 
-    def __init__(self):
-        super(_ConstantDefinitions, self).__init__('constants.yml')
+    def __init__(self, filename=join(SRC_DIR, 'constants.yml')):
+        super(_ConstantDefinitions, self).__init__(filename)
+
+        # Convert month indices to more machine friendly 0-indexed non-negative
+        # values
+        for key, val in self.data['avg_interval'].iteritems():
+            avg_indices = val['elem_to_avg']
+            nelem_in_yr = val['nelem_in_yr']
+
+            avg_indices = np.array(avg_indices, dtype=np.int16)
+
+            if np.any(avg_indices < 0):
+                neg_ind = avg_indices < 0
+                pos_ind = avg_indices >= 0
+                negative_swapped = abs(avg_indices[neg_ind])
+                shifted_positive = avg_indices[pos_ind] + nelem_in_yr
+                avg_indices[neg_ind] = negative_swapped
+                avg_indices[pos_ind] = shifted_positive
+
+            # Convert from monthly number to array index (0-based)
+            avg_indices -= 1
+
+            if np.any(np.diff(avg_indices) > 1):
+                raise ValueError('Averaging indices in constants file '
+                                 'non-contiguous for key: {}. Code only '
+                                 'supports contiguous'
+                                 ' averaging currently.'.format(key))
+
+            val['elem_to_avg'] = avg_indices
+
 
 
 # Load dataset information on configuration import
@@ -93,7 +122,7 @@ _DataInfo = _DatasetDescriptors()
 _GridDef = _GridDefinitions()
 
 # TODO: these should probably be attached to config objects that will need them
-_Constants = _ConstantDefinitions()
+Constants = _ConstantDefinitions()
 
 
 class wrapper(ConfigGroup):

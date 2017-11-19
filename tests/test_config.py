@@ -5,16 +5,24 @@ import pytest
 import yaml
 import LMR_config as cfg
 import os
+import numpy as np
 
 from copy import deepcopy
 
 
 @pytest.fixture(scope='function')
 def data_descr(request):
-    with open(os.path.join(cfg._DEFAULT_DIR, 'datasets.yml'), 'r') as f:
+    with open(os.path.join(cfg.SRC_DIR, 'datasets.yml'), 'r') as f:
         tmp = yaml.load(f)
 
     return tmp
+
+@pytest.fixture(scope='module')
+def constant_def(request):
+    filepath = os.path.join(cfg.SRC_DIR, 'tests', 'test_constants.yml')
+    constants = cfg._ConstantDefinitions(filename=filepath)
+
+    return constants
 
 
 # Test that Config instance has all configuration objects attached and that
@@ -201,12 +209,10 @@ def test_datadescr_initialize():
 
 def test_datadescr_file_not_found():
 
-    tmp = cfg.SRC_DIR
-    cfg.SRC_DIR = '/dir/not/right'
+    root = os.path.abspath(os.sep)
+    wrong_filepath = os.path.join(root, 'incorrect_dir', 'datasets.yml')
     with pytest.raises(SystemExit):
-        cfg._DatasetDescriptors()
-
-    cfg._DEFAULT_DIR = tmp
+        cfg._DatasetDescriptors(filename=wrong_filepath)
 
 
 def test_datadescr_config_init():
@@ -239,10 +245,28 @@ def test_datadescr_non_default_datadir():
     assert cfg_obj.psm.linear.datadir_calib == '/new/data/dir/path'
 
 
+def test_constant_avg_period(constant_def):
+
+    annual = constant_def.get_info('avg_interval')['annual_std']
+
+    assert 'nelem_in_yr' in annual
+    assert 'elem_to_avg' in annual
+    assert 'nyears' in annual
+
+    np.testing.assert_array_equal(annual['elem_to_avg'],
+                                  range(annual['nelem_in_yr']))
 
 
+def test_constant_avg_period_negative_indices(constant_def):
+
+    negs = constant_def.get_info('avg_interval')['negative_vals']
+
+    np.testing.assert_array_equal(negs['elem_to_avg'],
+                                  range(9, 15))
 
 
+def test_constants_non_contiguous_avg_period():
 
-
-
+    with pytest.raises(ValueError):
+        path = os.path.join(cfg.SRC_DIR, 'tests', 'test_constants_fail.yml')
+        constants = cfg._ConstantDefinitions(filename=path)

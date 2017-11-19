@@ -1,0 +1,5 @@
+avg_interval:
+  non_contiguous:
+    nelem_in_yr: 12
+    elem_to_avg: [4, 5, 6, 10, 11, 12]
+    nyears: 1
