@@ -919,6 +919,13 @@ class psm(ConfigGroup):
             else:
                 self.pre_calib_datafile = self.pre_calib_datafile
 
+            if self.datainfo_calib['multiple_vars']:
+                raise ValueError('Ambiguous calibration variable source '
+                                 'detected in configuration.  If '
+                                 'multiple_vars is true for dataset, '
+                                 'calibration does not currently have ability t'
+                                 'o choose specific variable. Switch '
+                                 'datatag_calib in the config.')
             self.psm_required_variables = self.datainfo_calib['psm_vartype']
                 
     class linear_TorP(ConfigGroup):                
