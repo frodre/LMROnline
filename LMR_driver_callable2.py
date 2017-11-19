@@ -1,56 +1,79 @@
+"""
+Module: LMR_driver_callable.py
 
-# ==============================================================================
-# Program: LMR_driver_callable.py
-# 
-# Purpose: 
-#
-# Options: Options set in LMR_config.py
-# 
-# Originators: Greg Hakim   | Dept. of Atmospheric Sciences, Univ. of Washington
-#              Robert Tardif | January 2015
-# 
-# Revisions: 
-#  April 2015:
-#            - This version is callable by an outside script, accepts a single
-#              object, called state, which has everything needed for the driver
-#              (G. Hakim)
+Purpose: This is the "main" module of the LMR code.
+         Generates a paleoclimate reconstruction (single Monte-Carlo
+         realization) through the assimilation of a set of proxy data.
 
-#            - Re-organisation of code around PSM calibration and calculation of
-#              Code now assumes PSM parameters have been pre-calulated and
-#              Ye's are calculated up-front for all proxy types/sites. All
-#              proxy data are now also loaded up-front, prior to any loops.
-#              Ye's are appended to state vector to form an augmented state
-#              vector and are also updated by DA. (R. Tardif)
-#  May 2015:
-#            - Bug fix in calculation of global mean temperature + function
-#              now part of LMR_utils.py (G. Hakim)
-#  July 2015:
-#            - Switched time & proxy loops, simplified logic so more of the
-#              proxy and PSM specifics are contained within their classes,
-#              formatted to mostly adhere to PEP8 guidlines
-#              (A. Perkins)
-#  August 2015:
-#            - Heavily modified gridded datasets (prior/calibration) to use
-#              LMR_gridded.  This adds functionality for saving/loading pre-
-#              averaged files, as well as specification of shifting certain
-#              averages in time.  Took a lot of the dictionary logic from
-#              Robert's multi_state stuff and moved it to class attrs and funcs.
-#              (A. Perkins)
-#  Sept 2015:
-#             - Added forecast LIM for online Reconstructions (A. Perkins)
-# ==============================================================================
+Options: None.
+         Experiment parameters defined in LMR_config.
 
+Originators: Greg Hakim    | Dept. of Atmospheric Sciences, Univ. of Washington
+             Robert Tardif | January 2015
+
+Revisions:
+  April 2015:
+            - This version is callable by an outside script, accepts a single
+              object, called state, which has everything needed for the driver
+              (G. Hakim - U. of Washington)
+
+            - Re-organisation of code around PSM calibration and calculation of
+              Ye. Code now assumes PSM parameters have been pre-calulated and
+              Ye's are calculated up-front for all proxy types/sites. All
+              proxy data are now also loaded up-front, prior to any loops.
+              Ye's are appended to state vector to form an augmented state
+              vector and are also updated by DA. (R. Tardif - U. of Washington)
+    May 2015:
+            - Bug fix in calculation of global mean temperature + function
+              now part of LMR_utils.py (G. Hakim - U. of Washington)
+   July 2015:
+            - Switched time & proxy loops, simplified logic so more of the
+              proxy and PSM specifics are contained within their classes,
+              formatted to mostly adhere to PEP8 guidlines
+              (A. Perkins - U. of Washington)
+  April 2016:
+            - Added handling of the "sensitivity" attribute now attached to
+              proxy psm objects that defines the climate variable to which
+              each proxy record is deemed sensitive to.
+              (R. Tardif - U. of Washington)
+   July 2016:
+            - Slight code adjustments for handling possible use of PSM calibrated 
+              on the basis of proxy records seasonality metadata.
+              (R. Tardif - U. of Washington)
+ August 2016:
+            - Introduced new function that loads pre-calculated Ye values 
+              generated using psm types assigned to individual proxy types
+              as defined in the experiment configuration. 
+              (R. Tardif - U. of Washington)
+   Feb. 2017:
+            - Modifications to temporal loop to allow the production of 
+              reconstructions at lower temporal resolution (i.e. other
+              than annual).
+              (R. Tardif - U. of Washington)
+  March 2017:
+            - Added possibility to by-pass the regridding (truncation of the state).
+              (R. Tardif - U. of Washington)
+            - Added another option for regridding that works on gridded 
+              fields with missing values (masked grid points. e.g. ocean fields) 
+              (R. Tardif - U. of Washington)
+            - Replaced the hared-coded truncation resolution (T42) of spatial fields 
+              updated during the DA (i.e. reconstruction resolution) by a 
+              user-specified value set in the configuration.
+ August 2017:
+            - Included the Ye's from withheld proxies to state vector so they get 
+              updated during DA as well for easier & complete proxy-based evaluation
+              of reconstruction. (R. Tardif - U. of Washington)
+"""
 import numpy as np
 from os.path import join
 from time import time
-from itertools import izip, izip_longest
 
 import LMR_proxy2
 import LMR_gridded
 from LMR_utils2 import global_mean2
 import LMR_config as BaseCfg
 import LMR_forecaster
-from LMR_DA import enkf_update_array2, cov_localization
+from LMR_DA import enkf_update_array_xb_blend, cov_localization
 
 
 # *** Helper Methods
@@ -80,19 +103,20 @@ def _calc_yevals_from_prior(assim_res_vals, res_yr_shift, ye_shp, xb_state,
 def LMR_driver_callable(cfg=None):
 
     if cfg is None:
-        cfg = BaseCfg  # Use base configuration from LMR_config
+        cfg = BaseCfg.Config()  # Use base configuration from LMR_config
 
     # Temporary fix for old 'state usage'
     core = cfg.core
     prior = cfg.prior
 
     # verbose controls print comments (0 = none; 1 = most important;
-    #  2 = many; >=3 = all)
-    verbose = 1
+    #  2 = many; 3 = a lot; >=4 = all)
+    verbose = cfg.LOG_LEVEL
 
     nexp = core.nexp
     workdir = core.datadir_output
     recon_period = core.recon_period
+    recon_timescale = core.recon_timescale
     online = core.online_reconstruction
     persistence = core.persistence_forecast
     hybrid_update = core.hybrid_update
@@ -102,6 +126,7 @@ def LMR_driver_callable(cfg=None):
     inf_factor = core.inf_factor
     nens = core.nens
     loc_rad = core.loc_rad
+    inflation_fact = core.inflation_fact
     trunc_state = prior.truncate_state
     state_backend = prior.backend_type
     assim_res_vals = core.assimilation_time_res
@@ -110,6 +135,10 @@ def LMR_driver_callable(cfg=None):
     sub_base_res = core.sub_base_res
     res_assim_freq = (np.array(assim_res_vals)/base_res).astype(np.int16)
     res_yr_shift = core.res_yr_shift
+    state_variables = prior.state_variables
+    state_variables_info = prior.state_variables_info
+    regrid_method = prior.regrid_method
+    regrid_resolution = prior.regrid_resolution
 
     # ==========================================================================
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< MAIN CODE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -128,7 +157,6 @@ def LMR_driver_callable(cfg=None):
 
     # Define the number of years of the reconstruction (nb of assimilation
     # times)
-    # Note: recon_period is defined in namelist
     ntimes = recon_period[1] - recon_period[0] + 1
     recon_times = np.arange(recon_period[0], recon_period[1]+1)
 
@@ -150,6 +178,23 @@ def LMR_driver_callable(cfg=None):
         print 'Loading completed in ' + str(load_time)+' seconds'
         print '-----------------------------------------------------'
 
+    # check covariance inflation from config
+    if inflation_fact is not None and verbose > 2:
+        print('\nUsing covariance inflation factor: %8.2f' %inflate)
+
+    # ==========================================================================
+    # Calculate regridded state from prior, if option chosen -------------------
+    # ==========================================================================
+
+    # TODO: Regridding here
+    if trunc_state:
+        Xb_one = Xb_one_full.truncate_state()
+    else:
+        Xb_one = Xb_one_full.copy()
+
+    # Keep dimension of pre-augmented version of state vector
+    state_dim = Xb_one.shape[0]
+
     # ==========================================================================
     # Get information on proxies to assimilate ---------------------------------
     # ==========================================================================
@@ -163,48 +208,34 @@ def LMR_driver_callable(cfg=None):
 
     # Build dictionaries of proxy sites to assimilate and those set aside for
     # verification
-    prox_manager = LMR_proxy2.ProxyManager(BaseCfg, recon_period)
+    prox_manager = LMR_proxy2.ProxyManager(cfg, recon_period)
     type_site_assim = prox_manager.assim_ids_by_group
 
     if verbose > 0:
         print 'Assimilating proxy types/sites:', type_site_assim
 
-    # ==========================================================================
-    # Calculate all Ye's (for all sites in sites_assim) ------------------------
-    # ==========================================================================
+    if verbose > 0:
+        print '--------------------------------------------------------------------'
+        print 'Proxy counts for experiment:'
+        # count the total number of proxies
+        assim_proxy_count = len(prox_manager.ind_assim)
+        for pkey, plist in sorted(type_site_assim.iteritems()):
+            print('%45s : %5d' % (pkey, len(plist)))
+        print('%45s : %5d' % ('TOTAL', assim_proxy_count))
+        print '--------------------------------------------------------------------'
 
-    print '--------------------------------------------------------------------'
-    print 'Proxy counts for experiment:'
-    # count the total number of proxies
-    total_proxy_count = len(prox_manager.ind_assim)
-    for pkey, plist in type_site_assim.iteritems():
-        print('%45s : %5d' % (pkey, len(plist)))
-    print('%45s : %5d' % ('TOTAL', total_proxy_count))
-    print '--------------------------------------------------------------------'
-
-    proxy_load_time = time() - begin_time_proxy_load
     if verbose > 2:
+        proxy_load_time = time() - begin_time_proxy_load
         print '-----------------------------------------------------'
         print 'Loading completed in ' + str(proxy_load_time) + ' seconds'
         print '-----------------------------------------------------'
-
-    # ==========================================================================
-    # Calculate truncated state from prior, if option chosen -------------------
-    # ==========================================================================
-
-    if trunc_state:
-        Xb_one = Xb_one_full.truncate_state()
-    else:
-        Xb_one = Xb_one_full.copy()
-
-    # Keep dimension of pre-augmented version of state vector
-    state_dim = Xb_one.shape[0]
 
     # ----------------------------------
     # Augment state vector with the Ye's
     # ----------------------------------
 
-    # TODO: Figure out how to handle precalculated YE Vals larger than 1 yr
+    # TODO: Figure out how to handle precalculated YE Vals
+    # TODO: append eval proxy YE values
     # Extract all the Ye's from master list of proxy objects into numpy array
     ye_shp = (total_proxy_count, nens)
     ye_all = _calc_yevals_from_prior(assim_res_vals, res_yr_shift, ye_shp,
@@ -220,6 +251,8 @@ def LMR_driver_callable(cfg=None):
              stateDim=state_dim,
              Xb_one_coords=Xb_one.var_coords,
              state_info=Xb_one.old_state_info)
+
+    # TODO: replicate single variable prior saving
 
     # Initialize forecaster for online reconstructions
     if online:
@@ -356,11 +389,9 @@ def LMR_driver_callable(cfg=None):
                         shmt_save[iproxy, curr_yr_idx]
                     continue
 
-                if verbose > 2:
-                    print '--------------- Processing proxy: ' + Y.id
-
                 if verbose > 1:
-                    print ''
+                    print '--------------- Processing proxy: ' + Y.id
+                if verbose > 2:
                     print 'Site:', Y.id, ':', Y.type
                     print ' latitude, longitude: ' + str(Y.lat), str(Y.lon)
 
@@ -404,10 +435,10 @@ def LMR_driver_callable(cfg=None):
                     hybrid_tup = None
 
                 # Update the state
-                Xa = enkf_update_array2(Xb_one.state_list[Y.subannual_idx],
-                                        Y.values[t], Ye, ob_err, loc,
-                                        static_prior=hybrid_tup,
-                                        a=hybrid_a_val)
+                Xa = enkf_update_array_xb_blend(Xb_one.state_list[Y.subannual_idx],
+                                                Y.values[t], Ye, ob_err, loc,
+                                                static_prior=hybrid_tup,
+                                                a=hybrid_a_val)
 
                 Xb_one.state_list[Y.subannual_idx] = Xa
 
@@ -523,13 +554,15 @@ def LMR_driver_callable(cfg=None):
              tpcount=total_proxy_count)
 
     # TODO: (AP) The assim/eval lists of lists instead of lists of 1-item dicts
-    assimilated_proxies = [{p.type: [p.id, p.lat, p.lon, p.time]}
+    assimilated_proxies = [{p.type: [p.id, p.lat, p.lon, p.time,
+                                     p.psm_obj.sensitivity]}
                            for p in prox_manager.sites_assim_proxy_objs()]
     filen = join(workdir, 'assimilated_proxies')
     np.save(filen, assimilated_proxies)
     
     # collecting info on non-assimilated proxies and save to file
-    nonassimilated_proxies = [{p.type: [p.id, p.lat, p.lon, p.time]}
+    nonassimilated_proxies = [{p.type: [p.id, p.lat, p.lon, p.time,
+                                        p.psm_obj.sensitivity]}
                               for p in prox_manager.sites_eval_proxy_objs()]
     if nonassimilated_proxies:
         filen = join(workdir, 'nonassimilated_proxies')
@@ -543,7 +576,7 @@ def LMR_driver_callable(cfg=None):
         print '====================================================='
 
     # TODO: best method for Ye saving?
-    return prox_manager.sites_assim_proxy_objs()
+    return prox_manager.sites_assim_proxy_objs(), prox_manager.sites_eval_proxy_objs()
 # ------------------------------------------------------------------------------
 # --------------------------- end of main code ---------------------------------
 # ------------------------------------------------------------------------------

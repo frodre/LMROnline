@@ -90,7 +90,6 @@ class ProxyManager:
 
         # Sample subset from all proxies if specified
         if proxy_frac < 1.0:
-
             nsites_assim = int(nsites * proxy_frac)
 
             seed(config.proxies.seed)

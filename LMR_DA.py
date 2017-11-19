@@ -96,8 +96,8 @@ def enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None, inflate=None,
     return Xa
 
 
-def enkf_update_array2(Xb, obvalue, Ye, ob_err, loc=None, inflate=None,
-                       static_prior=None, a=1):
+def enkf_update_array_xb_blend(Xb, obvalue, Ye, ob_err, loc=None, inflate=None,
+                               static_prior=None, a=1):
     """
     Temporary second function to ensure that nothing changes when updating
     the syntax... AndreP

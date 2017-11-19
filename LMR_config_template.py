@@ -14,7 +14,7 @@ NOTE:  All general user parameters that should be edited are displayed
 Adapted from LMR_exp_NAMELIST by AndreP
 """
 
-from os.path import join
+from os.path import join, exists
 from copy import deepcopy
 import yaml
 
@@ -23,11 +23,12 @@ LEGACY_CONFIG = False
 
 # Absolute path to LMR source code directory
 #SRC_DIR = '/home/disk/ekman/rtardif/codes/LMR/pyLMR'
-SRC_DIR = '/home/disk/ice4/hakim/gitwork/LMR'
+# SRC_DIR = '/home/disk/ice4/hakim/gitwork/LMR'
+SRC_DIR = '/home/disk/p/wperkins/Research/LMR'
 
 # Control logging output. (0 = none; 1 = most important; 2 = many; 3 = a lot;
 #   >=4 all)
-LOG_LEVEL = 4
+LOG_LEVEL = 2
 
 # Class for distinction of configuration classes
 class ConfigGroup(object):
@@ -79,19 +80,21 @@ class _GridDefinitions(_YamlStorage):
     def __init__(self):
         super(_GridDefinitions, self).__init__('grid_def.yml')
 
+
+class _ConstantDefinitions(_YamlStorage):
+    """Stores constant information for LMR reconstructions"""
+
+    def __init__(self):
+        super(_ConstantDefinitions, self).__init__('constants.yml')
+
+
 # Load dataset information on configuration import
 _DataInfo = _DatasetDescriptors()
 _GridDef = _GridDefinitions()
 
+# TODO: these should probably be attached to config objects that will need them
+_Constants = _ConstantDefinitions()
 
-class constants:
-
-    class file_types:
-        netcdf = 'NCD'
-        ascii = 'ASC'
-        numpy = 'NPY'
-        numpy_zip = 'NPZ'
-        dataframe = 'DF'
 
 class wrapper(ConfigGroup):
     """
@@ -267,9 +270,9 @@ class core(ConfigGroup):
         self.use_precalc_ye = self.use_precalc_ye
         self.ignore_pre_avg_file = self.ignore_pre_avg_file
         self.save_pre_avg_file = self.save_pre_avg_file
-        self.recon_period = self.recon_period
+        self.recon_period = tuple(self.recon_period)
         self.nens = self.nens
-        self.recon_timescale = list(self.recon_timescale)
+        self.recon_timescale = self.recon_timescale
         self.seed = self.seed
         self.loc_rad = self.loc_rad
         self.inflation_factor = self.inflation_factor
@@ -281,7 +284,6 @@ class core(ConfigGroup):
         self.adaptive_inflate = self.adaptive_inflate
         self.reg_inflate = self.reg_inflate
         self.inflation_factor = self.inflation_factor
-        self.sub_base_res = self.sub_base_res
 
         if curr_iter is None:
             self.curr_iter = wrapper.iter_range[0]
@@ -409,7 +411,7 @@ class proxies(ConfigGroup):
         # initialization of the proxy group configurations.
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(**kwargs)
+            super(proxies.ProxyConfigGroup, self).__init__(**kwargs)
             if lmr_path is None:
                 lmr_path = core.lmr_path
 
@@ -431,8 +433,8 @@ class proxies(ConfigGroup):
             self.proxy_psm_type = deepcopy(self.proxy_psm_type)
             self.proxy_assim2 = deepcopy(self.proxy_assim2)
             self.proxy_blacklist = list(self.proxy_blacklist)
-            self.proxy_availability_filter = self.proxy_availability_filter
-            self.proxy_availability_fraction = self.proxy_availability_fraction
+            self.proxy_availability_filter = proxies.proxy_availability_filter
+            self.proxy_availability_fraction = proxies.proxy_availability_fraction
 
             # Create mapping for Proxy Type/Measurement Type to type names above
             self.proxy_type_mapping = {}
@@ -540,7 +542,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(lmr_path=lmr_path, **kwargs)
+            super(proxies.PAGES2kv1, self).__init__(lmr_path=lmr_path, **kwargs)
 
             self.simple_filters = {'PAGES 2k Region': self.regions,
                                    'Resolution (yr)': self.proxy_resolution}
@@ -698,7 +700,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(lmr_path=lmr_path, **kwargs)
+            super(proxies.LMRdb, self).__init__(lmr_path=lmr_path, **kwargs)
             self.database_filter = list(self.database_filter)
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
 
@@ -774,7 +776,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(self.__class__, self).__init__(lmr_path=lmr_path, **kwargs)
+            super(proxies.ncdcdtda, self).__init__(lmr_path=lmr_path, **kwargs)
 
             self.database_filter = list(self.database_filter)
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
@@ -869,7 +871,7 @@ class psm(ConfigGroup):
                                   'PSM', 'test_psms',
                                   'PSMs_' + datatag_calib +
                                   '_1pt0res_1.00datfrac')
-        psm_r_crit = 0.2
+        psm_r_crit = 0.0
         min_data_req_frac = 1.0  # 0.0 no data required, 1.0 all data required
         ##** END User Parameters **##
 
@@ -983,102 +985,16 @@ class psm(ConfigGroup):
         def __init__(self, lmr_path=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
-            self.datatag_calib_T = self.datatag_calib_T
-            dataset_descr_T = _DataInfo.get_info(self.datatag_calib_T)
-            self.datainfo_calib_T = dataset_descr_T['info']
-            self.datadir_calib_T = dataset_descr_T['datadir']
-            self.datafile_calib_T = dataset_descr_T['datafile']
-            self.dataformat_calib_T = dataset_descr_T['dataformat']
+            temp_kwarg = {'datatag_calib': self.datatag_calib_T,
+                          'pre_calib_datafile': self.pre_calib_datafile_T}
+            mois_kwarg = {'datatag_calib': self.datatag_calib_P,
+                          'pre_calib_datafile': self.pre_calib_datafile_P}
 
-            
-            self.datatag_calib_P = self.datatag_calib_P
-            dataset_descr_P = _DataInfo.get_info(self.datatag_calib_P)
-            self.datainfo_calib_P = dataset_descr_P['info']
-            self.datadir_calib_P = dataset_descr_P['datadir']
-            self.datafile_calib_P = dataset_descr_P['datafile']
-            self.dataformat_calib_P = dataset_descr_P['dataformat']
+            # Configuration for temperature and moisture psms
+            self.temperature = psm.linear(lmr_path=lmr_path, **temp_kwarg)
+            self.moisture = psm.linear(lmr_path=lmr_path, **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
-            
-            if '-'.join(proxies.use_from) == 'PAGES2kv1' and 'season' in psm.avg_period:
-                print 'ERROR: Trying to use seasonality information with the PAGES2kv1 proxy records.'
-                print '       No seasonality metadata provided in that dataset. Exiting!'
-                print '       Change avgPeriod to "annual" in your configuration.'
-                raise SystemExit()
-
-            try:
-                if psm.avg_period == 'annual':
-                    self.avgPeriod = psm.avg_period
-                elif psm.avg_period == 'season' and psm.season_source:
-                    if psm.season_source == 'proxy_metadata':
-                        self.avgPeriod = psm.avg_period + 'META'
-                    elif psm.season_source == 'psm_calib':
-                        self.avgPeriod = psm.avg_period + 'PSM'
-                    else:
-                        print('ERROR: unrecognized psm.season_source attribute!')
-                        raise SystemExit()
-                else:
-                    self.avgPeriod = psm.avg_period
-            except:
-                self.avgPeriod = psm.avg_period
-
-
-            if lmr_path is None:
-                lmr_path = core.lmr_path
-
-            if self.datadir_calib_T is None:
-                self.datadir_calib_T = join(lmr_path, 'data', 'analyses')
-            if self.datadir_calib_P is None:
-                self.datadir_calib_P = join(lmr_path, 'data', 'analyses')
-                
-            if self.pre_calib_datafile_T is None:
-                if '-'.join(proxies.use_from) == 'LMRdb':
-                    dbversion = proxies.LMRdb.dbversion
-                    filename_t = ('PSMs_' + '-'.join(proxies.use_from) +
-                                  '_' + dbversion +
-                                  '_' + self.avgPeriod +
-                                  '_' + self.datatag_calib_T + '.pckl')
-                else:
-                    filename_t = ('PSMs_' + '-'.join(proxies.use_from) +
-                                  '_' + self.datatag_calib_T + '.pckl')
-                self.pre_calib_datafile_T = join(lmr_path,
-                                                 'PSM',
-                                                 filename_t)
-            else:
-                self.pre_calib_datafile_T = self.pre_calib_datafile_T
-
-
-                
-            if self.pre_calib_datafile_P is None:
-                if '-'.join(proxies.use_from) == 'LMRdb':
-                    dbversion = proxies.LMRdb.dbversion
-                    filename_p = ('PSMs_' + '-'.join(proxies.use_from) +
-                                  '_' + dbversion +
-                                  '_' + self.avgPeriod +
-                                  '_' + self.datatag_calib_P + '.pckl')
-                else:
-                    filename_p = ('PSMs_' + '-'.join(proxies.use_from) +
-                              '_' + self.datatag_calib_P + '.pckl')
-                self.pre_calib_datafile_P = join(lmr_path,
-                                                 'PSM',
-                                                 filename_p)
-            else:
-                self.pre_calib_datafile_P = self.pre_calib_datafile_P
-
-            # association of calibration sources and state variables needed to calculate Ye's
-            required_variables = {'tas_sfc_Amon': 'anom'} # start with temperature
-
-            # now check for moisture & add variable to list
-            if self.datatag_calib_P == 'GPCC':
-                    required_variables['pr_sfc_Amon'] = 'anom'
-            elif self.datatag_calib_P == 'DaiPDSI':
-                    required_variables['scpdsi_sfc_Amon'] = 'anom'
-            else:
-                raise KeyError('Unrecognized moisture calibration source.'
-                               ' State variable not identified for Ye calculation.')
-
-            self.psm_required_variables = required_variables
-
                 
     class bilinear(ConfigGroup):
         """
@@ -1127,52 +1043,14 @@ class psm(ConfigGroup):
         def __init__(self, lmr_path=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
-            self.datatag_calib_T = self.datatag_calib_T
-            dataset_descr_T = _DataInfo.get_info(self.datatag_calib_T)
-            self.datainfo_calib_T = dataset_descr_T['info']
-            self.datadir_calib_T = dataset_descr_T['datadir']
-            self.datafile_calib_T = dataset_descr_T['datafile']
-            self.dataformat_calib_T = dataset_descr_T['dataformat']
+            temp_kwarg = {'datatag_calib': self.datatag_calib_T}
+            mois_kwarg = {'datatag_calib': self.datatag_calib_P}
 
-            self.datatag_calib_P = self.datatag_calib_P
-            dataset_descr_P = _DataInfo.get_info(self.datatag_calib_P)
-            self.datainfo_calib_P = dataset_descr_P['info']
-            self.datadir_calib_P = dataset_descr_P['datadir']
-            self.datafile_calib_P = dataset_descr_P['datafile']
-            self.dataformat_calib_P = dataset_descr_P['dataformat']
+            # Configuration for temperature and moisture psms
+            self.temperature = psm.linear(lmr_path=lmr_path, **temp_kwarg)
+            self.moisture = psm.linear(lmr_path=lmr_path, **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
-
-            if '-'.join(proxies.use_from) == 'PAGES2kv1' and 'season' in psm.avg_period:
-                print 'ERROR: Trying to use seasonality information with the PAGES2kv1 proxy records.'
-                print '       No seasonality metadata provided in that dataset. Exiting!'
-                print '       Change avgPeriod to "annual" in your configuration.'
-                raise SystemExit()
-
-            try:
-                if psm.avg_period == 'annual':
-                    self.avgPeriod = psm.avg_period
-                elif psm.avg_period == 'season' and psm.season_source:
-                    if psm.season_source == 'proxy_metadata':
-                        self.avgPeriod = psm.avg_period + 'META'
-                    elif psm.season_source == 'psm_calib':
-                        self.avgPeriod = psm.avg_period + 'PSM'
-                    else:
-                        print('ERROR: unrecognized psm.season_source attribute!')
-                        raise SystemExit()
-                else:
-                    self.avgPeriod = psm.avg_period
-            except:
-                self.avgPeriod = psm.avg_period
-
-            
-            if lmr_path is None:
-                lmr_path = core.lmr_path
-            
-            if self.datadir_calib_T is None:
-                self.datadir_calib_T = join(lmr_path, 'data', 'analyses')
-            if self.datadir_calib_P is None:
-                self.datadir_calib_P = join(lmr_path, 'data', 'analyses')
                 
             if self.pre_calib_datafile is None:
                 if '-'.join(proxies.use_from) == 'LMRdb':
@@ -1191,21 +1069,6 @@ class psm(ConfigGroup):
                                                  filename)
             else:
                 self.pre_calib_datafile = self.pre_calib_datafile
-
-            # association of calibration sources and state variables needed to calculate Ye's
-            required_variables = {'tas_sfc_Amon': 'anom'} # start with temperature
-
-            # now check for moisture & add variable to list
-            if self.datatag_calib_P == 'GPCC':
-                    required_variables['pr_sfc_Amon'] = 'anom'
-            elif self.datatag_calib_P == 'DaiPDSI':
-                    required_variables['scpdsi_sfc_Amon'] = 'anom'
-            else:
-                raise KeyError('Unrecognized moisture calibration source.'
-                               ' State variable not identified for Ye calculation.')
-
-            self.psm_required_variables = required_variables
-
         
     class h_interp(ConfigGroup):
         """
@@ -1365,42 +1228,44 @@ class prior(ConfigGroup):
     dataformat_prior: str
         Datatype of prior container ('NCD' for netCDF, 'TXT' for ascii files).
         Note: Currently not used. 
-    truncate_state: bool
-        Flag to truncate state vector to T42 spherical harmonic space
     backend_type: str
         Which backend to use for storing prior data during updates with
         shifted assimilation resolution.  Allowed flags are 'NPY' for numpy
         and 'H5' for HDF5 backends.
-    state_variables: dict.
-       Dict. of the form {'var1': 'kind1', 'var2':'kind2', etc.} where 'var1', 'var2', etc.
-       (keys of the dict) are the names of the state variables to be included in the state
-       vector and 'kind1', 'kind2' etc. are the associated "kind" for each state variable
-       indicating whether anomalies ('anom') or full field ('full') are desired. 
+    state_variables: dict
+       Dict. of the form {'var1': 'kind1', 'var2':'kind2', etc.} where 'var1', 
+       'var2', etc. (keys of the dict) are the names of the state variables to 
+       be included in the state vector and 'kind1', 'kind2' etc. are the 
+       associated "kind" for each state variable indicating whether anomalies 
+       ('anom') or full field ('full') are desired. 
     detrend: bool
-        Indicates whether to detrend the prior or not. Applies to ALL state variables.
+        Indicates whether to detrend the prior or not. Applies to ALL state 
+        variables.
     avgInterval: dict OR list(int) 
-        dict of the form {'type':value} where 'type' indicates the type of averaging
-        ('annual' or 'multiyear'). 
+        dict of the form {'type':value} where 'type' indicates the type of 
+        averaging ('annual' or 'multiyear'). 
         If type = 'annual', the corresponding value is a 
-        list of integers indficsting the months of the year over which the averaging
-        is the be performed (ex. [6,7,8] for JJA).
-        If type = 'multiyear', the list is composed of a single integer indicating
-        the length of the averaging period, in number of years 
+        list of integers indficsting the months of the year over which the 
+        averaging is the be performed (ex. [6,7,8] for JJA).
+        If type = 'multiyear', the list is composed of a single integer 
+        indicating the length of the averaging period, in number of years 
         (ex. [100] for prior returned as 100-yr averages).
         -OR-
-        List of integers indicating the months over which to average the annual prior.
-        (as 'annual' above).
+        List of integers indicating the months over which to average the annual 
+        prior. (as 'annual' above).
     regrid_method: str
-        String indicating the method used to regrid the prior to lower spatial resolution.
+        String indicating the method used to regrid the prior to lower spatial 
+        resolution.
         Allowed options are: 
         1) None : Regridding NOT performed. 
         2) 'spherical_harmonics' : Original regridding using pyspharm library.
-        3) 'simple': Regridding through simple inverse distance averaging of surrounding grid points.
+        3) 'simple': Regridding through simple inverse distance averaging of 
+            surrounding grid points.
         4) 'esmpy': Regridding using the ESMpy package. Includes bilinear and
            higher-order patch fit regridding.
     regrid_resolution: int
-        Integer representing the triangular truncation of the lower resolution grid (e.g. 42 for T42).
-        Not used for 'esmpy' regrid_method.
+        Integer representing the triangular truncation of the lower resolution 
+        grid (e.g. 42 for T42). Not used for 'esmpy' regrid_method.
     esmpy_interp_method: str
         Which ESMpy regridding method to use.  Currently supports bilinear or 
         higher-oder patch fit interpolation regridding.
@@ -1409,7 +1274,8 @@ class prior(ConfigGroup):
         Currently supports 't42' and 'reg_4x5deg'.
     state_variables_info: dict
         Defines which variables represent temperature or moisture.
-        Should be modified only if a new temperature or moisture state variable is added. 
+        Should be modified only if a new temperature or moisture state variable 
+        is added. 
     """
 
     ##** BEGIN User Parameters **##
@@ -1459,33 +1325,30 @@ class prior(ConfigGroup):
     # by default, considers the entire length of the simulation
     detrend = False
 
-    truncate_state = True
+    # In memory ('NPY') or out of memory ('H5') state handling
     backend_type = 'NPY'
 
     # Method for regridding to lower resolution grid.
     # Possible methods:
     # 1) None : No regridding performed. 
-    # 2) 'spherical_harmonics': through spherical harmonics using pyspharm library.
-    #    Note: Does *NOT* handle fields with missing/masked values (e.g. ocean variables)
-    # 3) 'simple': through simple interpolation using distance-weighted averaging.
-    #    Note: fields with missing/masked values (e.g. ocean variables) allowed.
-    # 4) 'esmpy': regridding facilitated by ESMpy package, includes blinear,
-    #    and higher order patch interpolation
+    # 2) 'spherical_harmonics': through spherical harmonics using pyspharm
+    #    library. Note: Does *NOT* handle fields with missing/masked values (
+    #    e.g. ocean variables)
+    # 3) 'simple': through simple interpolation using distance-weighted
+    #    averaging. Note: fields with missing/masked values (e.g. ocean
+    #    variables) allowed.
+    # 4) 'esmpy': regridding facilitated by ESMpy package, includes
+    #    bilinear, and higher order patch interpolation
     regrid_method = 'simple'
-    # resolution of truncated grid, based on triangular truncation (e.g., use 42 for T42))
+    # resolution of truncated grid, based on triangular truncation (e.g.,
+    # use 42 for T42))
     regrid_resolution = 42
+
+    # ESMpy regridding options
     esmpy_interp_method = 'bilinear'
     esmpy_regrid_to = 't42'
 
-    # Dict. defining which variables represent temperature or moisture.
-    # To be modified only if a new temperature or moisture state variable is added. 
-    state_variables_info = {'temperature': ['tas_sfc_Amon'],
-                            'moisture': ['pr_sfc_Amon', 'scpdsi_sfc_Amon']}
-
-
-
     ##** END User Parameters **##
-
 
     def __init__(self, lmr_path=None, seed=None, **kwargs):
         super(self.__class__, self).__init__(**kwargs)
@@ -1499,7 +1362,6 @@ class prior(ConfigGroup):
         self.dataformat_prior = dataset_descr['dataformat']
 
         self.state_variables = deepcopy(self.state_variables)
-        self.state_variables_info = deepcopy(self.state_variables_info)
         self.detrend = self.detrend
         self.regrid_method = self.regrid_method
         self.anom_reference = self.anom_reference
@@ -1515,15 +1377,15 @@ class prior(ConfigGroup):
             self.datadir_prior = join(lmr_path, 'data', 'model',
                                       self.prior_source)
 
+        # TODO: Move these into visible configuration param
         if core.recon_timescale == 1:
-            self.avgInterval = {'annual': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-                                           12]}  # annual (calendar) as default
+            self.avg_interval = {'annual': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}  # annual (calendar) as default
         elif core.recon_timescale > 1:
             # new format for CCSM3 TraCE21ka:
-            self.avgInterval = {'multiyear': [core.recon_timescale]}
+            self.avg_interval = {'multiyear': [core.recon_timescale]}
         else:
-            print('ERROR in config.: unrecognized core.recon_timescale!')
-            raise SystemExit()
+            raise ValueError('ERROR in config.: unrecognized '
+                             'core.recon_timescale!')
 
         if self.regrid_method != 'esmpy':
             self.regrid_resolution = int(self.regrid_resolution)
@@ -1540,11 +1402,10 @@ class prior(ConfigGroup):
         if var_mismat:
             raise SystemExit(('Could not find requested variable(s) {} in the '
                               'list of available variables for the {} '
-                              'dataset').format(var_mismat,
-                                                self.prior_source))
+                              'dataset').format(var_mismat, self.prior_source))
 
 
-class forecaster:
+class forecaster(ConfigGroup):
     """
     Parameters for the online DA forecasting method.
 
@@ -1557,7 +1418,7 @@ class forecaster:
     # Which forecaster class to use
     use_forecaster = 'lim'
 
-    class LIM:
+    class lim(ConfigGroup):
         """
         calib_filename: Filename for LIM calibration data.  Should be netcdf
                         file or an HDF5 file from the DataTools.netcdf_to_hdf5_
@@ -1602,22 +1463,57 @@ class forecaster:
 
         # NOTE: for BerkeleyEarth data switch calib_is_anomaly and
         # calib_is_run_mean to TRUE
-        calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/'
-                         'analyses/Experimental/tas_run_mean_berkely_'
-                         'earth_monthly_195701-201412.nc')
+        datatag_calib = 'ccsm4_last_millenium'
         calib_varname = 'tas_run_mean'
 
-        dataformat = 'NCD'
-        calib_is_anomaly = True
-        calib_is_runmean = True
-        fcast_times = [1]
-        wsize = 12
-        fcast_num_pcs = 8
-        detrend = True
-        ignore_precalib = False
-        use_ens_mean_fcast = False
+        # dataformat = 'NCD'
+        # calib_is_anomaly = True
+        # calib_is_runmean = True
+        # fcast_times = [1]
+        # wsize = 12
+        # fcast_num_pcs = 8
+        # detrend = True
+        # ignore_precalib = False
+        # use_ens_mean_fcast = False
+        #
+        # eig_adjust = None
 
-        eig_adjust = None
+        def __init__(self, lmr_path=None, **kwargs):
+
+            super(ConfigGroup, self).__init__(**kwargs)
+
+            if lmr_path is None:
+                lmr_path = core.lmr_path
+
+            self.datatag_calib = self.datatag_calib
+            dataset_descr = _DataInfo.get_info(self.datatag_calib)
+            self.datainfo_calib = dataset_descr['info']
+            self.datadir_calib = dataset_descr['datadir']
+            self.datafile_calib = dataset_descr['datafile']
+            self.dataformat_calib = dataset_descr['dataformat']
+
+            self.calib_varname = self.calib_varname
+
+            if self.datadir_calib is None:
+                model_dir = join(lmr_path, 'data', 'model', self.datatag_calib)
+                analysis_dir = join(lmr_path, 'data', 'analyses',
+                                    self.datatag_calib)
+
+                self.datadir_calib = model_dir
+
+                # if exists(join(model_dir, self.datafile_calib)):
+                #     self.datadir_calib = model_dir
+                # elif exists(join(analysis_dir, self.datafile_calib)):
+                #     self.datadir_calib = analysis_dir
+                # else:
+                #     raise ValueError('Could not find calibration datafile in '
+                #                      'default model or analyses directory.')
+
+    def __init__(self, lmr_path=None, **kwargs):
+        self.lim = self.lim(lmr_path=lmr_path, **kwargs.pop('lim', {}))
+
+        super(ConfigGroup, self).__init__(**kwargs)
+        self.use_forecaster = self.use_forecaster
 
 
 class Config(ConfigGroup):
@@ -1641,6 +1537,8 @@ class Config(ConfigGroup):
         self.prior = prior(lmr_path=lmr_path,
                            seed=seed,
                            **kwargs.pop('prior', {}))
+        self.forecaster = forecaster(lmr_path=lmr_path,
+                                     **kwargs.pop('forecaster', {}))
 
 
 def is_config_class(obj):
@@ -1715,7 +1613,7 @@ def update_config_class_yaml(yaml_dict, cfg_module):
 
 
 if __name__ == "__main__":
-    kwargs = {'wrapper': {'multi_seed': [1, 2, 3]},
-              'psm': {'linear': {'datatag_calib': 'BE'}}}
-    tmp = Config(**kwargs)
+    # kwargs = {'wrapper': {'multi_seed': [1, 2, 3]},
+    #           'psm': {'linear': {'datatag_calib': 'BE'}}}
+    tmp = Config()
     pass

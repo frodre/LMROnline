@@ -1,0 +1,36 @@
+file_types:
+  netcdf: NCD
+  ascii: ASC
+  numpy: NPY
+  numpy_zip: NPZ
+  datafram: DF
+
+avg_interval:
+  annual_std:
+    nelem_in_yr: 12
+    elem_to_avg: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  annual_tropical:
+    nelem_in_yr: 12
+    elem_to_avg: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  nh_growing:
+    nelem_in_yr: 12
+    elem_to_avg: [4, 5, 6, 7, 8, 9]
+  sh_growing:
+    nelem_in_yr: 12
+    elem_to_avg: [-10, -11, -12, 1, 2, 3]
+  djf:
+    nelem_in_yr: 12
+    elem_to_avg: [-12, 1, 2]
+  mam:
+    nelem_in_yr: 12
+    elem_to_avg: [3, 4, 5]
+  jja:
+    nelem_in_yr: 12
+    elem_to_avg: [6, 7, 8]
+  son:
+    nelem_in_yr: 12
+    elem_to_avg: [9, 10, 11]
+  decadal:
+    nelem_in_yr: 1
+    elem_to_avg: [10]
+

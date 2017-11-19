@@ -38,6 +38,10 @@ class GriddedVariable(object):
 
     __metaclass__ = ABCMeta
 
+    PRE_PROCESSED_FILETAG = '.pre_{}.h5'
+    PRE_PROCESSED_OBJ_NODENAME = 'grid_object'
+    PRE_PROCESSED_DATA_NODENAME = 'grid_object_data'
+
     def __init__(self, name, dims_ordered, data, resolution, time=None,
                  lev=None, lat=None, lon=None, fill_val=None,
                  sampled=None):
@@ -49,7 +53,8 @@ class GriddedVariable(object):
         self.time = time
         self.lev = self._cnvt_to_float_64(lev)
         self.lat = self._cnvt_to_float_64(lat)
-        self.lon = self._cnvt_to_float_64(fix_lon(lon))
+        lon_adjusted = fix_lon(lon)
+        self.lon = self._cnvt_to_float_64(lon_adjusted)
         self._fill_val = fill_val
         self._idx_used_for_sample = sampled
 
@@ -222,23 +227,22 @@ class GriddedVariable(object):
         try:
             if ignore_pre_avg:
                 raise IOError('Ignore pre_averaged files')
+
             var_objs = cls._load_pre_avg_obj(file_dir, fname, varname,
                                              base_resolution,
                                              sample=sample,
                                              nens=nens,
                                              seed=seed)
-            print 'Loaded pre-averaged file.'
+            print 'Loaded pre-averaged file: {}/{}'.format(file_dir, fname)
         except IOError:
-            print 'No pre-averaged file found or ignore specified ... ' \
-                  'Loading directly from file.'
+            print 'No pre-averaged file found or ignore specified ... '
             var_objs = ftype_loader(file_dir, fname, varname, base_resolution,
                                     sample=sample, save=save,
                                     nens=nens, seed=seed,
                                     data_req_frac=data_req_frac)
+            print 'Loaded from file: {}/{}'.format(file_dir, fname)
 
         return var_objs
-
-
 
     @classmethod
     def get_loader_for_filetype(cls, file_type):
@@ -246,8 +250,9 @@ class GriddedVariable(object):
         return ftype_map[file_type]
 
     @classmethod
-    def _load_pre_avg_obj(cls, dir_name, filename, varname, resolution,
-                          truncate=False, sample=None, nens=None, seed=None):
+    def _load_pre_avg_obj(cls, dir_name, filename, varname, avg_period=None,
+                          regrid_method=None, regrid_grid=None, sample=None,
+                          nens=None, seed=None):
         """
         General structure for load pre-averaged:
         1. Load data (done so into sub_annual groups if applicable)
@@ -258,63 +263,59 @@ class GriddedVariable(object):
         """
 
         # Check if pre-processed averages file exists
-        pre_avg_tag = '.pre_avg_{}_res{:02.2f}'.format(varname,
-                                                       resolution)
-        trunc_tag = '.trnc'
-        ftype_tag = '.h5'
+        pre_proc_tag = cls.PRE_PROCESSED_FILETAG.format(varname)
 
-        path = join(dir_name, filename + pre_avg_tag)
-
-        if truncate:
-            path += trunc_tag
-
-        path += ftype_tag
+        path = join(dir_name, filename + pre_proc_tag)
 
         # Look for pre_averaged_file
-        if os.path.exists(path):
-            do_trunc = False
-            dat_path = path
-        elif truncate and os.path.exists(path.strip(trunc_tag)):
-            # If truncate requested and truncate not found look for
-            # pre-averaged full version
-            do_trunc = True
-            dat_path = path.strip(trunc_tag)
-        else:
+        if not os.path.exists(path):
             raise IOError('No pre-averaged file found for given specifications')
 
         # Load prior objects
-        with tb.open_file(dat_path, 'r') as h5f:
-            obj_arr = h5f.root.grid_objects
-            srange = h5f.root.data.obj0.shape[0]
+        with tb.open_file(path, 'a') as h5f:
 
-            sample_idxs = cls._sample_gen(sample, srange, nens, seed)
+            do_regrid = False
+            obj_node_name = cls.PRE_PROCESSED_OBJ_NODENAME
+            data_node_name = cls.PRE_PROCESSED_DATA_NODENAME
 
-            gobjs = []
-            for i, obj in enumerate(obj_arr):
-                data = h5f.get_node('/data/' + 'obj'+str(i))
+            # Get nodes for pre-processed grid object with correct averaging
+            obj_dir = join(os.sep, avg_period)
+            obj = h5f.get_node(obj_dir, name=obj_node_name)[0]
+            obj_data = h5f.get_node(obj_dir, name=data_node_name)
 
-                if sample_idxs:
+            if regrid_method is not None:
+                regrid_obj_dir = join(obj_dir, regrid_method)
 
-                    obj.data = data
-                    obj = obj.sample_from_idx(sample_idxs)
-                else:
-                    obj_data = data.read()
-                    obj.data = obj_data
+                try:
+                    obj = h5f.get_node(regrid_obj_dir, name=obj_node_name)[0]
+                    obj_data = h5f.get_node(regrid_obj_dir, name=data_node_name)
+                except tb.NoSuchNodeError:
+                    print('Regridded pre-processed grid object not found for '
+                          '{}:{}.')
+                    do_regrid = True
 
-                obj.fill_val_to_nan()
+            srange = obj_data.shape[0]
+            sample_idxs = cls.sample_gen(sample, srange, nens, seed)
 
-                if do_trunc:
-                    obj.truncate()
-                    obj.save(path, position=i)
+            if sample_idxs:
+                obj.data = obj_data
+                obj = obj.sample_from_idx(sample_idxs)
+            else:
+                obj.data = obj_data.read()
 
-                gobjs.append(obj)
+            obj.fill_val_to_nan()
 
-        return gobjs
+            if do_regrid:
+                obj.regrid(regrid_method, regrid_grid)
+                obj.save_obj_to_node(h5_file=h5f,
+                                     node_dir=regrid_obj_dir)
+
+            return obj
 
     @classmethod
-    def _load_from_netcdf(cls, dir_name, filename, varname, resolution,
-                          truncate=False, sample=None, nens=None, seed=None,
-                          save=False, data_req_frac=None):
+    def _load_from_netcdf(cls, dir_name, filename, varname, avg_period=None,
+                          regrid_method=None, regrid_grid=None, sample=None,
+                          nens=None, seed=None, save=False, data_req_frac=None):
         """
         General structure for load origininal:
         1. Load data
@@ -326,7 +327,7 @@ class GriddedVariable(object):
         """
 
         # Check if pre-processed averages file exists
-        pre_avg_name = '.pre_avg_{}_res{:02.2f}'
+        pre_proc_filetag = cls.PRE_PROCESSED_FILETAG.format(varname)
 
         with Dataset(join(dir_name, filename), 'r') as f:
             var = f.variables[varname]
@@ -358,7 +359,8 @@ class GriddedVariable(object):
             idx_order = [_DEFAULT_DIM_ORDER.index(dim) for dim in dims]
             if idx_order != sorted(idx_order):
                 raise ValueError('Input file dimensions do not match default'
-                                 ' ordering.')
+                                 ' ordering specified by _DEFAULT_DIM_ORDER '
+                                 'in LMR_gridded.py.')
 
             # Load dimension values
             dim_vals = {dim_name: f.variables[dim_key]
@@ -480,7 +482,7 @@ class GriddedVariable(object):
         return new_data, new_time
 
     @staticmethod
-    def _sample_gen(sample, srange, nens, seed):
+    def sample_gen(sample, srange, nens, seed):
 
         if sample is not None:
             return sample

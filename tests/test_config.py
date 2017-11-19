@@ -22,7 +22,7 @@ def data_descr(request):
 def test_default_configuration_core():
     cfg_object = cfg.Config()
 
-    attrs = ['wrapper', 'core', 'proxies', 'psm', 'prior']
+    attrs = ['wrapper', 'core', 'proxies', 'psm', 'prior', 'forecaster']
     for attr in attrs:
         assert hasattr(cfg_object, attr)
 
@@ -48,14 +48,14 @@ def test_default_configuration_seed():
 def test_default_configuration_proxies_pages():
     cfg_object = cfg.Config()
 
-    assert hasattr(cfg_object.proxies, 'pages')
-    assert hasattr(cfg_object.proxies.pages, 'datadir_proxy')
-    assert hasattr(cfg_object.proxies.pages, 'datafile_proxy')
-    assert hasattr(cfg_object.proxies.pages, 'metafile_proxy')
-    assert hasattr(cfg_object.proxies.pages, 'proxy_type_mapping')
-    assert hasattr(cfg_object.proxies.pages, 'simple_filters')
+    assert hasattr(cfg_object.proxies, 'PAGES2kv1')
+    assert hasattr(cfg_object.proxies.PAGES2kv1, 'datadir_proxy')
+    assert hasattr(cfg_object.proxies.PAGES2kv1, 'datafile_proxy')
+    assert hasattr(cfg_object.proxies.PAGES2kv1, 'metafile_proxy')
+    assert hasattr(cfg_object.proxies.PAGES2kv1, 'proxy_type_mapping')
+    assert hasattr(cfg_object.proxies.PAGES2kv1, 'simple_filters')
 
-    assert cfg_object.core.lmr_path in cfg_object.proxies.pages.datadir_proxy
+    assert cfg_object.core.lmr_path in cfg_object.proxies.PAGES2kv1.datadir_proxy
 
 
 # Test that the instance only attributes of the linear psm are set
@@ -64,7 +64,12 @@ def test_default_configuration_psm_linear():
 
     assert hasattr(cfg_object.psm, 'linear')
     assert hasattr(cfg_object.psm.linear, 'datadir_calib')
-    assert hasattr(cfg_object.psm.linear, 'avgPeriod')
+    assert hasattr(cfg_object.psm.linear, 'datainfo_calib')
+    assert hasattr(cfg_object.psm.linear, 'datafile_calib')
+    assert hasattr(cfg_object.psm.linear, 'dataformat_calib')
+    assert hasattr(cfg_object.psm.linear, 'season_source')
+    assert hasattr(cfg_object.psm.linear, 'avg_period')
+    assert hasattr(cfg_object.psm.linear, 'psm_required_variables')
 
     assert cfg_object.core.lmr_path in cfg_object.psm.linear.datadir_calib
 
@@ -73,10 +78,8 @@ def test_default_configuration_psm_linear_t_or_p():
     cfg_object = cfg.Config()
 
     assert hasattr(cfg_object.psm, 'linear_TorP')
-    assert hasattr(cfg_object.psm.linear_TorP, 'datadir_calib_T')
-    assert hasattr(cfg_object.psm.linear_TorP, 'datadir_calib_P')
-    assert hasattr(cfg_object.psm.linear_TorP, 'pre_calib_datafile_T')
-    assert hasattr(cfg_object.psm.linear_TorP, 'pre_calib_datafile_P')
+    assert hasattr(cfg_object.psm.linear_TorP, 'moisture')
+    assert hasattr(cfg_object.psm.linear_TorP, 'temperature')
 
 
 # test default and then changed default
@@ -90,10 +93,10 @@ def test_default_configuration_change_default_path():
     assert cfg1.core.lmr_path != cfg2.core.lmr_path
     assert new_path in cfg2.prior.datadir_prior
     assert new_path in cfg2.psm.linear.datadir_calib
-    assert new_path in cfg2.proxies.pages.datadir_proxy
+    assert new_path in cfg2.proxies.PAGES2kv1.datadir_proxy
     assert orig_path not in cfg2.prior.datadir_prior
     assert orig_path not in cfg2.psm.linear.datadir_calib
-    assert orig_path not in cfg2.proxies.pages.datadir_proxy
+    assert orig_path not in cfg2.proxies.PAGES2kv1.datadir_proxy
 
     cfg.core.lmr_path = orig_path
 
@@ -192,16 +195,15 @@ def test_config_update_with_kwarg():
 
 # DatasetDescriptor Tests #
 def test_datadescr_initialize():
-    tmp = cfg._DatasetDescriptors()
-    assert hasattr(tmp, 'datasets')
-    assert type(tmp.datasets) == type(dict())
+    tmp = cfg._DatasetDescriptors().data
+    assert isinstance(tmp, dict)
 
 
 def test_datadescr_file_not_found():
 
     tmp = cfg.SRC_DIR
     cfg.SRC_DIR = '/dir/not/right'
-    with pytest.raises(IOError):
+    with pytest.raises(SystemExit):
         cfg._DatasetDescriptors()
 
     cfg._DEFAULT_DIR = tmp
@@ -210,7 +212,7 @@ def test_datadescr_file_not_found():
 def test_datadescr_config_init():
 
     assert hasattr(cfg, '_DataInfo')
-    res = cfg._DataInfo.get_dataset_dict('GISTEMP')
+    res = cfg._DataInfo.get_info('GISTEMP')
 
     assert 'info' in res.keys()
     assert 'datadir' in res.keys()
@@ -220,7 +222,7 @@ def test_datadescr_config_init():
 
 def test_datadescr_null_datadir():
 
-    cfg._DataInfo.datasets['GISTEMP']['datadir'] = None
+    cfg._DataInfo.data['GISTEMP']['datadir'] = None
     cfg_update = {'psm': {'linear': {'datatag_calib': 'GISTEMP'}}}
     cfg_obj = cfg.Config(**cfg_update)
 
@@ -230,7 +232,7 @@ def test_datadescr_null_datadir():
 
 def test_datadescr_non_default_datadir():
 
-    cfg._DataInfo.datasets['GISTEMP']['datadir'] = '/new/data/dir/path'
+    cfg._DataInfo.data['GISTEMP']['datadir'] = '/new/data/dir/path'
     cfg_update = {'psm': {'linear': {'datatag_calib': 'GISTEMP'}}}
     cfg_obj = cfg.Config(**cfg_update)
 
