@@ -1001,6 +1001,47 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
 
     return regrid_output, new_lat, new_lon
 
+
+def regrid_esmpy_grid_object(target_nlat, target_nlon,
+                             grid_obj, interp_method='bilinear'):
+    """
+    Regrid field to target resolution using the ESMF package.
+
+    Parameters
+    ----------
+    target_nlat: int
+        number of latitude points for destination grid
+    target_nlon: int
+        number of longitude points for the destination grid
+    grid_obj: LMR_gridded.GriddedVariable
+        Grid variable object to move to a new grid
+    interp_method: str
+        Regridding method to use. Valid options include 'bilinear' and 'patch'
+
+    Returns
+    -------
+    X_new:
+        truncated data array of shape (nlat_new*nlon_new, Nens)
+    lat_new: ndarray
+        2D latitude array on the new grid (nlat_new,nlon_new)
+    lon_new: ndarray
+        2D longitude array on the new grid (nlat_new,nlon_new)
+
+    Notes
+    -----
+    This regridding function supports masked grids
+    """
+
+    return regrid_esmpy(target_nlat, target_nlon,
+                        grid_obj.nsamples,
+                        grid_obj.data,
+                        grid_obj.lat_grid,
+                        grid_obj.lon_grid,
+                        len(grid_obj.lat),
+                        len(grid_obj.lon),
+                        method=interp_method)
+
+
 def regrid_sphere(nlat, nlon, Nens, X, ntrunc, shift_lons=False):
 
     """
@@ -1068,7 +1109,7 @@ def regrid_sphere(nlat, nlon, Nens, X, ntrunc, shift_lons=False):
     return X_new, lat_new, lon_new
 
 
-def regrid_sphere2(grid_obj, ntrunc):
+def regrid_sphere_gridded_object(grid_obj, ntrunc):
 
     """
     An adaptation of regrid_shpere for new GriddedData objects
@@ -1097,23 +1138,20 @@ def regrid_sphere2(grid_obj, ntrunc):
     nlat_new = (ntrunc + 1) + (ntrunc + 1) % 2
     nlon_new = int(nlat_new*1.5)
 
-    # truncate to a lower resolution grid (triangular truncation)
-
-    # create the spectral object on the new grid
-    specob_new = Spharmt(nlon_new, nlat_new, gridtype='regular',
-                         legfunc='computed')
-
     # create new lat,lon grid arrays
-    dlat = 90./((nlat_new-1)/2.)
-    dlon = 360./nlon_new
-    veclat = np.arange(-90., 90.+dlat, dlat)
-    veclon = np.arange(0., 360., dlon)
-    blank = np.zeros([nlat_new, nlon_new])
-    lat_new = (veclat + blank.T).T
-    lon_new = (veclon + blank)
+    # Note: AP - According to github.com/jswhit/pyspharm documentation the
+    #  latitudes will not include the equator or poles when nlats is even.
+    if nlat_new % 2 == 0:
+        include_poles = False
+    else:
+        include_poles = True
+
+    lat_new, lon_new, _, _ = generate_latlon(nlat_new, nlon_new,
+                                             include_endpts=include_poles)
 
     # transform each ensemble member, one at a time
     gridded_new = np.zeros((len(grid_obj.time), nlat_new, nlon_new))
+
     for i, time_slice in enumerate(grid_obj.data):
         gridded_new[i] = regrid(specob_lmr, specob_new, time_slice,
                                 ntrunc=ntrunc)

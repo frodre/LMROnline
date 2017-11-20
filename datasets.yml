@@ -130,6 +130,7 @@ ccsm4_last_millenium:
                      AMOCstreamfct_Omon,
                      AMOCindex_Omon, AMOC26Nmax_Omon, AMOC26N1000m_Omon,
                      AMOC45N1000_Omon]
+    rotated_pole: [tos_sfc_Omon, sos_sfc_Omon, zos_sfc_Omon, ohc_0-700m_Omon]
     psm_var_map:
       temperature: tas_sfc_Amon
       moisture:

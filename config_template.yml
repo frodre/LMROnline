@@ -347,7 +347,7 @@ prior:
   regrid_resolution: 42
   esmpy_interp_method: bilinear
   esmpy_regrid_to: t42
-  
+
   state_variables_info:
     temperature: [
       'tas_sfc_Amon'

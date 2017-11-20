@@ -17,7 +17,8 @@ import random
 import tables as tb
 
 import LMR_config
-from LMR_utils2 import regrid_sphere2, var_to_hdf5_carray, empty_hdf5_carray
+from LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
+    empty_hdf5_carray, regrid_esmpy_grid_object
 from LMR_utils2 import fix_lon, regular_cov_infl
 _LAT = 'lat'
 _LON = 'lon'
@@ -43,7 +44,8 @@ class GriddedVariable(object):
     def __init__(self, name, dims_ordered, data, time=None,
                  lev=None, lat=None, lon=None, fill_val=None,
                  sampled=None, avg_interval=None, regrid_method=None,
-                 regrid_grid=None):
+                 regrid_grid=None, lat_grid=None, lon_grid=None,
+                 rotated_pole=False):
         self.name = name
         self.dim_order = dims_ordered
         self.ndim = len(dims_ordered)
@@ -56,6 +58,10 @@ class GriddedVariable(object):
         self.avg_interval = avg_interval
         self.regrid_method = regrid_method
         self.regrid_grid = regrid_grid
+        self.lat_grid = lat_grid
+        self.lon_grid = lon_grid
+        self.rotated_pole = rotated_pole
+
         self._fill_val = fill_val
         self._idx_used_for_sample = sampled
 
@@ -149,23 +155,41 @@ class GriddedVariable(object):
             obj_out.append(self)
             self.data = tmp_dat
 
-    def truncate(self, ntrunc=42):
+    def regrid(self, regrid_method, regrid_grid=None, grid_def=None,
+               interp_method=None):
 
-        """
-        Return a new truncated version of the gridded object.  Only works
-        on horizontal data for now.
-        """
         assert self.type == 'horizontal'
         class_obj = type(self)
 
-        regrid_data, new_lat, new_lon = regrid_sphere2(self, ntrunc)
+        if regrid_method == 'simple':
+            pass
+        elif regrid_method == 'spherical_harmonics':
+            [regrid_data,
+             new_lat,
+             new_lon] = regrid_sphere_gridded_object(self, regrid_grid)
+        elif regrid_method == 'esmpy':
+            target_nlat = grid_def['target_nlat']
+            target_nlon = grid_def['target_nlon']
+            [regrid_data,
+             new_lat,
+             new_lon] = regrid_esmpy_grid_object(target_nlat, target_nlon,
+                                                 self,
+                                                 interp_method=interp_method)
+        else:
+            raise ValueError('Unrecognized regridding method: {}'.format(regrid_method))
+
         return class_obj(self.name, self.dim_order, regrid_data,
                          self.resolution,
                          time=self.time,
                          lev=self.lev,
                          lat=new_lat[:, 0],
                          lon=new_lon[0],
-                         fill_val=self._fill_val)
+                         fill_val=self._fill_val,
+                         avg_interval=self.avg_interval,
+                         regrid_method=regrid_method,
+                         regrid_grid=regrid_grid,
+                         lat_grid=new_lat,
+                         lon_grid=new_lon)
 
     def fill_val_to_nan(self):
         self.data[self.data == self._fill_val] = np.nan
@@ -219,8 +243,9 @@ class GriddedVariable(object):
                           nens=None, seed=None, sample=None,
                           avg_interval=None, avg_interval_kwargs=None,
                           regrid_method=None, regrid_grid=None,
+                          esmpy_kwargs=None,
                           data_req_frac=0.0, save=True,
-                          ignore_pre_avg=False, ):
+                          ignore_pre_avg=False, rotated_pole=False):
 
         try:
             ftype_loader = cls.get_loader_for_filetype(file_type)
@@ -231,26 +256,46 @@ class GriddedVariable(object):
             if ignore_pre_avg:
                 raise IOError('Ignore pre_averaged files is set to True.')
 
+            interp_method = esmpy_kwargs['interp_method']
+
             var_obj = cls._load_pre_avg_obj(file_dir, file_name, varname,
                                             avg_interval=avg_interval,
                                             regrid_method=regrid_method,
                                             regrid_grid=regrid_grid,
-                                            sample=sample,
-                                            nens=nens,
-                                            seed=seed,
-                                            save=save)
+                                            interp_method=interp_method)
+
+            if regrid_method is not None and var_obj.regrid_method is None:
+                var_obj.data.read()
+            elif nens is None and sample is None:
+                var_obj.data.read()
+
             print 'Loaded pre-averaged file: {}/{}'.format(file_dir, file_name)
         except IOError:
             print 'No pre-averaged file found or ignore specified ... '
-            var_obj = ftype_loader(file_dir, file_name, varname,
-                                   sample=sample, save=save,
-                                   nens=nens, seed=seed,
+            var_obj = ftype_loader(file_dir, file_name, varname, save=save,
                                    data_req_frac=data_req_frac,
                                    avg_interval=avg_interval,
                                    avg_interval_kwargs=avg_interval_kwargs,
-                                   regrid_method=regrid_method,
-                                   regrid_grid=regrid_grid)
+                                   rotated_pole=rotated_pole)
             print 'Loaded from file: {}/{}'.format(file_dir, file_name)
+
+        if regrid_method is not None and var_obj.regrid_method is None:
+            var_obj = var_obj.regrid(regrid_method=regrid_method,
+                                     regrid_grid=regrid_grid,
+                                     **esmpy_kwargs)
+
+            if save:
+                pre_tag = cls.PRE_PROCESSED_FILETAG.format(varname)
+                path = join(file_dir, file_name + pre_tag)
+                var_obj.save(path)
+
+        sample_range = var_obj.data.shape[0]
+        sample_idxs = cls.sample_gen(sample, sample_range, nens, seed)
+
+        if sample_idxs:
+            var_obj = var_obj.sample_from_idx(sample_idxs)
+
+        var_obj.fill_val_to_nan()
 
         return var_obj
 
@@ -261,8 +306,8 @@ class GriddedVariable(object):
 
     @classmethod
     def _load_pre_avg_obj(cls, dir_name, filename, varname, avg_interval=None,
-                          regrid_method=None, regrid_grid=None, sample=None,
-                          nens=None, seed=None, save=False):
+                          regrid_method=None, regrid_grid=None,
+                          interp_method=None):
         """
         General structure for load pre-averaged:
         1. Load data
@@ -284,7 +329,6 @@ class GriddedVariable(object):
         # Load prior object
         with tb.open_file(path, 'a') as h5f:
 
-            do_regrid = False
             obj_node_name = cls.PRE_PROCESSED_OBJ_NODENAME
             data_node_name = cls.PRE_PROCESSED_DATA_NODENAME
 
@@ -295,40 +339,30 @@ class GriddedVariable(object):
 
             # Look for pre-regridded data if specified
             if regrid_method is not None:
-                regrid_obj_dir = join(obj_dir, regrid_method, regrid_grid)
+                # TODO: This won't alarm user if grid_def is changing
+                regrid_path = [regrid_method, regrid_grid, interp_method]
+                regrid_path = [path_piece for path_piece in regrid_path
+                               if path_piece is not None]
+                regrid_obj_dir = join(obj_dir, *regrid_path)
 
                 try:
-                    obj = h5f.get_node(regrid_obj_dir, name=obj_node_name)[0]
-                    obj_data = h5f.get_node(regrid_obj_dir, name=data_node_name)
+                    regrid_obj = h5f.get_node(regrid_obj_dir,
+                                           name=obj_node_name)[0]
+                    regrid_obj_data = h5f.get_node(regrid_obj_dir,
+                                             name=data_node_name)
+                    obj = regrid_obj
+                    obj_data = regrid_obj_data
                 except tb.NoSuchNodeError:
                     print('Regridded pre-processed grid object not found for '
                           '{}:{}.')
-                    do_regrid = True
-
-            sample_range = obj_data.shape[0]
-            sample_idxs = cls.sample_gen(sample, sample_range, nens, seed)
-
-            if sample_idxs:
-                obj.data = obj_data
-                obj = obj.sample_from_idx(sample_idxs)
-            else:
-                obj.data = obj_data.read()
-
-            obj.fill_val_to_nan()
-
-        if do_regrid:
-            obj = obj.regrid(regrid_method, regrid_grid)
-
-            if save:
-                obj.save()
+            obj.data = obj_data
 
         return obj
 
     @classmethod
     def _load_from_netcdf(cls, dir_name, filename, varname, avg_interval=None,
-                          avg_interval_kwargs=None, regrid_method=None,
-                          regrid_grid=None, sample=None,
-                          nens=None, seed=None, save=False, data_req_frac=None):
+                          avg_interval_kwargs=None, save=False,
+                          data_req_frac=None, rotated_pole=False):
         """
         General structure for load origininal:
         1. Load data
@@ -385,6 +419,16 @@ class GriddedVariable(object):
             # Extract data for each dimension
             dim_vals = {k: val[:] for k, val in dim_vals.iteritems()}
 
+            # Extract grid in rotated pole
+            if rotated_pole:
+                lat_grid = dim_vals[_LAT]
+                lon_grid = dim_vals[_LON]
+                dim_vals[_LAT] = dim_vals[_LAT][..., 0]
+                dim_vals[_LON] = dim_vals[_LON][..., 0, :]
+            else:
+                lat_grid = None
+                lon_grid = None
+
             var_dat = np.squeeze(var[:])
 
             # Average to correct time interval
@@ -402,28 +446,14 @@ class GriddedVariable(object):
             new_fname = join(dir_name,
                              filename + pre_proc_filetag)
 
-            srange = avg_data.shape[0]
-            sample_idx = cls.sample_gen(sample, srange, nens, seed)
-
             # Create gridded object
             grid_obj = cls(varname, dims, avg_data, fill_val=fill_val,
-                           avg_inteval=avg_interval,
+                           avg_inteval=avg_interval, rotated_pole=rotated_pole,
+                           lat_grid=lat_grid, lon_grid=lon_grid,
                            **dim_vals)
 
             if save:
                 grid_obj.save(new_fname)
-
-            if regrid_method is not None:
-                try:
-                    grid_obj = grid_obj.regrid(regrid_method, regrid_grid)
-                    if save:
-                        grid_obj.save(filename)
-                except AssertionError:
-                    # Can only regrid horizontal 2D data
-                    pass
-
-            if sample_idx:
-                grid_obj = grid_obj.sample_from_idx(sample_idx)
 
             return grid_obj
 
@@ -550,8 +580,15 @@ class PriorVariable(GriddedVariable):
         avg_interval_kwargs = prior_config.avg_interval_kwargs
         regrid_method = prior_config.regrid_method
         regrid_grid = prior_config.regrid_grid
+        esmpy_kwargs = {'grid_def': prior_config.esmpy_grid_def,
+                        'interp_method': prior_config.esmpy_interp_method}
 
         datainfo = prior_config.datainfo_prior
+        if 'rotated_pole' in datainfo.keys():
+            rotated_pole = varname in datainfo['rotated_pole']
+        else:
+            rotated_pole = False
+
         if datainfo['template']:
             file_name = file_name.replace(datainfo['template'], varname)
             varname = varname.split('_')[0]
@@ -566,7 +603,9 @@ class PriorVariable(GriddedVariable):
                                      avg_interval_kwargs=avg_interval_kwargs,
                                      data_req_frac=1.0,
                                      regrid_method=regrid_method,
-                                     regrid_grid=regrid_grid)
+                                     regrid_grid=regrid_grid,
+                                     esmpy_kwargs=esmpy_kwargs,
+                                     rotated_pole=rotated_pole)
 
     @classmethod
     def load_allvars(cls, config):
