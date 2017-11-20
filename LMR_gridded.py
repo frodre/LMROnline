@@ -9,16 +9,14 @@ from abc import abstractmethod, ABCMeta
 from netCDF4 import Dataset, num2date
 from datetime import datetime, timedelta
 from collections import OrderedDict
-from itertools import izip, izip_longest
+from itertools import izip
 import numpy as np
 import os
-from copy import deepcopy
 from os.path import join
-import cPickle
 import random
 import tables as tb
 
-from LMR_config import constants
+import LMR_config
 from LMR_utils2 import regrid_sphere2, var_to_hdf5_carray, empty_hdf5_carray
 from LMR_utils2 import fix_lon, regular_cov_infl
 _LAT = 'lat'
@@ -31,7 +29,7 @@ _ALT_DIMENSION_DEFS = {'latitude': _LAT,
                        'longitude': _LON,
                        'plev': _LEV}
 
-_ftypes = constants.file_types
+_ftypes = LMR_config.Constants.file_types
 
 
 class GriddedVariable(object):
@@ -42,19 +40,22 @@ class GriddedVariable(object):
     PRE_PROCESSED_OBJ_NODENAME = 'grid_object'
     PRE_PROCESSED_DATA_NODENAME = 'grid_object_data'
 
-    def __init__(self, name, dims_ordered, data, resolution, time=None,
+    def __init__(self, name, dims_ordered, data, time=None,
                  lev=None, lat=None, lon=None, fill_val=None,
-                 sampled=None):
+                 sampled=None, avg_interval=None, regrid_method=None,
+                 regrid_grid=None):
         self.name = name
         self.dim_order = dims_ordered
         self.ndim = len(dims_ordered)
         self.data = data
-        self.resolution = resolution
         self.time = time
         self.lev = self._cnvt_to_float_64(lev)
         self.lat = self._cnvt_to_float_64(lat)
         lon_adjusted = fix_lon(lon)
         self.lon = self._cnvt_to_float_64(lon_adjusted)
+        self.avg_interval = avg_interval
+        self.regrid_method = regrid_method
+        self.regrid_grid = regrid_grid
         self._fill_val = fill_val
         self._idx_used_for_sample = sampled
 
@@ -104,42 +105,48 @@ class GriddedVariable(object):
         else:
             raise ValueError('Unrecognized dimension combination.')
 
-    def save(self, filename, position=0):
+    def save(self, filename):
+        avg_interval = self.avg_interval
+        regrid_method = self.regrid_method
+        regrid_grid = self.regrid_grid
 
-        filename += '.h5'
-        data_grp = '/data'
+        path_pieces = [avg_interval, regrid_method, regrid_grid]
+        path_pieces = [piece for piece in path_pieces if piece is not None]
 
-        # Overwrites file everytime save position 0 is invoked
-        if position == 0:
-            mode = 'w'
-        else:
+        data_path = join('/', *path_pieces)
+
+        print ('Saving pre-processed data file: {}'.format(filename))
+        print ('Storing data under HDF5 path: {}'.format(data_path))
+
+        obj_node_name = self.PRE_PROCESSED_OBJ_NODENAME
+        data_node_name = self.PRE_PROCESSED_DATA_NODENAME
+
+        if os.path.exists(filename):
             mode = 'a'
+        else:
+            mode = 'w'
 
-        # Open file to write to
-        with tb.open_file(filename, mode,
+        with tb.open_file(filename, mode=mode,
                           filters=tb.Filters(complib='blosc',
                                              complevel=2)) as h5f:
-            if '/grid_objects' in h5f:
-                pobj_array = h5f.get_node('/grid_objects')
-            else:
-                # Write the grid_object
-                pobj_array = h5f.create_vlarray('/', 'grid_objects',
-                                                atom=tb.ObjectAtom(),
-                                                createparents=True)
 
-            if not data_grp in h5f:
-                h5f.create_group('/', 'data')
+            try:
+                h5f.get_node(data_path, name=obj_node_name)
+                h5f.remove_node(data_path, name=obj_node_name)
+                h5f.remove_node(data_path, name=data_node_name)
+            except tb.NoSuchNodeError:
+                h5f.create_group(data_path, createparents=True)
 
-            # Write the data
+            obj_out = h5f.create_vlarray(data_path, name=obj_node_name,
+                                         atom=tb.ObjectAtom())
+
             self.nan_to_fill_val()
-            nd_name = 'obj' + str(position)
-            var_to_hdf5_carray(h5f, data_grp, nd_name, self.data)
+            var_to_hdf5_carray(h5f, data_path, data_node_name, self.data)
             self.fill_val_to_nan()
 
-            # Remove data from object before pickling
             tmp_dat = self.data
             del self.data
-            pobj_array.append(self)
+            obj_out.append(self)
             self.data = tmp_dat
 
     def truncate(self, ntrunc=42):
@@ -209,40 +216,43 @@ class GriddedVariable(object):
 
     @classmethod
     def _main_load_helper(cls, file_dir, file_name, varname, file_type,
-                          base_resolution, nens=None, seed=None, sample=None,
-                          split_varname=True, data_req_frac=1.0, save=True,
-                          ignore_pre_avg=False):
+                          nens=None, seed=None, sample=None,
+                          avg_interval=None, avg_interval_kwargs=None,
+                          regrid_method=None, regrid_grid=None,
+                          data_req_frac=0.0, save=True,
+                          ignore_pre_avg=False, ):
 
         try:
             ftype_loader = cls.get_loader_for_filetype(file_type)
         except KeyError:
             raise TypeError('Specified file type not supported yet.')
 
-        if split_varname:
-            fname = file_name.replace('[vardef_template]', varname)
-            varname = varname.split('_')[0]
-        else:
-            fname = file_name
-
         try:
             if ignore_pre_avg:
-                raise IOError('Ignore pre_averaged files')
+                raise IOError('Ignore pre_averaged files is set to True.')
 
-            var_objs = cls._load_pre_avg_obj(file_dir, fname, varname,
-                                             base_resolution,
-                                             sample=sample,
-                                             nens=nens,
-                                             seed=seed)
-            print 'Loaded pre-averaged file: {}/{}'.format(file_dir, fname)
+            var_obj = cls._load_pre_avg_obj(file_dir, file_name, varname,
+                                            avg_interval=avg_interval,
+                                            regrid_method=regrid_method,
+                                            regrid_grid=regrid_grid,
+                                            sample=sample,
+                                            nens=nens,
+                                            seed=seed,
+                                            save=save)
+            print 'Loaded pre-averaged file: {}/{}'.format(file_dir, file_name)
         except IOError:
             print 'No pre-averaged file found or ignore specified ... '
-            var_objs = ftype_loader(file_dir, fname, varname, base_resolution,
-                                    sample=sample, save=save,
-                                    nens=nens, seed=seed,
-                                    data_req_frac=data_req_frac)
-            print 'Loaded from file: {}/{}'.format(file_dir, fname)
+            var_obj = ftype_loader(file_dir, file_name, varname,
+                                   sample=sample, save=save,
+                                   nens=nens, seed=seed,
+                                   data_req_frac=data_req_frac,
+                                   avg_interval=avg_interval,
+                                   avg_interval_kwargs=avg_interval_kwargs,
+                                   regrid_method=regrid_method,
+                                   regrid_grid=regrid_grid)
+            print 'Loaded from file: {}/{}'.format(file_dir, file_name)
 
-        return var_objs
+        return var_obj
 
     @classmethod
     def get_loader_for_filetype(cls, file_type):
@@ -250,16 +260,16 @@ class GriddedVariable(object):
         return ftype_map[file_type]
 
     @classmethod
-    def _load_pre_avg_obj(cls, dir_name, filename, varname, avg_period=None,
+    def _load_pre_avg_obj(cls, dir_name, filename, varname, avg_interval=None,
                           regrid_method=None, regrid_grid=None, sample=None,
-                          nens=None, seed=None):
+                          nens=None, seed=None, save=False):
         """
         General structure for load pre-averaged:
-        1. Load data (done so into sub_annual groups if applicable)
-            a. If truncate is desired it searches for pre_avg truncated data
-               but if not found, then it searches for full pre_avg data
-        5. Sample if desired
-        6. Return list of GriddedVar objects
+        1. Load data
+            a. If regrid is desired it searches for pre_avg regridded data
+               but if not found, then uses loaded data and regrids
+        2. Sample if desired
+        3. Return a gridded variable object.
         """
 
         # Check if pre-processed averages file exists
@@ -271,7 +281,7 @@ class GriddedVariable(object):
         if not os.path.exists(path):
             raise IOError('No pre-averaged file found for given specifications')
 
-        # Load prior objects
+        # Load prior object
         with tb.open_file(path, 'a') as h5f:
 
             do_regrid = False
@@ -279,12 +289,13 @@ class GriddedVariable(object):
             data_node_name = cls.PRE_PROCESSED_DATA_NODENAME
 
             # Get nodes for pre-processed grid object with correct averaging
-            obj_dir = join(os.sep, avg_period)
+            obj_dir = join('/', avg_interval)
             obj = h5f.get_node(obj_dir, name=obj_node_name)[0]
             obj_data = h5f.get_node(obj_dir, name=data_node_name)
 
+            # Look for pre-regridded data if specified
             if regrid_method is not None:
-                regrid_obj_dir = join(obj_dir, regrid_method)
+                regrid_obj_dir = join(obj_dir, regrid_method, regrid_grid)
 
                 try:
                     obj = h5f.get_node(regrid_obj_dir, name=obj_node_name)[0]
@@ -294,8 +305,8 @@ class GriddedVariable(object):
                           '{}:{}.')
                     do_regrid = True
 
-            srange = obj_data.shape[0]
-            sample_idxs = cls.sample_gen(sample, srange, nens, seed)
+            sample_range = obj_data.shape[0]
+            sample_idxs = cls.sample_gen(sample, sample_range, nens, seed)
 
             if sample_idxs:
                 obj.data = obj_data
@@ -305,16 +316,18 @@ class GriddedVariable(object):
 
             obj.fill_val_to_nan()
 
-            if do_regrid:
-                obj.regrid(regrid_method, regrid_grid)
-                obj.save_obj_to_node(h5_file=h5f,
-                                     node_dir=regrid_obj_dir)
+        if do_regrid:
+            obj = obj.regrid(regrid_method, regrid_grid)
 
-            return obj
+            if save:
+                obj.save()
+
+        return obj
 
     @classmethod
-    def _load_from_netcdf(cls, dir_name, filename, varname, avg_period=None,
-                          regrid_method=None, regrid_grid=None, sample=None,
+    def _load_from_netcdf(cls, dir_name, filename, varname, avg_interval=None,
+                          avg_interval_kwargs=None, regrid_method=None,
+                          regrid_grid=None, sample=None,
                           nens=None, seed=None, save=False, data_req_frac=None):
         """
         General structure for load origininal:
@@ -374,56 +387,45 @@ class GriddedVariable(object):
 
             var_dat = np.squeeze(var[:])
 
-            # Average to correct time resolution
-            dim_vals[_TIME], avg_data = \
-                cls._time_avg_gridded_to_resolution(dim_vals[_TIME],
-                                                    var_dat,
-                                                    resolution,
-                                                    data_req_frac=data_req_frac)
+            # Average to correct time interval
+            [dim_vals[_TIME],
+             avg_data] = cls._avg_to_specified_period(dim_vals[_TIME],
+                                                      var_dat,
+                                                      data_req_frac=data_req_frac,
+                                                      **avg_interval_kwargs)
 
             # TODO: Replace with logger statement
-            print (varname, ' res ', resolution, ': Global: mean=',
-                   np.nanmean(avg_data),
+            print (varname, ': Global: mean=', np.nanmean(avg_data),
                    ' , std-dev=', np.nanstd(avg_data))
 
             # Filename for saving pre-averaged pickle
             new_fname = join(dir_name,
-                             filename + pre_avg_name.format(varname,
-                                                            resolution))
+                             filename + pre_proc_filetag)
 
-            #Separate into subannual objects if res < 1.0
-            new_avg_data, new_time = cls._subannual_decomp(avg_data,
-                                                           dim_vals[_TIME],
-                                                           resolution)
+            srange = avg_data.shape[0]
+            sample_idx = cls.sample_gen(sample, srange, nens, seed)
 
-            srange = new_avg_data[0].shape[0]
-            sample_idx = cls._sample_gen(sample, srange, nens, seed)
+            # Create gridded object
+            grid_obj = cls(varname, dims, avg_data, fill_val=fill_val,
+                           avg_inteval=avg_interval,
+                           **dim_vals)
 
-            # Create gridded objects
-            grid_objs = []
-            for i, (new_dat, new_t) in enumerate(izip(new_avg_data, new_time)):
-                dim_vals[_TIME] = new_t
-                grid_obj = cls(varname, dims, new_dat, resolution,
-                               fill_val=fill_val, **dim_vals)
-                if save:
-                    grid_obj.save(new_fname, position=i)
+            if save:
+                grid_obj.save(new_fname)
 
-                if truncate:
-                    try:
-                        grid_obj = grid_obj.truncate()
+            if regrid_method is not None:
+                try:
+                    grid_obj = grid_obj.regrid(regrid_method, regrid_grid)
+                    if save:
+                        grid_obj.save(filename)
+                except AssertionError:
+                    # Can only regrid horizontal 2D data
+                    pass
 
-                        if save:
-                            grid_obj.save(new_fname + '.trnc', position=i)
-                    except AssertionError:
-                        # If datatype is not horizontal it won't be truncated
-                        pass
+            if sample_idx:
+                grid_obj = grid_obj.sample_from_idx(sample_idx)
 
-                if sample_idx:
-                    grid_obj = grid_obj.sample_from_idx(sample_idx)
-
-                grid_objs.append(grid_obj)
-
-            return grid_objs
+            return grid_obj
 
     @staticmethod
     def _cnvt_to_float_64(data):
@@ -466,22 +468,6 @@ class GriddedVariable(object):
             return np.array(reshifted_time)
 
     @staticmethod
-    def _subannual_decomp(data, time, resolution):
-
-        num_subann_chunks = int(np.ceil(1.0/resolution))
-        tlen = len(time) / num_subann_chunks
-
-        new_data = np.zeros([num_subann_chunks, tlen] + list(data.shape[1:]),
-                            dtype=data.dtype)
-        new_time = np.zeros((num_subann_chunks, tlen),
-                            dtype=time.dtype)
-        for i in xrange(num_subann_chunks):
-            new_data[i] = data[i::num_subann_chunks]
-            new_time[i] = time[i::num_subann_chunks]
-
-        return new_data, new_time
-
-    @staticmethod
     def sample_gen(sample, srange, nens, seed):
 
         if sample is not None:
@@ -494,91 +480,93 @@ class GriddedVariable(object):
             return None
 
     @staticmethod
-    def _time_avg_gridded_to_resolution(time_vals, data, resolution,
-                                        yr_shift=0, data_req_frac=None):
-        """
-        Converts to time units of years at specified resolution and shift
-        :param time_vals:
-        :param data:
-        :param resolution:
-        :param yr_shift:
-        :return:
-        """
+    def _avg_to_specified_period(time_vals, data, nelem_in_yr=12,
+                                 elem_to_avg=(1,2,3), nyears=1,
+                                 data_req_frac=None):
 
-        # Calculate number of elements in 1 resolution unit
-        start = time_vals[yr_shift]
-        start = datetime(start.year, start.month, start.day)
-        end = start.replace(year=start.year+1)
+        """Resample data to specified averaging period.  Assumes contiguous
+        intevals are being used to resample."""
 
-        for elem_in_yr, dt_obj in enumerate(time_vals[yr_shift:]):
-            # NetCDF.datetime to regular datetime for equivalence check
-            if datetime(dt_obj.year, dt_obj.month, dt_obj.day) == end:
-                break
-        else:
-            raise ValueError('Could not determine number of elements in a '
-                             'single year')
+        time_vals = np.array(time_vals)
 
-        yr_shift %= elem_in_yr  # shouldn't have yr_shift larger then elem_in_yr
+        ntimes = data.shape[0]
+        spatial_shape = data.shape[1:]
+        len_of_sample = len(elem_to_avg)
 
-        # Find number of units in new resolution
-        nelem_in_unit_res = resolution * elem_in_yr
-        if not nelem_in_unit_res.is_integer():
-            raise ValueError('Elements in yr not evenly divisible by given '
-                             'resolution')
+        # starting index for resampling,  e.g. 0, 12, 24, equivalent for monthly
+        start_idx = elem_to_avg[0] % nelem_in_yr
 
-        end_cutoff = -(len(time_vals[yr_shift:]) % elem_in_yr)
-        if end_cutoff == 0:
-            end_cutoff = None
-        tot_units = int(len(time_vals[yr_shift:end_cutoff]) /
-                        nelem_in_unit_res)
-        spatial_shp = data.shape[1:]
+        # Find how many full years you can average from the data and cutoff
+        total_yrs = (ntimes - start_idx) // nelem_in_yr
+        end_idx = start_idx + total_yrs*nelem_in_yr
 
-        # Average data and create year list
-        avg_data = data[yr_shift:end_cutoff].reshape(tot_units,
-                                                     nelem_in_unit_res,
-                                                     *spatial_shp)
+        time_vals = time_vals[start_idx:end_idx]
+        data = data[start_idx:end_idx]
 
-        # If desired check for minimum number of data points
+        # reshape time dimension to (years, sub-year)
+        time_vals = time_vals.reshape(total_yrs, nelem_in_yr)
+        data = data.reshape(total_yrs, nelem_in_yr, *spatial_shape)
+
+        # Find how many multi-year averages you can get from data and cutoff
+        total_avg_periods = total_yrs // nyears
+        year_cutoff_idx = total_yrs % nyears
+
+        time_vals = time_vals[0:-year_cutoff_idx]
+        data = data[0:-year_cutoff_idx]
+
+        # reshape time dimension to (multi-annual avg periods, nyears in avg)
+        time_vals = time_vals.reshape(total_avg_periods, nyears, nelem_in_yr)
+        data = data.reshape(total_avg_periods, nyears, nelem_in_yr,
+                            *spatial_shape)
+
+        # Average the data
+        new_times = time_vals[:, 0, 0]
+        data = data[:, :, 0:len_of_sample]
+        new_data = np.nanmean(data, axis=(1, 2))
+
+        # Mask times which did not have enough data in the average
         if data_req_frac is not None:
-            non_nan_frac = \
-                np.isfinite(avg_data).sum(axis=1) / float(nelem_in_unit_res)
-            req_met = non_nan_frac >= data_req_frac
-            expand_shp = [nelem_in_unit_res] + list(spatial_shp)
-            expand_mat = np.ones(expand_shp, dtype=np.bool)
-            req_met = np.expand_dims(req_met, axis=1)
-            req_met = req_met & expand_mat
+            nelem_in_avg = nyears*nelem_in_yr
+            num_valid = np.isfinite(data).sum(axis=(1, 2))
+            valid_frac = num_valid.astype(np.float) / nelem_in_avg
+            invalid = valid_frac < data_req_frac
+            new_data[invalid] = np.nan
 
-            avg_data[~req_met] = np.nan
-
-        avg_data = np.nanmean(avg_data, axis=1)
-
-        start_yr = start.year
-        time_yrs = [start_yr + i*resolution
-                    for i in xrange(tot_units)]
-
-        return np.array(time_yrs), avg_data
+        return new_times, new_data
 
 
 class PriorVariable(GriddedVariable):
 
     @classmethod
-    def load(cls, config, varname, sample=None):
-        file_dir = config.prior.datadir_prior
-        file_name = config.prior.datafile_prior
-        file_type = config.prior.dataformat_prior
-        base_resolution = config.core.sub_base_res
-        nens = config.core.nens
-        seed = config.core.seed
-        save = config.core.save_pre_avg_file
-        ignore_pre_avg = config.core.ignore_pre_avg_file
+    def load(cls, prior_config, varname, sample=None):
+        file_dir = prior_config.datadir_prior
+        file_name = prior_config.datafile_prior
+        file_type = prior_config.dataformat_prior
+        nens = prior_config.nens
+        seed = prior_config.seed
+        save = prior_config.save_pre_avg_file
+        ignore_pre_avg = prior_config.ignore_pre_avg_file
+        avg_interval = prior_config.avg_interval
+        avg_interval_kwargs = prior_config.avg_interval_kwargs
+        regrid_method = prior_config.regrid_method
+        regrid_grid = prior_config.regrid_grid
+
+        datainfo = prior_config.datainfo_prior
+        if datainfo['template']:
+            file_name = file_name.replace(datainfo['template'], varname)
+            varname = varname.split('_')[0]
 
         return cls._main_load_helper(file_dir, file_name, varname, file_type,
-                                     base_resolution,
                                      nens=nens,
                                      seed=seed,
                                      sample=sample,
                                      save=save,
-                                     ignore_pre_avg=ignore_pre_avg)
+                                     ignore_pre_avg=ignore_pre_avg,
+                                     avg_interval=avg_interval,
+                                     avg_interval_kwargs=avg_interval_kwargs,
+                                     data_req_frac=1.0,
+                                     regrid_method=regrid_method,
+                                     regrid_grid=regrid_grid)
 
     @classmethod
     def load_allvars(cls, config):

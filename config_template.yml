@@ -335,37 +335,11 @@ psm:
 
 prior:
   prior_source: ccsm4_last_millenium
-#  prior_source: icesm_last_millennium
-#  prior_source: ccsm3_trace21ka
 
   state_variables:
     tas_sfc_Amon: anom
-#    pr_sfc_Amon: anom
-#    scpdsi_sfc_Amon: anom
-#    psl_sfc_Amon: anom
-#    zg_500hPa_Amon: anom
-#    wap_500hPa_Amon: anom
-#    wap_700hPa_Amon: anom
-#    wap_850hPa_Amon: anom
-#    d18O_sfc_Amon: full
-#    tos_sfc_Omon: anom
-#    sos_sfc_Omon: anom
-#    ohc_0-700m_Omon: anom
-#    AMOCindex_Omon: anom
-#    AMOC26Nmax_Omon: anom
-#    AMOC26N1000m_Omon: anom
-#    AMOC45N1000m_Omon: anom
-#    ohcAtlanticNH_0-700m_Omon: anom
-#    ohcAtlanticSH_0-700m_Omon: anom
-#    ohcPacificNH_0-700m_Omon: anom
-#    ohcPacificSH_0-700m_Omon: anom
-#    ohcIndian_0-700m_Omon: anom
-#    ohcSouthern_0-700m_Omon: anom
-#    ohcArctic_0-700m_Omon: anom
-#    tas_sfc_Adec: full
-#    psl_sfc_Adec: full
-#    tos_sfc_Odec: full
-#    sos_sfc_Odec: full
+
+  avg_interval: annual_std
 
   detrend: False
   # regridding options: null, simple, esmpy or spherical_harmonics
@@ -373,6 +347,7 @@ prior:
   regrid_resolution: 42
   esmpy_interp_method: bilinear
   esmpy_regrid_to: t42
+  
   state_variables_info:
     temperature: [
       'tas_sfc_Amon'

@@ -1316,34 +1316,10 @@ class prior(ConfigGroup):
     # and associated "kind", i.e. as anomalies ('anom') or full field ('full')
     state_variables = {
         'tas_sfc_Amon'              : 'anom',
-    #    'tos_sfc_Omon'              : 'anom',
-    #    'pr_sfc_Amon'               : 'anom',
-    #    'scpdsi_sfc_Amon'           : 'anom',
-    #    'psl_sfc_Amon'              : 'anom',
-    #    'zg_500hPa_Amon'            : 'anom',
-    #    'wap_500hPa_Amon'           : 'anom',
-    #    'wap_700hPa_Amon'           : 'anom',
-    #    'wap_850hPa_Amon'           : 'anom',
-    #    'wap_1000hPa_Amon'          : 'anom',
-    #    'AMOCindex_Omon'            : 'anom',
-    #    'AMOC26Nmax_Omon'           : 'anom',
-    #    'AMOC26N1000m_Omon'         : 'anom',
-    #    'AMOC45N1000m_Omon'         : 'anom',
-    #    'ohcAtlanticNH_0-700m_Omon' : 'anom',
-    #    'ohcAtlanticSH_0-700m_Omon' : 'anom',
-    #    'ohcPacificNH_0-700m_Omon'  : 'anom',
-    #    'ohcPacificSH_0-700m_Omon'  : 'anom',
-    #    'ohcIndian_0-700m_Omon'     : 'anom',
-    #    'ohcSouthern_0-700m_Omon'   : 'anom',
-    #    'ohcArctic_0-700m_Omon'     : 'anom',
-    #    'ohc_0-700m_Omon'           : 'anom',
-    #    'sos_sfc_Omon'              : 'anom',        
-    #    'd18O_sfc_Amon'             : 'full',
-    #    'tas_sfc_Adec'              : 'full',
-    #    'psl_sfc_Adec'              : 'full',
-    #    'tos_sfc_Odec'              : 'full',
-    #    'sos_sfc_Odec'              : 'full',
         }
+
+    # Averaging interval for data defined in constants.yml
+    avg_interval = 'annual_std'
 
     # The reference period (in year CE) for calculation of anomalies
     # ** Valid for prior ccsm3_trace21ka only for now. Use None for all others **
@@ -1379,7 +1355,9 @@ class prior(ConfigGroup):
 
     ##** END User Parameters **##
 
-    def __init__(self, lmr_path=None, seed=None, **kwargs):
+    def __init__(self, lmr_path=None, seed=None, nens=None,
+                 save_pre_avg_file=None, ignore_pre_avg_file=None,
+                 **kwargs):
         super(self.__class__, self).__init__(**kwargs)
 
         self.prior_source = self.prior_source
@@ -1395,6 +1373,10 @@ class prior(ConfigGroup):
         self.regrid_method = self.regrid_method
         self.anom_reference = self.anom_reference
 
+        if nens is None:
+            nens = core.nens
+        self.nens = nens
+
         if seed is None:
             seed = core.seed
         self.seed = seed
@@ -1402,28 +1384,39 @@ class prior(ConfigGroup):
         if lmr_path is None:
             lmr_path = core.lmr_path
 
+        if save_pre_avg_file is None:
+            save_pre_avg_file = core.save_pre_avg_file
+        self.save_pre_avg_file = save_pre_avg_file
+
+        if ignore_pre_avg_file is None:
+            ignore_pre_avg_file = core.ignore_pre_avg_file
+        self.ignore_pre_avg_file = ignore_pre_avg_file
+
         if self.datadir_prior is None:
             self.datadir_prior = join(lmr_path, 'data', 'model',
                                       self.prior_source)
 
-        # TODO: Move these into visible configuration param
-        if core.recon_timescale == 1:
-            self.avg_interval = {'annual': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}  # annual (calendar) as default
-        elif core.recon_timescale > 1:
-            # new format for CCSM3 TraCE21ka:
-            self.avg_interval = {'multiyear': [core.recon_timescale]}
-        else:
-            raise ValueError('ERROR in config.: unrecognized '
-                             'core.recon_timescale!')
+        # TODO: Move these into visible configuration param, fix multiyear DADT
+        # if core.recon_timescale == 1:
+        #     self.avg_interval = {'annual': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}  # annual (calendar) as default
+        # elif core.recon_timescale > 1:
+        #     # new format for CCSM3 TraCE21ka:
+        #     self.avg_interval = {'multiyear': [core.recon_timescale]}
+        # else:
+        #     raise ValueError('ERROR in config.: unrecognized '
+        #                      'core.recon_timescale!')
+
+        self.avg_interval = self.avg_interval
+        self.avg_interval_kwargs = Constants.get_info('avg_interval')
 
         if self.regrid_method != 'esmpy':
             self.regrid_resolution = int(self.regrid_resolution)
+            self.regrid_grid = self.regrid_resolution
         elif self.regrid_method == 'esmpy':
             self.regrid_resolution = None
             self.esmpy_interp_method = self.esmpy_interp_method
             self.esmpy_grid_def = _GridDef.get_info(self.esmpy_regrid_to)
-        else:
-            self.regrid_resolution = None
+            self.regrid_grid = self.esmpy_regrid_to
 
         # Is variable requested in list of those specified as available?
         var_mismat = [varname for varname in self.state_variables

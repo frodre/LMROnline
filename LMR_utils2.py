@@ -25,6 +25,7 @@ import re
 import cPickle
 import collections
 import copy
+import tables as tb
 #import ESMF
 from time import time
 from os.path import join
@@ -2444,7 +2445,7 @@ def var_to_hdf5_carray(h5file, group, node, data, **kwargs):
         node_path = '/'.join((group, node))
 
     # Check existence and remove if necessary
-    if h5file.__contains__(node_path):
+    if node_path in h5file:
         h5file.remove_node(node_path)
 
     out_arr = h5file.create_carray(group,
