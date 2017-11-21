@@ -30,7 +30,7 @@ _ALT_DIMENSION_DEFS = {'latitude': _LAT,
                        'longitude': _LON,
                        'plev': _LEV}
 
-_ftypes = LMR_config.Constants.file_types
+_ftypes = LMR_config.Constants.data['file_types']
 
 
 class GriddedVariable(object):
@@ -38,18 +38,20 @@ class GriddedVariable(object):
     __metaclass__ = ABCMeta
 
     PRE_PROCESSED_FILETAG = '.pre_{}.h5'
+    PRE_PROCESSED_FILEDIR = 'pre_proc_files'
     PRE_PROCESSED_OBJ_NODENAME = 'grid_object'
     PRE_PROCESSED_DATA_NODENAME = 'grid_object_data'
 
     def __init__(self, name, dims_ordered, data, time=None,
                  lev=None, lat=None, lon=None, fill_val=None,
                  sampled=None, avg_interval=None, regrid_method=None,
-                 regrid_grid=None, lat_grid=None, lon_grid=None,
+                 regrid_grid=None, lat_grid=None, lon_grid=None, climo=None,
                  rotated_pole=False):
         self.name = name
         self.dim_order = dims_ordered
         self.ndim = len(dims_ordered)
         self.data = data
+        self.climo = climo
         self.time = time
         self.lev = self._cnvt_to_float_64(lev)
         self.lat = self._cnvt_to_float_64(lat)
@@ -117,7 +119,7 @@ class GriddedVariable(object):
         regrid_grid = self.regrid_grid
 
         path_pieces = [avg_interval, regrid_method, regrid_grid]
-        path_pieces = [piece for piece in path_pieces if piece is not None]
+        path_pieces = [str(piece) for piece in path_pieces if piece is not None]
 
         data_path = join('/', *path_pieces)
 
@@ -141,7 +143,8 @@ class GriddedVariable(object):
                 h5f.remove_node(data_path, name=obj_node_name)
                 h5f.remove_node(data_path, name=data_node_name)
             except tb.NoSuchNodeError:
-                h5f.create_group(data_path, createparents=True)
+                root, name = os.path.split(data_path)
+                h5f.create_group(root, name=name, createparents=True)
 
             obj_out = h5f.create_vlarray(data_path, name=obj_node_name,
                                          atom=tb.ObjectAtom())
@@ -155,6 +158,11 @@ class GriddedVariable(object):
             obj_out.append(self)
             self.data = tmp_dat
 
+    def print_data_stats(self):
+        print ('{}: Global: mean={:1.3e}, '
+               'std-dev:={:1.3e}'.format(self.name, np.nanmean(self.data),
+                                         np.nanstd(self.data)))
+
     def regrid(self, regrid_method, regrid_grid=None, grid_def=None,
                interp_method=None):
 
@@ -162,7 +170,7 @@ class GriddedVariable(object):
         class_obj = type(self)
 
         if regrid_method == 'simple':
-            pass
+            raise NotImplemented('Have not fixed simple regridding yet -AP')
         elif regrid_method == 'spherical_harmonics':
             [regrid_data,
              new_lat,
@@ -178,18 +186,20 @@ class GriddedVariable(object):
         else:
             raise ValueError('Unrecognized regridding method: {}'.format(regrid_method))
 
+        # Rotated pole omitted for regridded data
         return class_obj(self.name, self.dim_order, regrid_data,
-                         self.resolution,
                          time=self.time,
                          lev=self.lev,
                          lat=new_lat[:, 0],
                          lon=new_lon[0],
                          fill_val=self._fill_val,
+                         sampled=self._idx_used_for_sample,
                          avg_interval=self.avg_interval,
                          regrid_method=regrid_method,
                          regrid_grid=regrid_grid,
                          lat_grid=new_lat,
-                         lon_grid=new_lon)
+                         lon_grid=new_lon,
+                         climo=self.climo)
 
     def fill_val_to_nan(self):
         self.data[self.data == self._fill_val] = np.nan
@@ -210,6 +220,12 @@ class GriddedVariable(object):
 
         return flat_data, flat_coords
 
+    def random_sample(self, nens, seed):
+        sample_range = range(self.data.shape[0])
+        random.seed(seed)
+        sample = random.sample(sample_range, nens)
+        return self.sample_from_idx(sample)
+
     def sample_from_idx(self, sample_idxs):
         """
         Random sample ensemble of current gridded variable
@@ -217,8 +233,15 @@ class GriddedVariable(object):
 
         cls = type(self)
         nsamples = len(sample_idxs)
-        time_sample = self.time[sample_idxs]
 
+        if nsamples == self.data.shape[0]:
+            print ('Size of sample and total number of available members are '
+                   'equivalent.  No resampling performed...')
+            return self
+
+        print ('Random selection of {} ensemble members'.format(nsamples))
+
+        time_sample = self.time[sample_idxs]
         data_sample = np.zeros([nsamples] + list(self.data.shape[1:]))
         for k, idx in enumerate(sample_idxs):
             data_sample[k] = self.data[idx]
@@ -226,13 +249,45 @@ class GriddedVariable(object):
         # Account for timeseries trailing singleton dimension
         data_sample = np.squeeze(data_sample)
 
-        return cls(self.name, self.dim_order, data_sample, self.resolution,
+        return cls(self.name, self.dim_order, data_sample,
                    time=time_sample,
                    lev=self.lev,
                    lat=self.lat,
                    lon=self.lon,
                    fill_val=self._fill_val,
+                   avg_interval=self.avg_interval,
+                   rotated_pole=self.rotated_pole,
+                   lat_grid=self.lat_grid,
+                   lon_grid=self.lon_grid,
+                   regrid_method=self.regrid_method,
+                   regrid_grid=self.regrid_grid,
+                   climo=self.climo,
                    sampled=sample_idxs)
+
+    def is_sampled(self):
+
+        if self._idx_used_for_sample is None:
+            return False
+        else:
+            return True
+
+    def convert_to_anomaly(self, climo=None):
+        print ('Removing temporal mean for every gridpoint...')
+        if climo is None:
+            self.climo = self.data[:].mean(axis=0, keepdims=True)
+        else:
+            self.climo = climo
+
+        self.data = self.data - self.climo
+
+    def convert_to_standard(self):
+        print ('Adding temporal mean to every gridpoint...')
+        if self.climo is None:
+            raise ValueError('Cannot convert to standard state data is not an '
+                             'anomaly to start.')
+
+        self.data = self.data + self.climo
+        self.climo = None
 
     @abstractmethod
     def load(cls, config, *args):
@@ -245,7 +300,8 @@ class GriddedVariable(object):
                           regrid_method=None, regrid_grid=None,
                           esmpy_kwargs=None,
                           data_req_frac=0.0, save=True,
-                          ignore_pre_avg=False, rotated_pole=False):
+                          ignore_pre_avg=False, rotated_pole=False,
+                          anomaly=True, detrend=False):
 
         try:
             ftype_loader = cls.get_loader_for_filetype(file_type)
@@ -262,21 +318,19 @@ class GriddedVariable(object):
                                             avg_interval=avg_interval,
                                             regrid_method=regrid_method,
                                             regrid_grid=regrid_grid,
+                                            anomaly=anomaly,
+                                            nens=nens,
+                                            sample=sample,
+                                            seed=seed,
                                             interp_method=interp_method)
-
-            if regrid_method is not None and var_obj.regrid_method is None:
-                var_obj.data.read()
-            elif nens is None and sample is None:
-                var_obj.data.read()
-
-            print 'Loaded pre-averaged file: {}/{}'.format(file_dir, file_name)
         except IOError:
             print 'No pre-averaged file found or ignore specified ... '
             var_obj = ftype_loader(file_dir, file_name, varname, save=save,
                                    data_req_frac=data_req_frac,
                                    avg_interval=avg_interval,
                                    avg_interval_kwargs=avg_interval_kwargs,
-                                   rotated_pole=rotated_pole)
+                                   rotated_pole=rotated_pole,
+                                   anomaly=anomaly)
             print 'Loaded from file: {}/{}'.format(file_dir, file_name)
 
         if regrid_method is not None and var_obj.regrid_method is None:
@@ -284,16 +338,20 @@ class GriddedVariable(object):
                                      regrid_grid=regrid_grid,
                                      **esmpy_kwargs)
 
+            var_obj.print_data_stats()
+
             if save:
                 pre_tag = cls.PRE_PROCESSED_FILETAG.format(varname)
-                path = join(file_dir, file_name + pre_tag)
+                pre_dir = cls.PRE_PROCESSED_FILEDIR
+                path = join(file_dir, pre_dir, file_name + pre_tag)
                 var_obj.save(path)
 
-        sample_range = var_obj.data.shape[0]
-        sample_idxs = cls.sample_gen(sample, sample_range, nens, seed)
+        if not var_obj.is_sampled() and (nens is not None or sample is not None):
 
-        if sample_idxs:
-            var_obj = var_obj.sample_from_idx(sample_idxs)
+            if sample is not None:
+                var_obj = var_obj.sample_from_idx(sample)
+            else:
+                var_obj = var_obj.random_sample(nens, seed)
 
         var_obj.fill_val_to_nan()
 
@@ -301,13 +359,14 @@ class GriddedVariable(object):
 
     @classmethod
     def get_loader_for_filetype(cls, file_type):
-        ftype_map = {_ftypes.netcdf: cls._load_from_netcdf}
+        ftype_map = {_ftypes['netcdf']: cls._load_from_netcdf}
         return ftype_map[file_type]
 
     @classmethod
     def _load_pre_avg_obj(cls, dir_name, filename, varname, avg_interval=None,
                           regrid_method=None, regrid_grid=None,
-                          interp_method=None):
+                          anomaly=False, nens=None, sample=None,
+                          seed=None, interp_method=None):
         """
         General structure for load pre-averaged:
         1. Load data
@@ -319,8 +378,9 @@ class GriddedVariable(object):
 
         # Check if pre-processed averages file exists
         pre_proc_tag = cls.PRE_PROCESSED_FILETAG.format(varname)
+        pre_filedir = cls.PRE_PROCESSED_FILEDIR
 
-        path = join(dir_name, filename + pre_proc_tag)
+        path = join(dir_name, pre_filedir, filename + pre_proc_tag)
 
         # Look for pre_averaged_file
         if not os.path.exists(path):
@@ -336,33 +396,56 @@ class GriddedVariable(object):
             obj_dir = join('/', avg_interval)
             obj = h5f.get_node(obj_dir, name=obj_node_name)[0]
             obj_data = h5f.get_node(obj_dir, name=data_node_name)
+            print ('Found node for avg_interval path: {}'.format(obj_dir))
 
             # Look for pre-regridded data if specified
+            do_sample = True
             if regrid_method is not None:
                 # TODO: This won't alarm user if grid_def is changing
                 regrid_path = [regrid_method, regrid_grid, interp_method]
-                regrid_path = [path_piece for path_piece in regrid_path
+                regrid_path = [str(path_piece) for path_piece in regrid_path
                                if path_piece is not None]
                 regrid_obj_dir = join(obj_dir, *regrid_path)
 
                 try:
                     regrid_obj = h5f.get_node(regrid_obj_dir,
-                                           name=obj_node_name)[0]
+                                              name=obj_node_name)[0]
                     regrid_obj_data = h5f.get_node(regrid_obj_dir,
-                                             name=data_node_name)
+                                                   name=data_node_name)
+                    print ('Found node for regridded data under path: '
+                           '{}'.format(regrid_obj_dir))
                     obj = regrid_obj
                     obj_data = regrid_obj_data
                 except tb.NoSuchNodeError:
+                    # Do not sample, since regrid specified and might save
+                    do_sample = False
+                    obj_data = obj_data.read()
                     print('Regridded pre-processed grid object not found for '
-                          '{}:{}.')
+                          'regridding: {}.'.format(regrid_obj_dir))
+
             obj.data = obj_data
 
+            if anomaly and obj.climo is None:
+                obj.convert_to_anomaly()
+
+            obj.print_data_stats()
+
+            if do_sample:
+                if sample is not None:
+                    obj = obj.sample_from_idx(sample)
+                elif nens is not None:
+                    obj = obj.random_sample(nens, seed)
+                else:
+                    obj.data = obj.data.read()
+
+        print 'Loaded pre-averaged file: {}'.format(path)
         return obj
 
     @classmethod
     def _load_from_netcdf(cls, dir_name, filename, varname, avg_interval=None,
                           avg_interval_kwargs=None, save=False,
-                          data_req_frac=None, rotated_pole=False):
+                          data_req_frac=None, rotated_pole=False,
+                          anomaly=False):
         """
         General structure for load origininal:
         1. Load data
@@ -375,6 +458,7 @@ class GriddedVariable(object):
 
         # Check if pre-processed averages file exists
         pre_proc_filetag = cls.PRE_PROCESSED_FILETAG.format(varname)
+        pre_proc_filedir = cls.PRE_PROCESSED_FILEDIR
 
         with Dataset(join(dir_name, filename), 'r') as f:
             var = f.variables[varname]
@@ -438,22 +522,24 @@ class GriddedVariable(object):
                                                       data_req_frac=data_req_frac,
                                                       **avg_interval_kwargs)
 
-            # TODO: Replace with logger statement
-            print (varname, ': Global: mean=', np.nanmean(avg_data),
-                   ' , std-dev=', np.nanstd(avg_data))
-
-            # Filename for saving pre-averaged pickle
-            new_fname = join(dir_name,
-                             filename + pre_proc_filetag)
-
             # Create gridded object
             grid_obj = cls(varname, dims, avg_data, fill_val=fill_val,
-                           avg_inteval=avg_interval, rotated_pole=rotated_pole,
+                           avg_interval=avg_interval, rotated_pole=rotated_pole,
                            lat_grid=lat_grid, lon_grid=lon_grid,
                            **dim_vals)
 
+            if anomaly:
+                grid_obj.convert_to_anomaly()
+
+            grid_obj.print_data_stats()
+
             if save:
-                grid_obj.save(new_fname)
+                new_dir = join(dir_name, pre_proc_filedir)
+                if not os.path.exists(new_dir):
+                    os.mkdir(new_dir)
+
+                pre_proc_fname = join(new_dir, filename + pre_proc_filetag)
+                grid_obj.save(pre_proc_fname)
 
             return grid_obj
 
@@ -498,18 +584,6 @@ class GriddedVariable(object):
             return np.array(reshifted_time)
 
     @staticmethod
-    def sample_gen(sample, srange, nens, seed):
-
-        if sample is not None:
-            return sample
-        elif nens is not None:
-            # Defaults to sys time if seed=None
-            random.seed(seed)
-            return random.sample(range(srange), nens)
-        else:
-            return None
-
-    @staticmethod
     def _avg_to_specified_period(time_vals, data, nelem_in_yr=12,
                                  elem_to_avg=(1,2,3), nyears=1,
                                  data_req_frac=None):
@@ -539,10 +613,10 @@ class GriddedVariable(object):
 
         # Find how many multi-year averages you can get from data and cutoff
         total_avg_periods = total_yrs // nyears
-        year_cutoff_idx = total_yrs % nyears
+        year_cutoff_idx = total_yrs * nyears
 
-        time_vals = time_vals[0:-year_cutoff_idx]
-        data = data[0:-year_cutoff_idx]
+        time_vals = time_vals[0:year_cutoff_idx]
+        data = data[0:year_cutoff_idx]
 
         # reshape time dimension to (multi-annual avg periods, nyears in avg)
         time_vals = time_vals.reshape(total_avg_periods, nyears, nelem_in_yr)
@@ -555,7 +629,7 @@ class GriddedVariable(object):
         new_data = np.nanmean(data, axis=(1, 2))
 
         # Mask times which did not have enough data in the average
-        if data_req_frac is not None:
+        if data_req_frac is not None and np.any(np.isnan(data)):
             nelem_in_avg = nyears*nelem_in_yr
             num_valid = np.isfinite(data).sum(axis=(1, 2))
             valid_frac = num_valid.astype(np.float) / nelem_in_avg
@@ -576,12 +650,22 @@ class PriorVariable(GriddedVariable):
         seed = prior_config.seed
         save = prior_config.save_pre_avg_file
         ignore_pre_avg = prior_config.ignore_pre_avg_file
+        detrend = prior_config.detrend
         avg_interval = prior_config.avg_interval
         avg_interval_kwargs = prior_config.avg_interval_kwargs
         regrid_method = prior_config.regrid_method
         regrid_grid = prior_config.regrid_grid
         esmpy_kwargs = {'grid_def': prior_config.esmpy_grid_def,
                         'interp_method': prior_config.esmpy_interp_method}
+
+        anomaly = prior_config.state_variables[varname]
+        if anomaly == 'anom':
+            anomaly = True
+        elif anomaly == 'full':
+            anomaly = False
+        else:
+            raise ValueError('Incorrect specification of state variable '
+                             'anomly or full-field.')
 
         datainfo = prior_config.datainfo_prior
         if 'rotated_pole' in datainfo.keys():
@@ -605,7 +689,9 @@ class PriorVariable(GriddedVariable):
                                      regrid_method=regrid_method,
                                      regrid_grid=regrid_grid,
                                      esmpy_kwargs=esmpy_kwargs,
-                                     rotated_pole=rotated_pole)
+                                     rotated_pole=rotated_pole,
+                                     anomaly=anomaly,
+                                     detrend=detrend)
 
     @classmethod
     def load_allvars(cls, config):
@@ -620,32 +706,6 @@ class PriorVariable(GriddedVariable):
             prior_dict[vname] = pobjs
 
         return prior_dict
-
-    @staticmethod
-    def _time_avg_gridded_to_resolution(time_vals, data, resolution,
-                                        yr_shift=0, data_req_frac=None):
-
-        # Call Base class to get correct time average
-        time, avg_data = \
-            super(PriorVariable, PriorVariable).\
-            _time_avg_gridded_to_resolution(time_vals, data, resolution,
-                                            yr_shift=yr_shift,
-                                            data_req_frac=data_req_frac)
-        # Calculate anomaly
-        if resolution < 1:
-            units_in_yr = 1/resolution
-            old_shp = list(avg_data.shape)
-            new_shape = [old_shp[0]/units_in_yr, units_in_yr] + old_shp[1:]
-            avg_data = avg_data.reshape(new_shape)
-            anom_data = avg_data - np.nanmean(avg_data, axis=0)
-            anom_data = anom_data.reshape(old_shp)
-        else:
-            anom_data = avg_data - np.nanmean(avg_data, axis=0)
-
-        # TODO: Replace with logger statement
-        print ('Removing the temporal mean (for every gridpoint) from the '
-               'prior...')
-        return time, anom_data
 
 
 class AnalysisVariable(GriddedVariable):
@@ -672,64 +732,6 @@ class AnalysisVariable(GriddedVariable):
     @classmethod
     def load_allvars(cls):
         pass
-
-    @staticmethod
-    def avg_calib_to_res(calib_objs, resolutions, shifts):
-        class_type = type(calib_objs[0])
-        calib_res_dict = {}
-        for res in resolutions:
-            shift = shifts[res]
-            if shift > 0:
-                shift_idx = int(calib_objs[0].resolution/shift)
-            else:
-                shift_idx = 0
-            num_obj_out = int(np.ceil(1/res))
-            nobjs_to_avg = len(calib_objs)/num_obj_out
-
-            if num_obj_out == len(calib_objs):
-                # TODO: no shift, but not a current usage case...
-                calib_res_dict[res] = calib_objs
-                continue
-
-            shift_calib_objs = np.roll(calib_objs, shift_idx)
-
-            aobjs = []
-            for i in xrange(num_obj_out):
-                start = i*nobjs_to_avg
-                end = start+nobjs_to_avg
-
-                curr_objs = shift_calib_objs[start:end]
-
-                # Determine mask for missing sub_annual locations
-                mask = ~np.isfinite(curr_objs[0].data)
-                for obj in curr_objs:
-                    mask |= ~np.isfinite(obj.data)
-
-                data = []
-                for obj in curr_objs:
-                    tmp = obj.data.copy()
-                    tmp[mask] = np.nan
-                    data.append(tmp)
-
-                new_data = np.nanmean(data, axis=0)
-
-                new_time = calib_objs[start].time
-
-                curr_obj = curr_objs[0]
-                new_obj = class_type(curr_obj.name,
-                                     curr_obj.dim_order,
-                                     new_data,
-                                     res,
-                                     time=new_time,
-                                     lat=curr_obj.lat,
-                                     lon=curr_obj.lon,
-                                     lev=curr_obj.lev,
-                                     fill_val=curr_obj._fill_val)
-
-                aobjs.append(new_obj)
-            calib_res_dict[res] = aobjs
-
-        return calib_res_dict
 
 
 class BerkeleyEarthAnalysisVariable(AnalysisVariable):

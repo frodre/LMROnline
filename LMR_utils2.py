@@ -1032,6 +1032,11 @@ def regrid_esmpy_grid_object(target_nlat, target_nlon,
     This regridding function supports masked grids
     """
 
+    print ('Regridding using ESMPy....')
+    print ('    interpolation method: {}'.format(interp_method))
+    print ('    target grid: nlat={}, nlon={}'.format(target_nlat,
+                                                      target_nlon))
+
     return regrid_esmpy(target_nlat, target_nlon,
                         grid_obj.nsamples,
                         grid_obj.data,
@@ -1148,6 +1153,13 @@ def regrid_sphere_gridded_object(grid_obj, ntrunc):
 
     lat_new, lon_new, _, _ = generate_latlon(nlat_new, nlon_new,
                                              include_endpts=include_poles)
+
+    # create the spectral object on the new grid
+    specob_new = Spharmt(nlon_new, nlat_new, gridtype='regular',
+                         legfunc='computed')
+
+    print ('Regridding using spherical harmonics to target grid: nlat={}, '
+           'nlon={}'.format(nlat_new, nlon_new))
 
     # transform each ensemble member, one at a time
     gridded_new = np.zeros((len(grid_obj.time), nlat_new, nlon_new))
