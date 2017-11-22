@@ -20,3 +20,4 @@ dependencies:
   - jpeg
   - basemap
   - esmpy
+  - pytables
