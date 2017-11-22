@@ -45,8 +45,8 @@ class GriddedVariable(object):
     def __init__(self, name, dims_ordered, data, time=None,
                  lev=None, lat=None, lon=None, fill_val=None,
                  sampled=None, avg_interval=None, regrid_method=None,
-                 regrid_grid=None, lat_grid=None, lon_grid=None, climo=None,
-                 rotated_pole=False):
+                 regrid_grid=None, esmpy_interp=None, lat_grid=None,
+                 lon_grid=None, climo=None, rotated_pole=False):
         self.name = name
         self.dim_order = dims_ordered
         self.ndim = len(dims_ordered)
@@ -60,6 +60,7 @@ class GriddedVariable(object):
         self.avg_interval = avg_interval
         self.regrid_method = regrid_method
         self.regrid_grid = regrid_grid
+        self.esmpy_interp = esmpy_interp
         self.lat_grid = lat_grid
         self.lon_grid = lon_grid
         self.rotated_pole = rotated_pole
@@ -117,8 +118,9 @@ class GriddedVariable(object):
         avg_interval = self.avg_interval
         regrid_method = self.regrid_method
         regrid_grid = self.regrid_grid
+        esmpy_interp = self.esmpy_interp
 
-        path_pieces = [avg_interval, regrid_method, regrid_grid]
+        path_pieces = [avg_interval, regrid_method, regrid_grid, esmpy_interp]
         path_pieces = [str(piece) for piece in path_pieces if piece is not None]
 
         data_path = join('/', *path_pieces)
@@ -174,13 +176,15 @@ class GriddedVariable(object):
         elif regrid_method == 'spherical_harmonics':
             [regrid_data,
              new_lat,
-             new_lon] = regrid_sphere_gridded_object(self, regrid_grid)
+             new_lon,
+             climo] = regrid_sphere_gridded_object(self, regrid_grid)
         elif regrid_method == 'esmpy':
             target_nlat = grid_def['target_nlat']
             target_nlon = grid_def['target_nlon']
             [regrid_data,
              new_lat,
-             new_lon] = regrid_esmpy_grid_object(target_nlat, target_nlon,
+             new_lon,
+             climo] = regrid_esmpy_grid_object(target_nlat, target_nlon,
                                                  self,
                                                  interp_method=interp_method)
         else:
@@ -197,12 +201,17 @@ class GriddedVariable(object):
                          avg_interval=self.avg_interval,
                          regrid_method=regrid_method,
                          regrid_grid=regrid_grid,
+                         esmpy_interp=interp_method,
                          lat_grid=new_lat,
                          lon_grid=new_lon,
-                         climo=self.climo)
+                         climo=climo)
 
     def fill_val_to_nan(self):
-        self.data[self.data == self._fill_val] = np.nan
+        mask = self.data == self._fill_val
+
+        if np.any(mask):
+            self.data[mask] = np.nan
+            self.data = np.ma.masked_array(self.data, mask=mask)
 
     def nan_to_fill_val(self):
         self.data[~np.isfinite(self.data)] = self._fill_val
@@ -261,6 +270,7 @@ class GriddedVariable(object):
                    lon_grid=self.lon_grid,
                    regrid_method=self.regrid_method,
                    regrid_grid=self.regrid_grid,
+                   esmpy_interp=self.esmpy_interp,
                    climo=self.climo,
                    sampled=sample_idxs)
 
@@ -333,6 +343,8 @@ class GriddedVariable(object):
                                    anomaly=anomaly)
             print 'Loaded from file: {}/{}'.format(file_dir, file_name)
 
+        var_obj.fill_val_to_nan()
+
         if regrid_method is not None and var_obj.regrid_method is None:
             var_obj = var_obj.regrid(regrid_method=regrid_method,
                                      regrid_grid=regrid_grid,
@@ -352,8 +364,6 @@ class GriddedVariable(object):
                 var_obj = var_obj.sample_from_idx(sample)
             else:
                 var_obj = var_obj.random_sample(nens, seed)
-
-        var_obj.fill_val_to_nan()
 
         return var_obj
 
@@ -427,8 +437,6 @@ class GriddedVariable(object):
 
             if anomaly and obj.climo is None:
                 obj.convert_to_anomaly()
-
-            obj.print_data_stats()
 
             if do_sample:
                 if sample is not None:

@@ -26,7 +26,7 @@ import cPickle
 import collections
 import copy
 import tables as tb
-#import ESMF
+import ESMF
 from time import time
 from os.path import join
 from math import radians, cos, sin, asin, sqrt
@@ -839,7 +839,8 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
     X_nens: int
         number of ensemble members in the data array
     X: ndarray
-        data array to be regridded of shape (nlat*nlon, nens)
+        data array to be regridded of shape (nens, nlat, nlon) or (nens, 
+        nlat*nlon)
     X_lat2D: ndarray
         2D array of latitudes corresponding to the source field of shape (
         nlat, nlon)
@@ -909,11 +910,16 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
     # check for masked values
     masked_regrid = hasattr(X, 'mask')
 
+    if X[0].shape != (X_nlat, X_nlon):
+        do_reshape = True
+        X = X.reshape(X_nens, X_nlat, X_nlon)
+    else:
+        do_reshape = False
+
     if masked_regrid:
         print 'Mask detected.  Adding mask to src ESMF grid'
         grid_mask = grid.add_item(ESMF.GridItem.MASK)
-        X_mask = X[:, 0].mask.astype(np.int16)
-        X_mask = X_mask.reshape(X_nlat, X_nlon)
+        X_mask = X[0].mask.astype(np.int16)
 
         if lon_shift:
             X_mask = np.roll(X_mask, lon_shift, axis=1)
@@ -964,15 +970,14 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
     dst_field = ESMF.Field(new_grid, name='dst',
                            staggerloc=ESMF.StaggerLoc.CENTER)
 
-    regrid_output = np.empty((target_nlat * target_nlon, X_nens))
+    regrid_output = np.empty((X_nens, target_nlat, target_nlon))
     regridder = ESMF.Regrid(src_field, dst_field, regrid_method=use_method,
                             src_mask_values=mask_values,
                             unmapped_action=ESMF.UnmappedAction.IGNORE)
 
     # Regrid each ensemble member
     for k in xrange(X_nens):
-        grid_data = X[:, k].reshape(X_nlat, X_nlon)
-
+        grid_data = X[k]
         if lon_shift:
             grid_data = np.roll(grid_data, lon_shift, axis=1)
 
@@ -987,10 +992,13 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
             out_mask = out_data == 0.0  # if it's exactly zero, it's masked
             out_data[out_mask] = np.nan
 
-        regrid_output[:, k] = out_data.flatten()
+        regrid_output[k] = out_data
 
     if masked_regrid:
         regrid_output = np.ma.masked_invalid(regrid_output)
+
+    if do_reshape:
+        regrid_output = regrid_output.reshape(X_nens, -1)
 
     # Clean up objects
     src_field.destroy()
@@ -1037,14 +1045,27 @@ def regrid_esmpy_grid_object(target_nlat, target_nlon,
     print ('    target grid: nlat={}, nlon={}'.format(target_nlat,
                                                       target_nlon))
 
-    return regrid_esmpy(target_nlat, target_nlon,
-                        grid_obj.nsamples,
-                        grid_obj.data,
-                        grid_obj.lat_grid,
-                        grid_obj.lon_grid,
-                        len(grid_obj.lat),
-                        len(grid_obj.lon),
-                        method=interp_method)
+    if grid_obj.climo is not None:
+        new_climo, lat, lon  = regrid_esmpy(target_nlat, target_nlon,
+                                            1,
+                                            grid_obj.climo,
+                                            grid_obj.lat_grid,
+                                            grid_obj.lon_grid,
+                                            len(grid_obj.lat),
+                                            len(grid_obj.lon),
+                                            method=interp_method)
+    else:
+        new_climo = None
+
+    new_data, new_lat, new_lon =regrid_esmpy(target_nlat, target_nlon,
+                                             grid_obj.nsamples,
+                                             grid_obj.data,
+                                             grid_obj.lat_grid,
+                                             grid_obj.lon_grid,
+                                             len(grid_obj.lat),
+                                             len(grid_obj.lon),
+                                             method=interp_method)
+    return new_data, new_lat, new_lon, new_climo
 
 
 def regrid_sphere(nlat, nlon, Nens, X, ntrunc, shift_lons=False):
@@ -1168,7 +1189,10 @@ def regrid_sphere_gridded_object(grid_obj, ntrunc):
         gridded_new[i] = regrid(specob_lmr, specob_new, time_slice,
                                 ntrunc=ntrunc)
 
-    return gridded_new, lat_new, lon_new
+    new_climo = regrid(specob_lmr, specob_new, grid_obj.climo,
+                       ntrunc=ntrunc)
+
+    return gridded_new, lat_new, lon_new, new_climo
 
 
 def generate_latlon(nlats, nlons, lat_bnd=(-90, 90), lon_bnd=(0, 360),
