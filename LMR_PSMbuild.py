@@ -56,20 +56,42 @@ from os.path import join
 from copy import deepcopy
 
 import LMR_proxy_pandas_rework
-import LMR_calibrate
+import LMR_config
 
-import matplotlib.pyplot as plt
+# Notes, should have some stand-alone options,  calibration time period, objective psm test
+# list of time periods to test for which proxy types,  this should operate in a mode where
+# it can just use proxy seasonality, or objectively derived quantities instead of testing
+# every averaging combo?  Might be useful to pre-load in data and create differently
+# averaged versions based on all the proxies which are loaded in.
+
+# Load PSM obj tells it whether or not to create the actual psm
+
+# I can probably use some pre-created file from Robert, this is not a priority
 
 
-psm_info = \
-"""
-Forward model built using a linear PSM calibrated against historical observation-based product(s) of 2m air temperature and/or precipitation/moisture.
-"""
 
 # =========================================================================================
 # START:  set user parameters here
 # =========================================================================================
 
+update_kwargs = {'core': {'calib_period': (1850, 2015),
+                          'psm_type': 'linear',
+                          'psm_type': 'bilinear',
+                          'load_psmobj': False},
+                 'proxies': {'use_from': ['LMRdb'],
+                             'proxy_frac': 1.0,
+                             'proxy_availability_filter': False,
+                             'proxy_availability_fraction': False,
+                             'PAGES2kv1': {'proxy_psm_seasonality': ['annual_std',
+                                                                     'JJA',
+                                                                     'JJASON',
+                                                                     'DJF']}},
+                 'psm': {'load_precalib': False,
+                         'avg_period': 'annual',
+                         'test_proxy_seasonality': False,
+                         'linear': {'datatag_calib': 'GISTEMP'},
+                         'bilinear': {'datatag_calib_T': 'GISTEMP',
+                                      'datatag_calib_P': 'GPCC'}}}
 class v_core(object):
     """
     High-level parameters for the PSM builder

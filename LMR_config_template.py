@@ -36,7 +36,7 @@ class ConfigGroup(object):
 
     def __init__(self, **kwargs):
         if kwargs:
-            update_config_class_yaml(kwargs, self)
+            update_config_attrs_yaml(kwargs, self)
 
 
 class _YamlStorage(object):
@@ -1583,7 +1583,7 @@ def is_config_class(obj):
         return False
 
 
-def update_config_class_yaml(yaml_dict, cfg_module):
+def update_config_attrs_yaml(yaml_dict, cfg_module):
     """
     Updates a configuration object using a dictionary (typically from a yaml
     file) that follows the naming convention and nesting of these
@@ -1623,7 +1623,7 @@ def update_config_class_yaml(yaml_dict, cfg_module):
             cfg_attr = yaml_dict.pop(attr_name)
 
             if is_config_class(curr_cfg_obj):
-                result = update_config_class_yaml(cfg_attr, curr_cfg_obj)
+                result = update_config_attrs_yaml(cfg_attr, curr_cfg_obj)
 
                 if result:
                     yaml_dict[attr_name] = result
@@ -1634,6 +1634,33 @@ def update_config_class_yaml(yaml_dict, cfg_module):
             print e
 
     return yaml_dict
+
+
+def initialize_config_yaml(cfg_module, yaml_file=None):
+
+    if yaml_file is None:
+        yaml_file = join(cfg_module.SRC_DIR, 'config.yml')
+
+    try:
+        print 'Loading configuration: {}'.format(yaml_file)
+        f = open(yaml_file, 'r')
+        yml_dict = yaml.load(f)
+        update_result = cfg_module.update_config_class_yaml(yml_dict,
+                                                            cfg_module)
+
+        # Check that all yml params match value in LMR_config
+        if update_result:
+            raise SystemExit(
+                'Extra or mismatching values found in the configuration yaml'
+                ' file.  Please fix or remove them.\n  Residual parameters:\n '
+                '{}'.format(update_result))
+
+    except IOError as e:
+        raise SystemExit(
+            ('Could not locate {}.  If use of legacy LMR_config usage is '
+             'desired then please change LEGACY_CONFIG to True'
+             'in LMR_wrapper.py.').format(yaml_file))
+
 
 
 if __name__ == "__main__":
