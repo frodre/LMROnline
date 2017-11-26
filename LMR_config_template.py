@@ -846,7 +846,7 @@ class psm(ConfigGroup):
 
     ##** BEGIN User Parameters **##
 
-    avg_period = 'annual'
+    avg_interval = 'annual'
     # avgPeriod = 'season'
 
     season_source = 'proxy_metadata'
@@ -889,22 +889,12 @@ class psm(ConfigGroup):
         datatag_calib = 'GISTEMP'
 
         pre_calib_datafile = None
-        ignore_pre_avg_file = core.ignore_pre_avg_file
-        overwrite_pre_avg_file = core.save_pre_avg_file
 
-        # pre_calib_datafile = join(core.lmr_path,
-        #                           'PSM',
-        #                           'PSMs_' + datatag_calib +
-        #                           '_0pt5_1pt0_res.pckl')
-        pre_calib_datafile = join(core.lmr_path,
-                                  'PSM', 'test_psms',
-                                  'PSMs_' + datatag_calib +
-                                  '_1pt0res_1.00datfrac')
         psm_r_crit = 0.0
         min_data_req_frac = 1.0  # 0.0 no data required, 1.0 all data required
         ##** END User Parameters **##
 
-        def __init__(self, lmr_path=None, **kwargs):
+        def __init__(self, lmr_path=None,**kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
             self.datatag_calib = self.datatag_calib
@@ -918,10 +908,10 @@ class psm(ConfigGroup):
             self.psm_r_crit = self.psm_r_crit
             self.min_data_req_frac = self.min_data_req_frac
 
-            self.avg_period = psm.avg_period
+            self.avg_interval = psm.avg_interval
             self.season_source = psm.season_source
 
-            if 'PAGES2kv1' in proxies.use_from and 'season' in psm.avg_period:
+            if 'PAGES2kv1' in proxies.use_from and 'season' in psm.avg_interval:
                 raise ValueError('No seasonality information in PAGES2kv1 '
                                  'database.  Change avg_period to "annual" in '
                                  'your configuration')
@@ -939,8 +929,8 @@ class psm(ConfigGroup):
                     dbversion = proxies.LMRdb.dbversion
                     filename = ('PSMs_' + '-'.join(proxies.use_from) +
                                 '_' + dbversion +
-                                '_' + self.avgPeriod +
-                                '_' + self.datatag_calib+'.pckl')
+                                '_' + self.avg_interval +
+                                '_' + self.datatag_calib +'.pckl')
                 else:
                     filename = ('PSMs_' + '-'.join(proxies.use_from) +
                                 '_' + self.datatag_calib+'.pckl')
@@ -1228,7 +1218,9 @@ class psm(ConfigGroup):
 
 
     # Initialize subclasses with all attributes 
-    def __init__(self, lmr_path=None, **kwargs):
+    def __init__(self, lmr_path=None, save_pre_avg_file=None,
+                 ignore_pre_avg_file=None, **kwargs):
+
         self.linear = self.linear(lmr_path=lmr_path, **kwargs.pop('linear', {}))
         self.linear_TorP = self.linear_TorP(lmr_path=lmr_path,
                                             **kwargs.pop('linear_TorP', {}))
@@ -1238,8 +1230,19 @@ class psm(ConfigGroup):
         self.bayesreg_uk37 = self.bayesreg_uk37(**kwargs.pop('bayesreg_uk37', {}))
 
         super(self.__class__, self).__init__(**kwargs)
-        self.avg_period = self.avg_period
         self.all_calib_sources = deepcopy(self.all_calib_sources)
+        self.detrend = self.detrend
+
+        # TODO: Find out if this is the right level to have the save
+        # TODO:   info (should it be in PSM-specific config
+        if ignore_pre_avg_file is None:
+            ignore_pre_avg_file = core.ignore_pre_avg_file
+        self.ignore_pre_avg_file = ignore_pre_avg_file
+
+        if save_pre_avg_file is None:
+            save_pre_avg_file = core.save_pre_avg_file
+        self.save_pre_avg_file = save_pre_avg_file
+
 
 
 class prior(ConfigGroup):

@@ -650,7 +650,7 @@ class GriddedVariable(object):
 class PriorVariable(GriddedVariable):
 
     @classmethod
-    def load(cls, prior_config, varname, sample=None):
+    def load(cls, prior_config, varname, anomaly=False, sample=None):
         file_dir = prior_config.datadir_prior
         file_name = prior_config.datafile_prior
         file_type = prior_config.dataformat_prior
@@ -666,22 +666,13 @@ class PriorVariable(GriddedVariable):
         esmpy_kwargs = {'grid_def': prior_config.esmpy_grid_def,
                         'interp_method': prior_config.esmpy_interp_method}
 
-        anomaly = prior_config.state_variables[varname]
-        if anomaly == 'anom':
-            anomaly = True
-        elif anomaly == 'full':
-            anomaly = False
-        else:
-            raise ValueError('Incorrect specification of state variable '
-                             'anomly or full-field.')
-
         datainfo = prior_config.datainfo_prior
         if 'rotated_pole' in datainfo.keys():
             rotated_pole = varname in datainfo['rotated_pole']
         else:
             rotated_pole = False
 
-        if datainfo['template']:
+        if datainfo['template'] is not None:
             file_name = file_name.replace(datainfo['template'], varname)
             varname = varname.split('_')[0]
 
@@ -702,40 +693,42 @@ class PriorVariable(GriddedVariable):
                                      detrend=detrend)
 
     @classmethod
-    def load_allvars(cls, config):
-        var_names = config.prior.state_variables
+    def load_allvars(cls, prior_config):
+        var_names = prior_config.state_variables
 
-        sample = None
         prior_dict = OrderedDict()
-        for vname in var_names:
-            pobjs = cls.load(config, vname, sample)
-            # Assure that same sample is used for all variables of a prior
-            sample = pobjs[0]._idx_used_for_sample
-            prior_dict[vname] = pobjs
+        for vname, anomaly in var_names.iteritems():
+            if anomaly == 'anom':
+                anomaly = True
+            else:
+                anomaly = False
+            pobj = cls.load(prior_config, vname, anomaly=anomaly)
 
-        return prior_dict
+            prior_dict[vname] = pobj
 
 
 class AnalysisVariable(GriddedVariable):
 
     @classmethod
-    def load(cls, psm_config):
-
-        # TODO: change this to switch based on PSM
-        file_dir = psm_config.datadir_calib
-        file_name = psm_config.datafile_calib
-        file_type = psm_config.dataformat_calib
-        base_resolution = psm_config.sub_base_res
-        varname = psm_config.varname_calib
-        dat_frac = psm_config.min_data_req_frac
-        overwrite = psm_config.overwrite_pre_avg_file
-        ignore = psm_config.ignore_pre_avg_file
+    def load(cls, psm_config, save=False, ignore=False):
+        file_dir = psm_config.datadir_prior
+        file_name = psm_config.datafile_prior
+        file_type = psm_config.dataformat_prior
+        datainfo = psm_config.datainfo_prior
+        varname = datainfo['available_vars'][0] # Only one var in analyses data
+        # save = psm_config.save_pre_avg_file
+        # ignore_pre_avg = psm_config.ignore_pre_avg_file
+        detrend = psm_config.detrend
+        avg_interval = psm_config.avg_interval
+        avg_interval_kwargs = psm_config.avg_interval_kwargs
 
         return cls._main_load_helper(file_dir, file_name, varname, file_type,
-                                     base_resolution, split_varname=False,
-                                     data_req_frac=dat_frac,
-                                     save=overwrite,
-                                     ignore_pre_avg=ignore)
+                                     save=save,
+                                     ignore_pre_avg=ignore,
+                                     avg_interval=avg_interval,
+                                     avg_interval_kwargs=avg_interval_kwargs,
+                                     data_req_frac=1.0,
+                                     detrend=detrend)
 
     @classmethod
     def load_allvars(cls):
