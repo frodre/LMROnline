@@ -1244,7 +1244,6 @@ class psm(ConfigGroup):
         self.save_pre_avg_file = save_pre_avg_file
 
 
-
 class prior(ConfigGroup):
     """
     Parameters for the ensemble DA prior

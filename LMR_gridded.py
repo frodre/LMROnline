@@ -706,6 +706,8 @@ class PriorVariable(GriddedVariable):
 
             prior_dict[vname] = pobj
 
+        return prior_dict
+
 
 class AnalysisVariable(GriddedVariable):
 
@@ -770,17 +772,14 @@ class State(object):
     Class to create state vector and information
     """
 
-    def __init__(self, prior_vars, base_res, adaptive=False):
+    def __init__(self, prior_vars):
 
         self._prior_vars = prior_vars
-        self.base_res = base_res
-        self.resolution = base_res
-        self.state_list = []
+        state = []
         self.var_coords = {}
         self.var_view_range = {}
         self.var_space_shp = {}
         self.augmented = False
-        self._adaptive = adaptive
 
         # Attr for backend storage
         self.output_backend = None
@@ -788,68 +787,38 @@ class State(object):
         self._tmp_state = {}
 
         self.len_state = 0
-        for var, pobjs in prior_vars.iteritems():
+        for var, pobj in prior_vars.iteritems():
 
-            self.var_space_shp[var] = pobjs[0].space_shp
+            self.var_space_shp[var] = pobj.space_shp
 
             var_start = self.len_state
-            for i, pobj in enumerate(pobjs):
-
-                flat_data, flat_coords = pobj.flattened_spatial()
-
-                # Store range of data in state dimension
-                if i == 0:
-                    var_end = flat_data.T.shape[0] + var_start
-                    self.var_view_range[var] = (var_start, var_end)
-                    self.len_state = var_end
-
-                # Add prior to state vector, transposed to make state the first
-                # dimension, and ensemble members along the 2nd
-                try:
-                    self.state_list[i] = \
-                        np.concatenate((self.state_list[i], flat_data.T),
-                                       axis=0)
-                except IndexError:
-                    self.state_list.append(flat_data.T)
-
-            # Save variable view information
+            flat_data, flat_coords = pobj.flattened_spatial()
+            var_end = flat_data.T.shape[0] + var_start
+            self.var_view_range[var] = (var_start, var_end)
+            self.len_state = var_end
+            state.append(flat_data.T)
             self.var_coords[var] = flat_coords
 
-        self.state_list = np.array(self.state_list)
-        self.shape = self.state_list[0].shape
+        self.state = np.concatenate(state, axis=0)
+        self.shape = self.state.shape
         self.old_state_info = self.get_old_state_info()
 
-        # Information for adaptive inflation
-        if adaptive:
-            self.infl_factor_mean = np.ones((self.shape[0]))
-            self.infl_factor_var = self.infl_factor_mean * 0.6
-        else:
-            self.infl_factor_mean = None
-            self.infl_factor_var = None
-
     @classmethod
-    def from_config(cls, config):
-        pvars = PriorVariable.load_allvars(config)
-        base_res = config.core.sub_base_res
-        adaptive = config.core.adaptive_inflate
+    def from_config(cls, prior_config):
+        pvars = PriorVariable.load_allvars(prior_config)
 
-        return cls(pvars, base_res, adaptive=adaptive)
+        return cls(pvars)
 
-    def get_var_data(self, var_name, idx=None):
+    def get_var_data(self, var_name):
         """
-        Returns a view (or a copy) of the variable in the state vector
+        Returns a view of the variable in the state vector
         """
-        # TODO: change idx to optional, if none does average
-        # probably switch statelist to numpy array for easy averaging.
         start, end = self.var_view_range[var_name]
-
-        if idx is not None:
-            var_data = self.state_list[idx, start:end]
-        else:
-            var_data = self.state_list[:, start:end]
+        var_data = self.state[start:end]
 
         return var_data
 
+    # TODO: Decide whether this should only be handled at prior level
     def truncate_state(self):
         """
         Create a truncated copy of the current state
@@ -863,16 +832,13 @@ class State(object):
                 else:
                     trunc_pvars[var_name].append(pobj)
         state_class = type(self)
-        return state_class(trunc_pvars, self.base_res, adaptive=self._adaptive)
+        return state_class(trunc_pvars)
 
     def augment_state(self, ye_vals):
 
         # Add leading axis and repeat to match state_list length
-        nproxies  = len(ye_vals)
-        ye_vals = ye_vals[None]
-        ye_vals = np.repeat(ye_vals, len(self.state_list), axis=0)
-
-        self.state_list = np.concatenate((self.state_list, ye_vals), axis=1)
+        nproxies = len(ye_vals)
+        self.state = np.concatenate((self.state_list, ye_vals), axis=0)
         self.augmented = True
 
         self.var_view_range['state'] = (0, self.len_state)
@@ -894,209 +860,35 @@ class State(object):
         xb_vals = self.state_list[0]
         xb_vals[:] = regular_cov_infl(xb_vals, inf_factor)
 
-    def adaptive_inflate_xb(self, prox_man, t):
-        """
-        J.L. Anderson adaptive inflation algorithm. Only takes annual data for
-        now.
-
-        Parameters
-        ----------
-        self
-        prox_man
-        t
-
-        Returns
-        -------
-
-        """
-        assert self.resolution == 1.0
-
-        lambda_upper_bound = 1.e6
-        lambda_lower_bound = 1.
-        lambda_sd_lower_bound = 0.0
-
-        # Inflation factor mean and variance
-        lambda_p_bar = self.infl_factor_mean
-        lambda_p_sd = self.infl_factor_var
-
-        sigma_lambda_p_2 = lambda_p_sd ** 2
-
-        ye_vals = self.get_var_data('ye_vals', idx=0)
-        y_vals_iter = prox_man.sites_assim_res_proxy_objs(1.0, t)
-
-        xb_vals = self.get_var_data('state', idx=0)
-        xb_mean = xb_vals.mean(axis=1)
-        xb_pert = xb_vals - xb_mean[:, None]
-        nens = xb_pert.shape[1]
-        xb_var = (xb_pert**2).sum(axis=1) / (nens - 1)
-
-        for y, ye in izip(y_vals_iter, ye_vals):
-
-            try:
-                y_val = y.values[t]
-                y_err = y.psm_obj.R
-            except KeyError:
-                # No ob for current year ... skip
-                continue
-
-            ye_mean = ye.mean()
-            ye_pert = ye - ye_mean
-            ye_err = ye.var(ddof=1)
-
-            D = abs(y_val - ye.mean())
-            D2 = D**2
-
-            # Correlation between state (at every location) and ye_ens
-
-            state_ye_cov = (ye_pert * xb_pert).sum(axis=1) / (nens - 1)
-            norm = np.sqrt(ye_err * xb_var)
-
-            r = state_ye_cov / norm
-
-            # Expected inflation for observation
-            lambda_o_bar = (1 + r * (np.sqrt(lambda_p_bar) - 1)) ** 2
-
-            theta_bar_2 = lambda_o_bar*ye_err + y_err
-            theta_bar = np.sqrt(theta_bar_2)
-
-            dtheta_dlambda = 0.5 * ye_err * r
-            dtheta_dlambda *= (1 - r + (r * np.sqrt(lambda_p_bar)))
-            dtheta_dlambda /= (theta_bar * np.sqrt(lambda_p_bar))
-
-            # Update the mean
-            u_bar = 1. / (np.sqrt(2*np.pi) * theta_bar)
-            l_exp_bar = D2 / (-2. * theta_bar_2)
-            v_bar = np.exp(l_exp_bar)
-            l_bar = u_bar * v_bar
-
-            l_prime = l_bar * (D2 / theta_bar_2 - 1) / theta_bar
-            l_prime *= dtheta_dlambda
-
-            a = np.array([1])
-            b = l_bar/l_prime - 2 * lambda_p_bar
-            c = lambda_p_bar**2 - sigma_lambda_p_2 - l_bar*lambda_p_bar/l_prime
-
-            # Quadratic equation
-            disc = np.sqrt(b**2 - 4*a*c)
-            pos_root = (-b + disc) / (2*a)
-            neg_root = (-b - disc) / (2*a)
-
-            root_comp = np.zeros((2, len(pos_root)))
-            root_comp[0] = abs(neg_root - lambda_p_bar)
-            root_comp[1] = abs(pos_root - lambda_p_bar)
-            chosen = root_comp.argmin(axis=0)
-            lambda_u = root_comp[chosen, xrange(len(pos_root))]
-
-            revert_idx = ((lambda_u < lambda_lower_bound) &
-                          (lambda_u > lambda_upper_bound))
-            lambda_u[revert_idx] = lambda_p_bar[revert_idx]
-
-            # Calculate ratio for variance update
-            num_max = self._compute_new_density(D2, ye_err, y_err, lambda_p_bar,
-                                                lambda_p_sd, r, lambda_u)
-            num_2 = self._compute_new_density(D2, ye_err, y_err, lambda_p_bar,
-                                              lambda_p_sd, r,
-                                              lambda_u + lambda_p_sd)
-
-            # TODO: add check for finite or 0 before taking ratio
-
-            ratio = num_2 / num_max
-
-            lambda_u_sd = np.sqrt(-sigma_lambda_p_2 / (2 * np.log(ratio)))
-            lambda_u_sd[ratio > 0.99] = lambda_p_sd[ratio > 0.99]
-
-            revert_idx = (lambda_u_sd < lambda_sd_lower_bound)
-
-            # If out of bounds, revert
-            lambda_u_sd[revert_idx] = lambda_p_sd[revert_idx]
-            # update prior
-
-            lambda_p_bar[:] = lambda_u
-            lambda_p_sd[:] = lambda_u_sd
-
-        # Inflate the state perturbation
-        xb_pert *= lambda_p_bar[:, None]
-        xb_vals[:] = xb_mean[:, None] + xb_pert
-
-    @staticmethod
-    def _compute_new_density(D2, sigma_p_2, sigma_o_2, lambda_p_bar,
-                             lambda_sd, r, lambda_new):
-
-        exp_prior = (lambda_new - lambda_p_bar)**2 / (-2 * lambda_sd**2)
-        theta_2 = ((1 + r * (np.sqrt(lambda_p_bar) - 1))**2 * sigma_p_2 +
-                   sigma_o_2)
-        theta = np.sqrt(theta_2)
-
-        exp_likeli = D2 / (-2 * theta_2)
-        new_density = (np.exp(exp_likeli + exp_prior) /
-                       (2 * np.pi * lambda_sd * theta))
-        return new_density
-
     def reset_augmented_ye(self, ye_vals):
 
         ye_state = self.get_var_data('ye_vals')
-        for i, subann_ye in enumerate(ye_state):
-            subann_ye[:] = ye_vals
-
-    def annual_avg(self, var_name=None):
-
-        if var_name is None:
-            subannual_data = self.state_list
-        else:
-            # Get variable data for each subannual state vector, creat ndarray
-            subannual_data = self.get_var_data(var_name)
-
-        avg = subannual_data.mean(axis=0)
-        return avg
+        ye_state[:] = ye_vals
 
     def stash_state_list(self, name):
 
-        self._tmp_state[name] = (self.state_list.copy(), self.resolution)
+        self._tmp_state[name] = self.state_list.copy()
 
     def stash_recall_state_list(self, name, pop=False, copy=False):
 
         if name in self._tmp_state:
             if pop:
-                state, res = self._tmp_state.pop(name)
+                state = self._tmp_state.pop(name)
             else:
-                state, res = self._tmp_state[name]
+                state = self._tmp_state[name]
 
                 if copy:
                     state = state.copy()
 
-            self.state_list = state
-            self.resolution = res
+            self.state = state
         else:
-            print 'No currently stashed state with name {}....'.format(name)
+            raise KeyError('No currently stashed state with name {}....'.format(name))
 
     def stash_pop_state_list(self, name):
         self.stash_recall_state_list(name, pop=True)
 
-    def avg_to_res(self, res, shift):
-
-        """Average current state list to resolution"""
-
-        if res == self.resolution:
-            return
-
-        if res < 1:
-            chunk = int(res / self.base_res)
-            shift_idx = int(shift / self.base_res)
-            tmp_dat = np.roll(self.state_list, shift_idx, axis=0)
-            nelem = len(tmp_dat) / chunk
-            new_state = tmp_dat.reshape(nelem, chunk, *tmp_dat.shape[1:])
-            new_state = new_state.mean(axis=1)
-            self.state_list = new_state
-        elif res == 1:
-            self.state_list = self.state_list.mean(axis=0, keepdims=True)
-        else:
-            raise ValueError('Cannot handle resolutions larger than 1 yet.')
-
-        self.resolution = res
-
     def restore_orig_state(self):
-        self.state_list = self._orig_state.copy()
-        self.resolution = self.base_res
+        self.state = self._orig_state.copy()
 
     def get_old_state_info(self):
 
