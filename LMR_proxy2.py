@@ -67,42 +67,19 @@ class ProxyManager:
         reconstruction
     """
 
-    def __init__(self, config, data_range):
+    def __init__(self, proxy_config, data_range):
 
-        self.all_proxies = []
         self.all_ids_by_group = defaultdict(list)
 
-        # Resolutions to be assimilated
-        assim_res = config.core.assimilation_time_res
-        base_res = assim_res[0]
-        # year mod 1 gives us the tail, identifies which res being assimilated
-        yr_tails = [i*base_res for i in range(int(1/base_res))]
+        pclass = get_proxy_class(proxy_config.use_from)
 
-        self.assim_idxs_by_res = {}
-        for res in assim_res:
-            nelem_in_chk = int(res/base_res)
-            yr_ids = yr_tails[(nelem_in_chk-1)::nelem_in_chk]
-            self.assim_idxs_by_res[res] = {yr_id: [] for yr_id in yr_ids}
+        # Load proxies for current class
+        ids_by_grp, proxies = pclass.load_all(proxy_config,
+                                              data_range)
 
-        for proxy_class_key in config.proxies.use_from:
-            pclass = get_proxy_class(proxy_class_key)
-
-            #Get PSM kwargs
-            proxy_psm_key = config.psm.use_psm[proxy_class_key]
-            psm_class = LMR_psms.get_psm_class(proxy_psm_key)
-            psm_kwargs = psm_class.get_kwargs(config)
-
-            # Load proxies for current class
-            ids_by_grp, proxies = pclass.load_all(config,
-                                                  data_range,
-                                                  **psm_kwargs)
-
-            # Add to total lists
-            self.all_proxies += proxies
-            for k, v in ids_by_grp.iteritems():
-                self.all_ids_by_group[k] += v
-
-        proxy_frac = config.proxies.proxy_frac
+        self.all_proxies = proxies
+        self.all_ids_by_group = ids_by_grp
+        proxy_frac = proxy_config.proxy_frac
         nsites = len(self.all_proxies)
 
         # Sample subset from all proxies if specified
@@ -110,7 +87,7 @@ class ProxyManager:
             nsites_assim = int(nsites * proxy_frac)
 
             # Set seed if set in configuration
-            random.seed(seed)
+            random.seed(proxy_config.seed)
             self.ind_assim = random.sample(range(nsites), nsites_assim)
             self.ind_assim.sort()
             self.ind_eval = list(set(range(nsites)) - set(self.ind_assim))
@@ -128,16 +105,6 @@ class ProxyManager:
             self.ind_assim = range(nsites)
             self.ind_eval = None
             self.assim_ids_by_group = self.all_ids_by_group
-
-        # Add indexes to resolution groups
-        for idx in self.ind_assim:
-            p_res = self.all_proxies[idx].resolution
-            p_yr_grp = self.all_proxies[idx].subannual_idx
-
-            # Subannual index will correspond to correct year tail when sorted
-            key = sorted(self.assim_idxs_by_res[p_res].keys())[p_yr_grp]
-
-            self.assim_idxs_by_res[p_res][key].append(idx)
 
     def proxy_obj_generator(self, indexes):
         """
@@ -168,19 +135,6 @@ class ProxyManager:
         """
 
         return self.proxy_obj_generator(self.ind_assim)
-
-    def sites_assim_res_proxy_objs(self, resolution, t):
-        """
-        generator over assimilation indices for a given resolution
-
-        Yields
-        ------
-        BaseProxy Object like
-            Proxy object from the all_proxies list with specified resolution
-        """
-
-        return self.proxy_obj_generator(self.assim_idxs_by_res[resolution]
-                                        [t % 1.0])
 
     def sites_eval_proxy_objs(self):
         """
@@ -247,7 +201,7 @@ class BaseProxyObject:
     """
     __metaclass__ = ABCMeta
 
-    def __init__(self, config, pid, prox_type, start_yr, end_yr, 
+    def __init__(self, psm_config, psm_type, pid, prox_type, start_yr, end_yr,
                  lat, lon, elev, seasonality, values, time):
 
         if (values is None) or len(values) == 0:
@@ -266,13 +220,9 @@ class BaseProxyObject:
         self.time = time
         self.seasonality = seasonality
 
-        # Find sub-annual index corresponding to location in state_list
-        base_res = config.core.assimilation_time_res[0]
-        self.subannual_idx = int((self.start_yr % 1.) / base_res)
-
         # Retrieve appropriate PSM function
-        psm_obj = self.get_psm_obj(config)
-        self.psm_obj = psm_obj(config, self, **psm_kwargs)
+        psm_obj = self.get_psm_obj(psm_type)
+        self.psm_obj = psm_obj(psm_config, self)
         self.psm = self.psm_obj.psm
 
     def _constrain_to_date_range(self, date_range):

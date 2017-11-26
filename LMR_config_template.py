@@ -360,9 +360,9 @@ class proxies(ConfigGroup):
     # =============================
     # Which proxy database to use ?
     # =============================
-    use_from = ['PAGES2kv1']
-    #use_from = ['LMRdb']
-    #use_from = ['NCDCdtda']
+    use_from = 'PAGES2kv1'
+    #use_from = 'LMRdb'
+    #use_from = 'NCDCdtda'
 
     proxy_frac = 1.0
     #proxy_frac = 0.75

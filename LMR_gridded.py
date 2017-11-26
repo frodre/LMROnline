@@ -865,7 +865,7 @@ class State(object):
         ye_state = self.get_var_data('ye_vals')
         ye_state[:] = ye_vals
 
-    def stash_state_list(self, name):
+    def stash_state(self, name):
 
         self._tmp_state[name] = self.state_list.copy()
 
@@ -918,7 +918,7 @@ class State(object):
 
         if self._orig_state is not None:
             store_orig = False
-            self.stash_state_list('tmp')
+            self.stash_state('tmp')
             self.restore_orig_state()
 
         # Extra year, just in case we need to use shifted dates

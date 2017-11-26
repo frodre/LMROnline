@@ -77,26 +77,11 @@ from LMR_DA import enkf_update_array_xb_blend, cov_localization
 
 
 # *** Helper Methods
-def _calc_yevals_from_prior(assim_res_vals, res_yr_shift, ye_shp, xb_state,
-                            prox_manager):
+def _calc_yevals_from_prior(ye_shp, xb_state, prox_manager):
     ye_all = np.empty(shape=ye_shp)
+    for i, pobj in enumerate(prox_manager.sites_assim_proxy_objs()):
+        ye_all[i, :] = pobj.psm(xb_state)
 
-    xb_state.stash_state_list('ye_stash')
-    i = -1
-    for res in assim_res_vals:
-        xb_state.stash_recall_state_list('ye_stash')
-
-        shift = res_yr_shift[res]
-
-        xb_state.avg_to_res(res, shift)
-
-        for key in prox_manager.assim_idxs_by_res[res].keys():
-            for i, proxy in enumerate(
-                    prox_manager.sites_assim_res_proxy_objs(res, key),
-                    i+1):
-                ye_all[i, :] = proxy.psm(xb_state, proxy.subannual_idx)
-
-    xb_state.stash_pop_state_list('ye_stash')
     return ye_all
 
 # *** main driver
@@ -106,39 +91,27 @@ def LMR_driver_callable(cfg=None):
         cfg = BaseCfg.Config()  # Use base configuration from LMR_config
 
     # Temporary fix for old 'state usage'
-    core = cfg.core
-    prior = cfg.prior
+    core_cfg = cfg.core
+    prior_cfg = cfg.prior
 
     # verbose controls print comments (0 = none; 1 = most important;
     #  2 = many; 3 = a lot; >=4 = all)
     verbose = cfg.LOG_LEVEL
 
-    nexp = core.nexp
-    workdir = core.datadir_output
-    recon_period = core.recon_period
-    recon_timescale = core.recon_timescale
-    online = core.online_reconstruction
-    persistence = core.persistence_forecast
-    hybrid_update = core.hybrid_update
-    hybrid_a_val = core.hybrid_a
-    blend_prior = core.blend_prior
-    reg_inf = core.reg_inflate
-    inf_factor = core.inf_factor
-    nens = core.nens
-    loc_rad = core.loc_rad
-    inflation_fact = core.inflation_fact
-    trunc_state = prior.truncate_state
-    state_backend = prior.backend_type
-    assim_res_vals = core.assimilation_time_res
-    prior_source = prior.prior_source
-    base_res = core.assimilation_time_res[0]
-    sub_base_res = core.sub_base_res
-    res_assim_freq = (np.array(assim_res_vals)/base_res).astype(np.int16)
-    res_yr_shift = core.res_yr_shift
-    state_variables = prior.state_variables
-    state_variables_info = prior.state_variables_info
-    regrid_method = prior.regrid_method
-    regrid_resolution = prior.regrid_resolution
+    nexp = core_cfg.nexp
+    workdir = core_cfg.datadir_output
+    recon_period = core_cfg.recon_period
+    online = core_cfg.online_reconstruction
+    persistence = core_cfg.persistence_forecast
+    hybrid_update = core_cfg.hybrid_update
+    hybrid_a_val = core_cfg.hybrid_a
+    blend_prior = core_cfg.blend_prior
+    reg_inf = core_cfg.reg_inflate
+    inf_factor = core_cfg.inf_factor
+    nens = core_cfg.nens
+    loc_rad = core_cfg.loc_rad
+    inflation_fact = core_cfg.inflation_fact
+    state_backend = prior_cfg.backend_type
 
     # ==========================================================================
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< MAIN CODE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -150,7 +123,7 @@ def LMR_driver_callable(cfg=None):
         print 'Running LMR reconstruction...'
         print '====================================================='
         print 'Name of experiment: ', nexp
-        print ' Monte Carlo iter : ', core.curr_iter
+        print ' Monte Carlo iter : ', core_cfg.curr_iter
         print ''
         
     begin_time = time()
@@ -167,10 +140,10 @@ def LMR_driver_callable(cfg=None):
         print '-------------------------------------------'
         print 'Uploading gridded (model) data as prior ...'
         print '-------------------------------------------'
-        print 'Source for prior: ', prior_source
+        print 'Source for prior: ', prior_cfg.prior_source
 
     # Create initial state vector of desired variables at smallest time res
-    Xb_one_full = LMR_gridded.State.from_config(cfg)
+    Xb_one = LMR_gridded.State.from_config(prior_cfg)
 
     load_time = time() - begin_time
     if verbose > 2:
@@ -187,10 +160,10 @@ def LMR_driver_callable(cfg=None):
     # ==========================================================================
 
     # TODO: Regridding here
-    if trunc_state:
-        Xb_one = Xb_one_full.truncate_state()
-    else:
-        Xb_one = Xb_one_full.copy()
+    # if trunc_state:
+    #     Xb_one = Xb_one_full.truncate_state()
+    # else:
+    #     Xb_one = Xb_one_full.copy()
 
     # Keep dimension of pre-augmented version of state vector
     state_dim = Xb_one.shape[0]
@@ -210,15 +183,13 @@ def LMR_driver_callable(cfg=None):
     # verification
     prox_manager = LMR_proxy2.ProxyManager(cfg, recon_period)
     type_site_assim = prox_manager.assim_ids_by_group
+    # count the total number of proxies
+    assim_proxy_count = len(prox_manager.ind_assim)
 
     if verbose > 0:
         print 'Assimilating proxy types/sites:', type_site_assim
-
-    if verbose > 0:
         print '--------------------------------------------------------------------'
         print 'Proxy counts for experiment:'
-        # count the total number of proxies
-        assim_proxy_count = len(prox_manager.ind_assim)
         for pkey, plist in sorted(type_site_assim.iteritems()):
             print('%45s : %5d' % (pkey, len(plist)))
         print('%45s : %5d' % ('TOTAL', assim_proxy_count))
@@ -237,9 +208,8 @@ def LMR_driver_callable(cfg=None):
     # TODO: Figure out how to handle precalculated YE Vals
     # TODO: append eval proxy YE values
     # Extract all the Ye's from master list of proxy objects into numpy array
-    ye_shp = (total_proxy_count, nens)
-    ye_all = _calc_yevals_from_prior(assim_res_vals, res_yr_shift, ye_shp,
-                                     Xb_one_full, prox_manager)
+    ye_shp = (assim_proxy_count, nens)
+    ye_all = _calc_yevals_from_prior(ye_shp, Xb_one, prox_manager)
     Xb_one.augment_state(ye_all)
 
     # TODO: Switch to cPickled prior object... right now hardcoded for annual
@@ -270,9 +240,9 @@ def LMR_driver_callable(cfg=None):
 
     # Array containing the global and hemispheric-mean state
     # Now doing surface air temperature only (var = tas_sfc_Amon)!
-    gmt_save = np.zeros([total_proxy_count+1, ntimes])
-    nhmt_save = np.zeros([total_proxy_count+1, ntimes])
-    shmt_save = np.zeros([total_proxy_count+1, ntimes])
+    gmt_save = np.zeros([assim_proxy_count+1, ntimes])
+    nhmt_save = np.zeros([assim_proxy_count+1, ntimes])
+    shmt_save = np.zeros([assim_proxy_count+1, ntimes])
 
     xbm = Xb_one.annual_avg('tas_sfc_Amon').mean(axis=1)  # ensemble mean
     gmt, nhmt, shmt = global_mean2(xbm,
@@ -287,7 +257,7 @@ def LMR_driver_callable(cfg=None):
     nhmt_save[1, :] = nhmt
     shmt_save[1, :] = shmt
 
-    ens_calib_check = np.zeros((total_proxy_count, 5))
+    ens_calib_check = np.zeros((assim_proxy_count, 5))
 
     nelem_pr_yr = int(np.ceil(1.0 / base_res))
     start_yr, end_yr = recon_period
@@ -331,13 +301,13 @@ def LMR_driver_callable(cfg=None):
                 if hybrid_update:
                     if iyr//nelem_pr_yr == 0:
                         # Creates a copy for use as our static prior
-                        Xb_one.stash_state_list('orig_aug')
+                        Xb_one.stash_state('orig_aug')
                         Xb_static = Xb_one.state_list[0]
                         Yevals_static = Xb_one.get_var_data('ye_vals')[0]
                         Xb_one.stash_recall_state_list('orig_aug',
                                                        copy=True)
                     else:
-                        Xb_one.stash_state_list('tmp')
+                        Xb_one.stash_state('tmp')
                         Xb_one.stash_recall_state_list('orig_aug', copy=True)
                         Xb_static = Xb_one.state_list[0]
                         Yevals_static = Xb_one.get_var_data('ye_vals')[0]
@@ -550,8 +520,8 @@ def LMR_driver_callable(cfg=None):
     filen = join(workdir, 'gmt')
     np.savez(filen, gmt_save=gmt_save, nhmt_save=nhmt_save, shmt_save=shmt_save,
              recon_times=recon_times,
-             apcount=total_proxy_count,
-             tpcount=total_proxy_count)
+             apcount=assim_proxy_count,
+             tpcount=assim_proxy_count)
 
     # TODO: (AP) The assim/eval lists of lists instead of lists of 1-item dicts
     assimilated_proxies = [{p.type: [p.id, p.lat, p.lon, p.time,
