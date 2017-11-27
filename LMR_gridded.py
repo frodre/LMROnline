@@ -20,6 +20,8 @@ import LMR_config
 from LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
     empty_hdf5_carray, regrid_esmpy_grid_object
 from LMR_utils2 import fix_lon, regular_cov_infl
+import pylim.DataTools as DT
+
 _LAT = 'lat'
 _LON = 'lon'
 _LEV = 'lev'
@@ -707,6 +709,87 @@ class PriorVariable(GriddedVariable):
             prior_dict[vname] = pobj
 
         return prior_dict
+
+
+class ForecasterVariable(GriddedVariable):
+
+    @classmethod
+    def load(cls, forecaster_cfg, varname, anomaly=False):
+        file_dir = forecaster_cfg.datadir_calib
+        file_name = forecaster_cfg.datafile_calib
+        file_type = forecaster_cfg.dataformat_calib
+        save = forecaster_cfg.save_pre_avg_file
+        ignore_pre_avg = forecaster_cfg.ignore_pre_avg_file
+        avg_interval = forecaster_cfg.avg_interval
+        avg_interval_kwargs = forecaster_cfg.avg_interval_kwargs
+        regrid_method = forecaster_cfg.regrid_method
+        regrid_grid = forecaster_cfg.regrid_grid
+        esmpy_kwargs = {'grid_def': forecaster_cfg.esmpy_grid_def,
+                        'interp_method': forecaster_cfg.esmpy_interp_method}
+
+        datainfo = forecaster_cfg.datainfo_calib
+        if 'rotated_pole' in datainfo.keys():
+            rotated_pole = varname in datainfo['rotated_pole']
+        else:
+            rotated_pole = False
+
+        if datainfo['template'] is not None:
+            file_name = file_name.replace(datainfo['template'], varname)
+            varname = varname.split('_')[0]
+
+        return cls._main_load_helper(file_dir, file_name, varname, file_type,
+                                     save=save,
+                                     ignore_pre_avg=ignore_pre_avg,
+                                     avg_interval=avg_interval,
+                                     avg_interval_kwargs=avg_interval_kwargs,
+                                     regrid_method=regrid_method,
+                                     regrid_grid=regrid_grid,
+                                     esmpy_kwargs=esmpy_kwargs,
+                                     rotated_pole=rotated_pole,
+                                     anomaly=anomaly)
+
+    @classmethod
+    def load_allvars(cls, forecaster_cfg):
+        var_names = forecaster_cfg.fcast_varnames
+
+        fcast_dict = OrderedDict()
+        for vname in var_names.iteritems():
+            fobj = cls.load(forecaster_cfg, vname, anomaly=True)
+            fcast_dict[vname] = fobj
+
+        return fcast_dict
+
+    def forecast_var_to_pylim_dataobj(self):
+
+        print ('Converting ForecastVariable to pylim.DataObject: '
+               '{}'.format(self.name))
+
+        BDO = DT.BaseDataObject
+
+        key_map = {_TIME: BDO.TIME,
+                   _LEV: BDO.LEVEL,
+                   _LAT: BDO.LAT,
+                   _LON: BDO.LON}
+
+        dim_coords = {key_map[dim]: (i, getattr(self, dim)[:])
+                      for i, dim in enumerate(self.dim_order)}
+        coord_grids = {}
+        if self.lat_grid is not None:
+            coord_grids[BDO.LAT] = self.lat_grid
+        if self.lon_grid is not None:
+            coord_grids[BDO.LON] = self.lon_grid
+        if not coord_grids:
+            coord_grids = None
+
+        new_dobj = DT.BaseDataObject(self.data,
+                                     dim_coords=dim_coords,
+                                     coord_grids=coord_grids,
+                                     force_flat=True,
+                                     fill_value=self._fill_val)
+
+        return new_dobj
+
+
 
 
 class AnalysisVariable(GriddedVariable):

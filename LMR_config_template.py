@@ -1454,20 +1454,26 @@ class forecaster(ConfigGroup):
 
     class lim(ConfigGroup):
         """
-        calib_filename: Filename for LIM calibration data.  Should be netcdf
-                        file or an HDF5 file from the DataTools.netcdf_to_hdf5_
-                        container.
-        calib_varname: Variable name to grab from calib_filename
-        fcast_times: list(float)
-            A list of lead times (in years) to forecast
-        calib_is_anomaly: bool
-            Flag if calibration data is in anomaly format
-        calib_is_runmean: bool
-            Flag if data has seasonal information removed. E.g. annual
-            running mean was applied...
-        wsize: int
-            Window size for the annual running mean calculation.  Should be
-            equivalent to the number of timesteps in a year for the source data.
+        datatag_calib: str
+            Source key of calibration data for LIM
+        datainfo_calib: dict
+            Information about the calibration data. From the info section of
+            datasets.yml
+        datadir_calib: str
+            Absolute path to the source data file for the LIM
+        datafile_calib: str
+            Filename of source data for LIM
+        dataformat_calib: str
+            Dataformat key of source data for LIM
+        avg_interval: str
+            Average interval key as defined in constants.yml for averaging
+            the calibration data.
+        fcast_varnames: list(str)
+            List of variables to calibrate and forecast
+        prior_mapping: dict{str: str}
+            Mapping of forecast variables to prior variables.
+        forecast_lead: int
+            Forecast time period in units of the avg_interval
         fcast_num_pcs: int
             Number of principle components to retain during LIM forecast
             calibration.
@@ -1478,61 +1484,76 @@ class forecaster(ConfigGroup):
         use_ens_mean_fcast: bool
             Perform a forecast on the ensemble mean rather than each ensemble
             member
-        eig_adjust: float
-            CURRENTLY NOT USED.  Value to adjust eigenvalues of the forecast
-            modes.
         """
-
-        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model/20cr'
-        #                  '/tas_sfc_Amon_20CR_185101-201112.nc')
-        # calib_varname = 'tas'
-        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
-        #                  '/ccsm4_last_millenium/'
-        #                  'tas_sfc_Amon_CCSM4_past1000_085001-185012.nc')
-        # calib_varname = 'tas'
-        # calib_filename = ('/home/disk/chaos2/wperkins/data/LMR/data/model'
-        #                   '/mpi-esm-p_last_millenium/'
-        #                   'tas_sfc_Amon_MPI-ESM-P_past1000_085001-185012.nc')
-        # calib_varname = 'tas'
-
-        # NOTE: for BerkeleyEarth data switch calib_is_anomaly and
-        # calib_is_run_mean to TRUE
+        #TODO: Make this general to prior or analysis var, potentiall can remove
+        #  the distinction in LMR_gridded
         datatag_calib = 'ccsm4_last_millenium'
-        calib_varname = 'tas_run_mean'
 
-        # dataformat = 'NCD'
-        # calib_is_anomaly = True
-        # calib_is_runmean = True
-        # fcast_times = [1]
-        # wsize = 12
-        # fcast_num_pcs = 8
-        # detrend = True
-        # ignore_precalib = False
-        # use_ens_mean_fcast = False
-        #
-        # eig_adjust = None
+        avg_interval = 'annual_std'
 
-        def __init__(self, lmr_path=None, **kwargs):
+        fcast_varnames = []
+        prior_mapping = {}
+
+        fcast_lead = 1
+        fcast_num_pcs = 8
+        detrend = True
+        ignore_precalib_lim = False
+        use_ens_mean_fcast = False
+
+        def __init__(self, lmr_path=None, save_pre_avg_file=None,
+                     ignore_pre_avg_file=None, regrid_method=None,
+                     regrid_grid=None, esmpy_interp_method=None, **kwargs):
 
             super(ConfigGroup, self).__init__(**kwargs)
 
-            if lmr_path is None:
-                lmr_path = core.lmr_path
-
             self.datatag_calib = self.datatag_calib
+
             dataset_descr = _DataInfo.get_info(self.datatag_calib)
             self.datainfo_calib = dataset_descr['info']
             self.datadir_calib = dataset_descr['datadir']
             self.datafile_calib = dataset_descr['datafile']
             self.dataformat_calib = dataset_descr['dataformat']
 
-            self.calib_varname = self.calib_varname
+            self.fcast_varnames = list(self.fcast_varnames)
+            self.prior_mapping = deepcopy(self.prior_mapping)
+
+            self.fcast_lead = self.fcast_lead
+            self.fcast_num_pcs = self.fcast_num_pcs
+            self.detrend = self.detrend
+            self.ignore_precalib_lim = self.ignore_precalib_lim
+            self.use_ens_mean_fcast = self.use_ens_mean_fcast
+
+            self.avg_interval = self.avg_interval
+            self.avg_interval_kwargs = Constants.get_info('avg_interval')
+            self.regrid_method = self.regrid_method
+
+            self.regrid_method = regrid_method
+            self.regrid_grid = regrid_grid
+            self.esmpy_interp_method = esmpy_interp_method
+            if self.regrid_method != 'esmpy':
+                self.regrid_resolution = self.regrid_grid
+                self.esmpy_grid_def = None
+            elif self.regrid_method == 'esmpy':
+                self.regrid_resolution = None
+                self.esmpy_grid_def = _GridDef.get_info(self.regrid_grid)
+
+            if lmr_path is None:
+                lmr_path = core.lmr_path
+
+            if save_pre_avg_file is None:
+                save_pre_avg_file = core.save_pre_avg_file
+            self.save_pre_avg_file = save_pre_avg_file
+
+            if ignore_pre_avg_file is None:
+                ignore_pre_avg_file = core.ignore_pre_avg_file
+            self.ignore_pre_avg_file = ignore_pre_avg_file
 
             if self.datadir_calib is None:
                 model_dir = join(lmr_path, 'data', 'model', self.datatag_calib)
                 analysis_dir = join(lmr_path, 'data', 'analyses',
                                     self.datatag_calib)
 
+                # TODO: Currently only allowing single source calibration
                 self.datadir_calib = model_dir
 
                 # if exists(join(model_dir, self.datafile_calib)):
@@ -1543,8 +1564,16 @@ class forecaster(ConfigGroup):
                 #     raise ValueError('Could not find calibration datafile in '
                 #                      'default model or analyses directory.')
 
-    def __init__(self, lmr_path=None, **kwargs):
-        self.lim = self.lim(lmr_path=lmr_path, **kwargs.pop('lim', {}))
+    def __init__(self, lmr_path=None, save_pre_avg_file=None,
+                 ignore_pre_avg_file=None, regrid_method=None,
+                 regrid_grid=None, esmpy_interp_method=None, **kwargs):
+        self.lim = self.lim(lmr_path=lmr_path,
+                            save_pre_avg_file=save_pre_avg_file,
+                            ignore_pre_avg_file=ignore_pre_avg_file,
+                            regrid_method=regrid_method,
+                            regrid_grid=regrid_grid,
+                            esmpy_interp_method=esmpy_interp_method,
+                            **kwargs.pop('lim', {}))
 
         super(ConfigGroup, self).__init__(**kwargs)
         self.use_forecaster = self.use_forecaster
@@ -1564,14 +1593,26 @@ class Config(ConfigGroup):
         self.core = core(**kwargs.pop('core', {}))
         lmr_path = self.core.lmr_path
         seed = self.core.seed
+        save_preavg = self.core.save_pre_avg_file
+        ignore_preavg = self.core.ignore_pre_avg_file
         self.proxies = proxies(lmr_path=lmr_path,
                                seed=seed,
                                **kwargs.pop('proxies', {}))
         self.psm = psm(lmr_path=lmr_path, **kwargs.pop('psm', {}))
         self.prior = prior(lmr_path=lmr_path,
-                           seed=seed,
+                           seed=seed, save_pre_avg_file=save_preavg,
+                           ignore_pre_avg_file=ignore_preavg,
                            **kwargs.pop('prior', {}))
+
+        regrid_method = self.prior.regrid_method
+        regrid_grid = self.prior.regrid_grid
+        esmpy_interp_method = self.prior.esmpy_interp_method
         self.forecaster = forecaster(lmr_path=lmr_path,
+                                     save_pre_avg_file=save_preavg,
+                                     ignore_pre_avg_file=ignore_preavg,
+                                     regrid_method=regrid_method,
+                                     regrid_grid=regrid_grid,
+                                     esmpy_interp_method=esmpy_interp_method,
                                      **kwargs.pop('forecaster', {}))
 
 
