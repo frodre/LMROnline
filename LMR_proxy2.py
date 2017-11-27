@@ -39,6 +39,7 @@ from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from copy import deepcopy
 import random
+import pandas as pd
 import numpy as np
 
 class ProxyManager:
@@ -202,7 +203,7 @@ class BaseProxyObject:
     __metaclass__ = ABCMeta
 
     def __init__(self, psm_config, psm_type, pid, prox_type, start_yr, end_yr,
-                 lat, lon, elev, seasonality, values, time):
+                 lat, lon, elev, seasonality, values, time, load_psm_obj=True):
 
         if (values is None) or len(values) == 0:
             raise ValueError('No proxy data given for object initialization')
@@ -221,9 +222,11 @@ class BaseProxyObject:
         self.seasonality = seasonality
 
         # Retrieve appropriate PSM function
-        psm_obj = self.get_psm_obj(psm_type)
-        self.psm_obj = psm_obj(psm_config, self)
-        self.psm = self.psm_obj.psm
+        self.psm_config = psm_config
+        if load_psm_obj:
+            psm_obj = self.get_psm_obj(psm_type)
+            self.psm_obj = psm_obj(psm_config, self)
+            self.psm = self.psm_obj.psm
 
     def _constrain_to_date_range(self, date_range):
         start, end = date_range
@@ -236,7 +239,7 @@ class BaseProxyObject:
 
     @staticmethod
     @abstractmethod
-    def get_psm_obj():
+    def get_psm_obj(psm_config, proxy_obj):
         """ Retrieves PSM object class to be attached to this proxy"""
         pass
 
@@ -319,31 +322,31 @@ class BaseProxyObject:
 class ProxyPAGES2kv1(BaseProxyObject):
 
     @staticmethod
-    def get_psm_obj(config,proxy_type):
-        psm_key = config.proxies.PAGES2kv1.proxy_psm_type[proxy_type]
+    def get_psm_obj(proxy_config, proxy_type):
+        psm_key = proxy_config.PAGES2kv1.proxy_psm_type[proxy_type]
         return LMR_psms.get_psm_class(psm_key)
 
     @classmethod
     @augment_docstr
-    def load_site(cls, config, site, data_range=None, meta_src=None,
-                  data_src=None):
+    def load_site(cls, pages2kv1_cfg, site, data_range=None, meta_src=None,
+                  data_src=None, load_psm=True):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.
         """
 
-        pages2kv1_cfg = config.proxies.PAGES2kv1
         if meta_src is None:
-            meta_src = load_data_frame(pages2kv1_cfg.metafile_proxy)
+            meta_src = pd.read_pickle(pages2kv1_cfg.metafile_proxy)
         if data_src is None:
-            data_src = load_data_frame(pages2kv1_cfg.datafile_proxy)
+            data_src = pd.read_pickle(pages2kv1_cfg.datafile_proxy)
 
         site_meta = meta_src[meta_src['Proxy ID'] == site]
         pid = site_meta['Proxy ID'].iloc[0]
         pmeasure = site_meta['Proxy measurement'].iloc[0]
         pages2kv1_type = site_meta['Archive type'].iloc[0]
         try:
-            proxy_type = pages2kv1_cfg.proxy_type_mapping[(pages2kv1_type, pmeasure)]
+            proxy_type = pages2kv1_cfg.proxy_type_mapping[(pages2kv1_type,
+                                                           pmeasure)]
         except (KeyError, ValueError) as e:
             print 'Proxy type/measurement not found in mapping: {}'.format(e)
             raise ValueError(e)
@@ -352,12 +355,9 @@ class ProxyPAGES2kv1(BaseProxyObject):
         end_yr = site_meta['Oldest (C.E.)'].iloc[0]
         lat = site_meta['Lat (N)'].iloc[0]
         lon = site_meta['Lon (E)'].iloc[0]
-        elev = 0.0 # elev not info available in PAGES2kS1 data
-        seasonality = None # not defined in PAGES2kS1 metadata
+        elev = 0.0  # elev not info available in PAGES2kS1 data
+        seasonality = None  # not defined in PAGES2kS1 metadata
         site_data = data_src[site]
-        seasonality = site_meta['Seasonality'].iloc[0]
-        # make sure a list is returned
-        if type(seasonality) is not list: seasonality = ast.literal_eval(seasonality)
 
         if data_range is not None:
             start, finish = data_range
@@ -371,12 +371,13 @@ class ProxyPAGES2kv1(BaseProxyObject):
         times = values.index.values
 
         # transform in "anomalies" (time-mean removed) if option activated
-        if config.proxies.PAGES2kv1.proxy_timeseries_kind == 'anom':
+        if pages2kv1_cfg.proxy_timeseries_kind == 'anom':
             values = values - values.mean()
 
         # Send full proxy timeseries in case calibration is necessary
-        proxy_obj = cls(config, pid, proxy_type, start_yr, end_yr, lat, lon,
-                       elev, seasonality, values, times)
+        proxy_obj = cls(proxy_config, pid, proxy_type, start_yr, end_yr, lat,
+                        lon, elev, seasonality, values, times,
+                        load_psm_obj=load_psm)
 
         proxy_obj._constrain_to_date_range(data_range)
 
@@ -387,24 +388,27 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_all(cls, config, data_range, meta_src=None,
+    def load_all(cls, proxy_config, data_range, meta_src=None,
                  data_src=None):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.
         """
 
+        pages2kv1_cfg = proxy_config.PAGES2kv1
+        load_psm = proxy_config.load_psm_with_proxies
+
         # Load source data files
         if meta_src is None:
-            meta_src = load_data_frame(config.proxies.PAGES2kv1.metafile_proxy)
+            meta_src = pd.read_pickle(pages2kv1_cfg.metafile_proxy)
         if data_src is None:
-            data_src = load_data_frame(config.proxies.PAGES2kv1.datafile_proxy)
+            data_src = pd.read_pickle(pages2kv1_cfg.datafile_proxy)
 
-        filters = config.proxies.PAGES2kv1.simple_filters
-        proxy_order = config.proxies.PAGES2kv1.proxy_order
-        ptype_filters = config.proxies.PAGES2kv1.proxy_assim2
-        availability_filter = config.proxies.PAGES2kv1.proxy_availability_filter
-        availability_fraction = config.proxies.PAGES2kv1.proxy_availability_fraction
+        filters = pages2kv1_cfg.simple_filters
+        proxy_order = pages2kv1_cfg.proxy_order
+        ptype_filters = pages2kv1_cfg.proxy_assim2
+        availability_filter = pages2kv1_cfg.proxy_availability_filter
+        availability_fraction = pages2kv1_cfg.proxy_availability_fraction
 
         # initial masks all true before filtering
         useable = meta_src[meta_src.columns[0]] == 0
@@ -425,15 +429,15 @@ class ProxyPAGES2kv1(BaseProxyObject):
         # Filtering proxy records on conditions of availability during
         # the reconstruction period (recon_period in configuration, or
         # data_range here).
-        if availability_filter: # if not None
+        if availability_filter is not None:
             start, finish = data_range
             # Checking proxy metadata's period of availability against
             # reconstruction period.
             availability_mask = ((meta_src['Oldest (C.E.)'] <= start) &
                                  (meta_src['Youngest (C.E.)'] >= finish))
             # Checking level of completeness of record within the reconstruction
-            # period (ignore record if fraction of available data is below user-defined
-            # threshold (proxy_availability_fraction in config).
+            # period (ignore record if fraction of available data is below
+            # user-defined threshold (proxy_availability_fraction in config).
             maxnb = (finish - start) + 1
             proxies_to_test = meta_src['Proxy ID'][availability_mask & useable].values
             for prx in proxies_to_test.tolist():
@@ -477,15 +481,11 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
         # Create proxy objects list
         all_proxies = []
-        calib_obj = None
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(config, site, data_range,
-                                     meta_src=meta_src, data_src=data_src)
-                if pobj.psm_obj._calib_object is not None:
-                    calib_obj = pobj.psm_obj._calib_object
-                    pobj.psm_obj._calib_object = None
-                    psm_kwargs.update(calib_objs=calib_obj)
+                pobj = cls.load_site(proxy_config, site, data_range,
+                                     meta_src=meta_src, data_src=data_src,
+                                     load_psm=load_psm)
                 all_proxies.append(pobj)
             except ValueError as e:
                 # Proxy had no obs or didn't meet psm r crit
@@ -494,14 +494,10 @@ class ProxyPAGES2kv1(BaseProxyObject):
                         group.remove(site)
                         break  # Should only be one instance
 
-        if calib_obj is not None:
-            # TODO: resave proxy pre_calib
-            pass
-
         return proxy_id_by_type, all_proxies
 
     @classmethod
-    def load_all_annual_no_filtering(cls, config, meta_src=None,
+    def load_all_annual_no_filtering(cls, proxy_config, meta_src=None,
                                      data_src=None):
         """
         Method created to facilitate the loading of all possible proxy records
@@ -516,11 +512,15 @@ class ProxyPAGES2kv1(BaseProxyObject):
         proxy_objs: list(BaseProxyObject like)
         """
 
+        pages2kv1_cfg = proxy_config.PAGES2kv1
+        # TODO: What should psm loading do in this case?
+        load_psm = proxy_config.load_psm_with_proxies
+
         # Load source data files
         if meta_src is None:
-            meta_src = load_data_frame(config.proxies.PAGES2kv1.metafile_proxy)
+            meta_src = pd.read_pickle(pages2kv1_cfg.metafile_proxy)
         if data_src is None:
-            data_src = load_data_frame(config.proxies.PAGES2kv1.datafile_proxy)
+            data_src = pd.read_pickle(pages2kv1_cfg.datafile_proxy)
 
         # TODO: For now hard coded to annual resolution - AP
         useable = meta_src['Resolution (yr)'] == 1.0
@@ -530,8 +530,9 @@ class ProxyPAGES2kv1(BaseProxyObject):
         proxy_objs = []
         for site in proxy_ids:
             try:
-                pobj = cls.load_site(config, site,
-                                     meta_src=meta_src, data_src=data_src)
+                pobj = cls.load_site(proxy_config, site,
+                                     meta_src=meta_src, data_src=data_src,
+                                     load_psm=False)
                 proxy_objs.append(pobj)
             except ValueError as e:
                 print e
@@ -545,31 +546,30 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
 class ProxyLMRdb(BaseProxyObject):
     @staticmethod
-    def get_psm_obj(config, proxy_type):
-        psm_key = config.proxies.LMRdb.proxy_psm_type[proxy_type]
+    def get_psm_obj(proxy_config, proxy_type):
+        psm_key = proxy_config.LMRdb.proxy_psm_type[proxy_type]
         return LMR_psms.get_psm_class(psm_key)
 
     @classmethod
     @augment_docstr
-    def load_site(cls, config, site, data_range=None, meta_src=None,
-                  data_src=None):
+    def load_site(cls, lmr_db_cfg, site, data_range=None, meta_src=None,
+                  data_src=None, load_psm=True):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.
         """
 
-        LMRdb_cfg = config.proxies.LMRdb
         if meta_src is None:
-            meta_src = load_data_frame(LMRdb_cfg.metafile_proxy)
+            meta_src = pd.read_pickle(lmr_db_cfg.metafile_proxy)
         if data_src is None:
-            data_src = load_data_frame(LMRdb_cfg.datafile_proxy)
+            data_src = pd.read_pickle(lmr_db_cfg.datafile_proxy)
 
         site_meta = meta_src[meta_src['Proxy ID'] == site]
         pid = site_meta['Proxy ID'].iloc[0]
         pmeasure = site_meta['Proxy measurement'].iloc[0]
         LMRdb_type = site_meta['Archive type'].iloc[0]
         try:
-            proxy_type = LMRdb_cfg.proxy_type_mapping[(LMRdb_type, pmeasure)]
+            proxy_type = lmr_db_cfg.proxy_type_mapping[(LMRdb_type, pmeasure)]
         except (KeyError, ValueError) as e:
             print 'Proxy type/measurement not found in mapping: {}'.format(e)
             raise ValueError(e)
@@ -597,37 +597,40 @@ class ProxyLMRdb(BaseProxyObject):
         times = values.index.values
 
         # transform in "anomalies" (time-mean removed) if option activated
-        if config.proxies.LMRdb.proxy_timeseries_kind == 'anom':
+        if lmr_db_cfg.proxies.LMRdb.proxy_timeseries_kind == 'anom':
             values = values - values.mean()
 
         if len(values) == 0:
             raise ValueError('No observations in specified time range.')
 
-        return cls(config, pid, proxy_type, start_yr, end_yr, lat, lon, elev,
-                   seasonality, values, times)
+        return cls(lmr_db_cfg, pid, proxy_type, start_yr, end_yr, lat, lon,
+                   elev, seasonality, values, times, load_psm_obj=load_psm)
 
     @classmethod
     @augment_docstr
-    def load_all(cls, config, data_range, meta_src=None,
+    def load_all(cls, proxy_config, data_range, meta_src=None,
                  data_src=None):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.
         """
 
+        lmr_db_cfg = proxy_config.LMRdb
+        load_psm = proxy_config.load_psm_with_proxies
+
         # Load source data files
         if meta_src is None:
-            meta_src = load_data_frame(config.proxies.LMRdb.metafile_proxy)
+            meta_src = pd.read_pickle(lmr_db_cfg.metafile_proxy)
         if data_src is None:
-            data_src = load_data_frame(config.proxies.LMRdb.datafile_proxy)
+            data_src = pd.read_pickle(lmr_db_cfg.datafile_proxy)
 
-        filters = config.proxies.LMRdb.simple_filters
-        proxy_order = config.proxies.LMRdb.proxy_order
-        ptype_filters = config.proxies.LMRdb.proxy_assim2
-        dbase_filters = config.proxies.LMRdb.database_filter
-        proxy_blacklist = config.proxies.LMRdb.proxy_blacklist
-        availability_filter = config.proxies.LMRdb.proxy_availability_filter
-        availability_fraction = config.proxies.LMRdb.proxy_availability_fraction
+        filters = lmr_db_cfg.simple_filters
+        proxy_order = lmr_db_cfg.proxy_order
+        ptype_filters = lmr_db_cfg.proxy_assim2
+        dbase_filters = lmr_db_cfg.database_filter
+        proxy_blacklist = lmr_db_cfg.proxy_blacklist
+        availability_filter = lmr_db_cfg.proxy_availability_filter
+        availability_fraction = lmr_db_cfg.proxy_availability_fraction
 
         # initial mask all true before filtering
         useable = meta_src[meta_src.columns[0]] == 0
@@ -739,8 +742,9 @@ class ProxyLMRdb(BaseProxyObject):
         all_proxies = []
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(config, site, data_range,
-                                     meta_src=meta_src, data_src=data_src)
+                pobj = cls.load_site(proxy_config, site, data_range,
+                                     meta_src=meta_src, data_src=data_src,
+                                     load_psm=load_psm)
                 all_proxies.append(pobj)
             except ValueError as e:
                 # Proxy had no obs or didn't meet psm r crit
@@ -752,7 +756,7 @@ class ProxyLMRdb(BaseProxyObject):
         return proxy_id_by_type, all_proxies
 
     @classmethod
-    def load_all_annual_no_filtering(cls, config, meta_src=None,
+    def load_all_annual_no_filtering(cls, proxy_config, meta_src=None,
                                      data_src=None):
         """
         Method created to facilitate the loading of all possible proxy records
@@ -767,11 +771,13 @@ class ProxyLMRdb(BaseProxyObject):
         proxy_objs: list(BaseProxyObject like)
         """
 
+        lmr_db_cfg = proxy_config.LMRdb
+
         # Load source data files
         if meta_src is None:
-            meta_src = load_data_frame(config.proxies.LMRdb.metafile_proxy)
+            meta_src = pd.read_pickle(lmr_db_cfg.metafile_proxy)
         if data_src is None:
-            data_src = load_data_frame(config.proxies.LMRdb.datafile_proxy)
+            data_src = pd.read_pickle(lmr_db_cfg.datafile_proxy)
 
         # TODO: For now hard coded to annual resolution - AP
         useable = meta_src['Resolution (yr)'] == 1.0
@@ -781,7 +787,7 @@ class ProxyLMRdb(BaseProxyObject):
         proxy_objs = []
         for site in proxy_ids:
             try:
-                pobj = cls.load_site(config, site,
+                pobj = cls.load_site(proxy_config, site,
                                      meta_src=meta_src, data_src=data_src)
                 proxy_objs.append(pobj)
             except ValueError as e:
@@ -1068,7 +1074,9 @@ def fix_lon(lon):
     return lon
 
 
-_proxy_classes = {'PAGES2kv1': ProxyPAGES2kv1, 'LMRdb': ProxyLMRdb, 'NCDCdtda': ProxyNCDCdtda}
+_proxy_classes = {'PAGES2kv1': ProxyPAGES2kv1,
+                  'LMRdb': ProxyLMRdb,
+                  'NCDCdtda': ProxyNCDCdtda}
 
 def get_proxy_class(proxy_key):
     """

@@ -341,7 +341,10 @@ class proxies(ConfigGroup):
         Fraction of available proxy data (sites) to assimilate
     proxy_timeseries_kind: string
         Type of proxy timeseries to use. 'anom' for anomalies or 'asis'
-        to keep records as included in the database. 
+        to keep records as included in the database.
+    load_psm_with_proxy: bool
+        Flag to indicate whether PSMs should be loaded with proxy objects.
+        If False the psm_obj will be None until explicitly loaded.
     proxy_availability_filter: boolean
         True/False flag indicating whether filtering of proxy records
         according to data availability over reconstruction period is
@@ -370,6 +373,8 @@ class proxies(ConfigGroup):
     # type of proxy timeseries to return: 'anom' for anomalies
     # (temporal mean removed) or asis' to keep unchanged
     proxy_timeseries_kind = 'asis'
+
+    load_psm_with_proxies = True
 
     # Filtering proxy records on conditions of data availability during
     # the reconstruction period.
@@ -810,7 +815,6 @@ class proxies(ConfigGroup):
             self.database_filter = list(self.database_filter)
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
 
-    
     # Initialize subclasses with all attributes
     def __init__(self, lmr_path=None, seed=None, **kwargs):
         self.PAGES2kv1 = self.PAGES2kv1(lmr_path=lmr_path, **kwargs.pop('PAGES2kv1', {}))
@@ -821,6 +825,10 @@ class proxies(ConfigGroup):
         
         self.use_from = list(self.use_from)
         self.proxy_frac = self.proxy_frac
+        self.load_psm_with_proxies = self.load_psm_with_proxies
+        self.proxy_availability_filter = self.proxy_availability_filter
+        self.proxy_availability_fraction = self.proxy_availability_fraction
+
         if seed is None:
             seed = core.seed
         self.seed = seed
@@ -832,7 +840,7 @@ class psm(ConfigGroup):
 
     Attributes
     ----------
-    avgPeriod: str
+    avg_interval: str
         Indicates use of PSMs calibrated on annual or seasonal data. 
         Allowed tags are 'annual' or 'season'.
     season_source: str

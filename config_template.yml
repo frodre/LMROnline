@@ -47,6 +47,7 @@ proxies:
 #  use_from: [NCDCdtda]  
   proxy_frac: 1.0
   proxy_timeseries_kind: asis
+  load_psm_with_proxies: True
   proxy_availability_filter: False
   proxy_availability_fraction: 1.0
 
