@@ -42,6 +42,7 @@ Revisions:
 import numpy as np
 import logging
 import LMR_gridded
+import cPickle
 from LMR_utils import haversine, get_distance, smooth2D, get_data_closest_gridpt, class_docs_fixer
 
 import pandas as pd
@@ -49,7 +50,6 @@ from scipy.stats import linregress
 import statsmodels.formula.api as sm
 
 from abc import ABCMeta, abstractmethod
-from load_data import load_cpickle
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -78,6 +78,8 @@ class BasePSM:
     __metaclass__ = ABCMeta
 
     def __init__(self, config, proxy_obj, **psm_kwargs):
+        self.lat = None
+        self.lon = None
         pass
 
     @abstractmethod
@@ -122,223 +124,6 @@ class BasePSM:
         """
         pass
 
-
-@class_docs_fixer
-class LinearPSM(BasePSM):
-    """
-    PSM based on linear regression.
-
-    Attributes
-    ----------
-    lat: float
-        Latitude of associated proxy site
-    lon: float
-        Longitude of associated proxy site
-    elev: float
-        Elevation/depth of proxy sitex
-    corr: float
-        Correlation of proxy record against calibration data
-    slope: float
-        Linear regression slope of proxy/calibration fit
-    intercept: float
-        Linear regression y-intercept of proxy/calibration fit
-    R: float
-        Mean-squared error of proxy/calibration fit
-
-    Parameters
-    ----------
-    config: LMR_config
-        Configuration module used for current LMR run.
-    proxy_obj: BaseProxyObject like
-        Proxy object that this PSM is being attached to
-    psm_data: dict
-        Pre-calibrated PSM dictionary containing current associated
-        proxy site's calibration information
-
-    Raises
-    ------
-    ValueError
-        If PSM is below critical correlation threshold.
-    """
-
-    def __init__(self, config, proxy_obj, psm_data=None, calib_objs=None,
-                 diag_out=None, diag_fig=None):
-
-        self.psm_key = 'linear'
-
-        proxy = proxy_obj.type
-        site = proxy_obj.id
-        r_crit = config.psm.linear.psm_r_crit
-        self.lat  = proxy_obj.lat
-        self.lon  = proxy_obj.lon
-        self.elev = proxy_obj.elev
-
-        # Variable is used temporarily
-        self._calib_object = None
-        self.nobs = None
-
-        self.datatag_calib = config.psm.linear.datatag_calib
-        self.avgPeriod = config.psm.linear.avgPeriod
-
-
-        # Very crude assignment of sensitivity
-        # TODO: more inclusive & flexible way of doing this
-        if self.datatag_calib in ['GPCC', 'DaiPDSI']:
-            self.sensitivity = 'moisture'
-        else:
-            self.sensitivity = 'temperature'
-
-        try:
-            # Try using pre-calibrated psm_data
-            if psm_data is None:
-                psm_data = self._load_psm_data(config)
-
-            psm_site_data = psm_data[(proxy, site)]
-            self.corr = psm_site_data['PSMcorrel']
-            self.slope = psm_site_data['PSMslope']
-            self.intercept = psm_site_data['PSMintercept']
-            self.R = psm_site_data['PSMmse']
-
-            # check if seasonality defined in the psm data
-            # if it is, return as an attribute
-            if 'Seasonality' in psm_site_data.keys():
-                self.seasonality = psm_site_data['Seasonality']
-
-        except KeyError as e:
-            raise ValueError('Proxy in database but not found in pre-calibration file... '
-                             'Skipping: {}'.format(proxy_obj.id))
-        except IOError as e:
-            # No precalibration found, have to do it for this proxy
-            # logger.error(e)
-            # logger.info('PSM not calibrated for:' + str((proxy, site)))
-
-            # If calibration load required need to pass on to other proxies
-            # so the class attr _calib_obj is set
-            # The Proxy2 loadall function will see that this is set
-            # and hold the object there (reseting _calib_object to None) until
-            # all proxies are loaded
-            print ('No pre-calibration found for'
-                   ' {} ... calibrating ...'.format(proxy_obj.id))
-            # TODO: Fix call and Calib Module
-            if calib_objs is None:
-                source = config.psm.linear.datatag_calib
-                calib_class = LMR_gridded.get_analysis_var_class(source)
-                calib_objs = calib_class.load(config.psm.linear)
-
-                res_list = config.core.assimilation_time_res
-                yr_shift_dict = config.core.res_yr_shift
-                calib_res_dict = calib_class.avg_calib_to_res(calib_objs,
-                                                              res_list,
-                                                              yr_shift_dict)
-                self._calib_object = calib_res_dict
-            else:
-                calib_res_dict = calib_objs
-
-            self.calibrate(calib_res_dict[proxy_obj.resolution], proxy_obj,
-                           diag_output=diag_out, diag_output_figs=diag_fig)
-
-        # Raise exception if critical correlation value not met
-        if abs(self.corr) < r_crit:
-            raise ValueError(('Proxy model correlation ({:.2f}) does not meet '
-                              'critical threshold ({:.2f}).'
-                              ).format(self.corr, r_crit))
-
-    # TODO: Ideally prior state info and coordinates should all be in single obj
-    def psm(self, Xb, state_idx):
-        """
-        Maps a given state to observations for the given proxy
-
-        Parameters
-        ----------
-        Xb: ndarray
-            State vector to be mapped into observation space (stateDim x ensDim)
-        X_state_info: dict
-            Information pertaining to variables in the state vector
-        X_coords: ndarray
-            Coordinates for the state vector (stateDim x 2)
-
-        Returns
-        -------
-        Ye:
-            Equivalent observation from prior
-        """
-
-        # ----------------------
-        # Calculate the Ye's ...
-        # ----------------------
-        # TODO: state variable is hard coded for now...
-        state_var = 'tas_sfc_Amon'
-        if state_var not in Xb.var_view_range.keys():
-
-        # Associate state variable with PSM calibration dataset
-        # TODO: possible calibration sources hard coded for now... should define associations at config level
-        if self.datatag_calib in ['GISTEMP', 'MLOST', 'HadCRUT', 'BerkeleyEarth']:
-            # temperature
-            state_var = 'tas_sfc_Amon'
-        elif self.datatag_calib in ['GPCC','DaiPDSI']:
-            # moisture
-            if self.datatag_calib == 'GPCC':
-                state_var = 'pr_sfc_Amon'
-            elif self.datatag_calib == 'DaiPDSI':
-                state_var = 'scpdsi_sfc_Amon'
-            else:
-                raise KeyError('Unrecognized moisture calibration source.'
-                               ' State variable not identified for Ye calculation.')
-        else:
-            raise KeyError('Unrecognized calibration-state variable association.'
-                           ' State variable not identified for Ye calculation.')
-
-        if state_var not in X_state_info.keys():
-            raise KeyError('Needed variable not in state vector for Ye'
-                           ' calculation.')
-
-        # Find row index of X for which [X_lat,X_lon] corresponds to closest
-        # grid point to
-        # location of proxy site [self.lat,self.lon]
-        # Calclulate distances from proxy site.
-        dist = haversine(self.lon, self.lat,
-                          Xb.var_coords[state_var]['lon'],
-                          Xb.var_coords[state_var]['lat'])
-
-        # row index of nearest grid pt. in prior (minimum distance)
-        kind = np.unravel_index(dist.argmin(), dist.shape)[0]
-
-        Ye = (self.slope *
-              np.squeeze(Xb.get_var_data(state_var, idx=state_idx)[kind, :]) +
-              self.intercept)
-        # TODO: end index should already be +1, more pythonic
-        tas_startidx, tas_endidx = X_state_info[state_var]['pos']
-        ind_lon = X_state_info[state_var]['spacecoords'].index('lon')
-        ind_lat = X_state_info[state_var]['spacecoords'].index('lat')
-        X_lons = X_coords[tas_startidx:(tas_endidx+1), ind_lon]
-        X_lats = X_coords[tas_startidx:(tas_endidx+1), ind_lat]
-        tas_data = Xb[tas_startidx:(tas_endidx+1), :]
-
-        gridpoint_data = self.get_close_grid_point_data(tas_data.T,
-                                                        X_lons,
-                                                        X_lats)
-        Ye = self.basic_psm(gridpoint_data)
-
-        return Ye
-
-    def basic_psm(self, data):
-        """
-        A PSM that doesn't need to do the state unpacking steps...
-
-        Parameters
-        ----------
-        data: ndarray
-            Data to be used in the psm calculation of estimated observations
-            (Ye)
-
-        Returns
-        -------
-        Ye: ndarray
-            Estimated observations from the proxy system model
-        """
-
-        return self.slope * data + self.intercept
-
     def get_close_grid_point_data(self, data, lon, lat):
         """
         Extracts data along the sampling dimension that is closest to the
@@ -381,11 +166,180 @@ class LinearPSM(BasePSM):
             tmp_dat = data[..., loc_idx]
         else:
             # TODO: This is not general lat/lon being swapped, OK for now...
-            min_dist_lat_idx, \
-            min_dist_lon_idx = np.unravel_index(dist.argmin(), data.shape[-2:])
+            [min_dist_lat_idx,
+             min_dist_lon_idx] = np.unravel_index(dist.argmin(),
+                                                  data.shape[-2:])
             tmp_dat = data[..., min_dist_lat_idx, min_dist_lon_idx]
 
         return tmp_dat
+
+    def _get_gridpoint_data_from_state(self, var_key, state_object):
+        var_data = state_object.get_var_data(var_key)
+        var_lat = state_object.var_coords[var_key]['lat']
+        var_lon = state_object.var_coords[var_key]['lon']
+
+        return self.get_close_grid_point_data(var_data, var_lon, var_lat)
+
+
+@class_docs_fixer
+class LinearPSM(BasePSM):
+    """
+    PSM based on linear regression.
+
+    Attributes
+    ----------
+    lat: float
+        Latitude of associated proxy site
+    lon: float
+        Longitude of associated proxy site
+    elev: float
+        Elevation/depth of proxy sitex
+    corr: float
+        Correlation of proxy record against calibration data
+    slope: float
+        Linear regression slope of proxy/calibration fit
+    intercept: float
+        Linear regression y-intercept of proxy/calibration fit
+    R: float
+        Mean-squared error of proxy/calibration fit
+
+    Parameters
+    ----------
+    config: LMR_config
+        Configuration module used for current LMR run.
+    proxy_obj: BaseProxyObject like
+        Proxy object that this PSM is being attached to
+    psm_data: dict
+        Pre-calibrated PSM dictionary containing current associated
+        proxy site's calibration information
+
+    Raises
+    ------
+    ValueError
+        If PSM is below critical correlation threshold.
+    """
+
+    def __init__(self, linear_psm_cfg, proxy_obj, psm_data=None, calib_obj=None,
+                 diag_out=None, diag_fig=None, on_the_fly_calib=False):
+
+        self.psm_key = 'linear'
+
+        proxy = proxy_obj.type
+        site = proxy_obj.id
+        r_crit = linear_psm_cfg.psm_r_crit
+        self.lat  = proxy_obj.lat
+        self.lon  = proxy_obj.lon
+        self.elev = proxy_obj.elev
+
+        # Variable is used temporarily
+        self._calib_object = None
+        self.nobs = None
+
+        self.datatag_calib = linear_psm_cfg.datatag_calib
+        self.avg_interval = linear_psm_cfg.avg_interval
+
+        self.datainfo_calib = linear_psm_cfg.datainfo_calib
+        self.psm_vartype = self.datainfo_calib['psm_vartype']
+
+        try:
+            # Try using pre-calibrated psm_data
+            if psm_data is None:
+                psm_data = self._load_psm_data(linear_psm_cfg)
+
+            psm_site_data = psm_data[(proxy, site)]
+            self.corr = psm_site_data['PSMcorrel']
+            self.slope = psm_site_data['PSMslope']
+            self.intercept = psm_site_data['PSMintercept']
+            self.R = psm_site_data['PSMmse']
+
+            # check if seasonality defined in the psm data
+            # if it is, return as an attribute
+            if 'Seasonality' in psm_site_data.keys():
+                self.seasonality = psm_site_data['Seasonality']
+
+        except KeyError as e:
+            raise ValueError('Proxy in database but not found in pre-calibration file... '
+                             'Skipping: {}'.format(proxy_obj.id))
+        except IOError as e:
+            # No precalibration found, have to do it for this proxy
+            # logger.error(e)
+            # logger.info('PSM not calibrated for:' + str((proxy, site)))
+
+            # If calibration load required need to pass on to other proxies
+            # so the class attr _calib_obj is set
+            # The Proxy2 loadall function will see that this is set
+            # and hold the object there (reseting _calib_object to None) until
+            # all proxies are loaded
+            print 'No pre-calibration found for {}'.format(proxy_obj.id)
+            if not on_the_fly_calib:
+                raise e
+            else:
+                print (' ... calibrating on the fly')
+
+            # TODO: Fix call and Calib Module
+            if calib_obj is None:
+                source = linear_psm_cfg.datatag_calib
+                calib_class = LMR_gridded.get_analysis_var_class(source)
+                calib_obj = calib_class.load(linear_psm_cfg)
+
+                self._calib_object = calib_obj
+
+            self.calibrate(calib_obj, proxy_obj,
+                           diag_output=diag_out, diag_output_figs=diag_fig)
+
+        # Raise exception if critical correlation value not met
+        if abs(self.corr) < r_crit:
+            raise ValueError(('Proxy model correlation ({:.2f}) does not meet '
+                              'critical threshold ({:.2f}).'
+                              ).format(self.corr, r_crit))
+
+    # TODO: Ideally prior state info and coordinates should all be in single obj
+    def psm(self, state_object):
+        """
+        Maps a given state to observations for the given proxy
+
+        Parameters
+        ----------
+        state_object: LMR_gridded.State
+            State vector to be mapped into observation space (stateDim x ensDim)
+
+        Returns
+        -------
+        Ye:
+            Equivalent observation from prior
+        """
+
+        # ----------------------
+        # Calculate the Ye's ...
+        # ----------------------
+
+        # Get state var for psm
+
+        state_var = state_object.get_psm_var_key(self.psm_vartype)
+        gridpoint_data = self._get_gridpoint_data_from_state(state_var,
+                                                             state_object)
+
+        Ye = self.basic_psm(gridpoint_data)
+
+        return Ye
+
+    def basic_psm(self, data):
+        """
+        A PSM that doesn't need to do the state unpacking steps...
+
+        Parameters
+        ----------
+        data: ndarray
+            Data to be used in the psm calculation of estimated observations
+            (Ye)
+
+        Returns
+        -------
+        Ye: ndarray
+            Estimated observations from the proxy system model
+        """
+
+        return self.slope * data + self.intercept
 
     # Define the error model for this proxy
     @staticmethod
@@ -393,21 +347,20 @@ class LinearPSM(BasePSM):
         return 0.1
 
     # TODO: Simplify a lot of the actions in the calibration
-    def calibrate(self, C, proxy, diag_output=False, diag_output_figs=False):
+    def calibrate(self, calib_obj, proxy, diag_output=False, diag_output_figs=False):
         """
         Calibrate given proxy record against observation data and set relevant
         PSM attributes.
 
         Parameters
         ----------
-        C: calibration_master like
+        calib_obj: calibration_master like
             Calibration object containing data, time, lat, lon info
         proxy: BaseProxyObject like
             Proxy object to fit to the calibration data
         diag_output, diag_output_figs: bool, optional
             Diagnostic output flags for calibration method
         """
-        C = C[proxy.subannual_idx]
 
         # reference period (years) over which calibration anomalies are referenced
         ref_period = (1900,2000)
@@ -425,28 +378,27 @@ class LinearPSM(BasePSM):
 
         # Look for indices of calibration grid point closest in space (in 2D)
         # to proxy site
-        dist = get_distance(proxy.lon, proxy.lat, C.lon, C.lat)
+        dist = get_distance(proxy.lon, proxy.lat, calib_obj.lon, calib_obj.lat)
         # indices of nearest grid pt.
         jind, kind = np.unravel_index(dist.argmin(), dist.shape)
 
         if calib_spatial_avg:
-            C2Dsmooth = np.zeros(
-                [C.time.shape[0], C.lat.shape[0], C.lon.shape[0]])
-            for m in range(C.time.shape[0]):
-                C2Dsmooth[m, :, :] = smooth2D(C.temp_anomaly[m, :, :], n=Npts)
+            C2Dsmooth = np.zeros([calib_obj.time.shape[0], calib_obj.lat.shape[0], calib_obj.lon.shape[0]])
+            for m in range(calib_obj.time.shape[0]):
+                C2Dsmooth[m, :, :] = smooth2D(calib_obj.temp_anomaly[m, :, :], n=Npts)
             calvals = C2Dsmooth[:, jind, kind]
         else:
-            calvals = C.temp_anomaly[:, jind, kind]
+            calvals = calib_obj.temp_anomaly[:, jind, kind]
 
-
+        # TODO: it's a mess from here on out
         # -------------------------------------------------------
         # Calculate averages of calibration data over appropriate
         # intervals (annual or according to proxy seasonality)
         # -------------------------------------------------------
-        if self.avgPeriod == 'annual':
+        if self.avg_interval == 'annual':
             # Simply use annual averages
             avgMonths = [1,2,3,4,5,6,7,8,9,10,11,12]
-        elif 'season' in self.avgPeriod:
+        elif 'season' in self.avg_interval:
             # Consider the seasonality of the proxy record
             avgMonths =  proxy.seasonality
         else:
@@ -454,24 +406,24 @@ class LinearPSM(BasePSM):
             exit(1)
 
         nbmonths = len(avgMonths)
-        cyears = np.asarray(list(set([C.time[k].year for k in range(len(C.time))]))) # 'set' is used to get unique values
+        cyears = np.asarray(list(set([calib_obj.time[k].year for k in range(len(calib_obj.time))]))) # 'set' is used to get unique values
         nbcyears = len(cyears)
         reg_x = np.zeros(shape=[nbcyears])
         reg_x[:] = np.nan # initialize with nan's
 
         for i in range(nbcyears):
             # monthly data from current year
-            indsyr = [j for j,v in enumerate(C.time) if v.year == cyears[i] and v.month in avgMonths]
+            indsyr = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] and v.month in avgMonths]
             # check if data from previous year is to be included
             indsyrm1 = []
             if any(m < 0 for m in avgMonths):
                 year_before = [abs(m) for m in avgMonths if m < 0]
-                indsyrm1 = [j for j,v in enumerate(C.time) if v.year == cyears[i]-1. and v.month in year_before]
+                indsyrm1 = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] - 1. and v.month in year_before]
             # check if data from following year is to be included
             indsyrp1 = []
             if any(m > 12 for m in avgMonths):
                 year_follow = [m-12 for m in avgMonths if m > 12]
-                indsyrp1 = [j for j,v in enumerate(C.time) if v.year == cyears[i]+1. and v.month in year_follow]
+                indsyrp1 = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] + 1. and v.month in year_follow]
 
             inds = indsyrm1 + indsyr + indsyrp1
             if len(inds) == nbmonths: # all months are in the data
@@ -684,17 +636,20 @@ class LinearPSM(BasePSM):
             return {}
 
     @staticmethod
-    def _load_psm_data(config):
+    def _load_psm_data(linear_psm_cfg):
         """Helper method for loading from dataframe"""
-        pre_calib_file = config.psm.linear.pre_calib_datafile
+        pre_calib_file = linear_psm_cfg.pre_calib_datafile
 
         if pre_calib_file is None:
             raise IOError('No pre-calibration file specified.')
 
-        return load_cpickle(pre_calib_file)
+        with open(pre_calib_file, mode='r') as f:
+            data = cPickle.load(f)
+
+        return data
 
 
-class LinearPSM_TorP(LinearPSM):
+class LinearPSM_TorP(BasePSM):
     """
     PSM based on linear regression w.r.t. temperature or precipitation
     
@@ -742,196 +697,89 @@ class LinearPSM_TorP(LinearPSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, config, proxy_obj, psm_data_T=None, psm_data_P=None):
+    def __init__(self, linearTorP_cfg, proxy_obj, psm_data_T=None, psm_data_P=None):
 
         self.psm_key = 'linear_TorP'
 
         proxy = proxy_obj.type
         site = proxy_obj.id
-        r_crit = config.psm.linear_TorP.psm_r_crit
+        r_crit = linearTorP_cfg.psm_r_crit
+        metric = linearTorP_cfg.metric
         self.lat  = proxy_obj.lat
         self.lon  = proxy_obj.lon
         self.elev = proxy_obj.elev
 
-        self.datatag_calib_T = config.psm.linear_TorP.datatag_calib_T
-        self.datatag_calib_P = config.psm.linear_TorP.datatag_calib_P
+        self.datatag_calib_T = linearTorP_cfg.datatag_calib_T
+        self.datatag_calib_P = linearTorP_cfg.datatag_calib_P
 
-        self.avgPeriod = config.psm.linear_TorP.avgPeriod
+        self.avg_interval = linearTorP_cfg.avg_interval
 
-
-        # Try using pre-calibrated psm_data for **temperature**
+        # Try loading pre-calibrated PSM for temperature
         try:
-            if psm_data_T is None:
-                psm_data_T = self._load_psm_data(config,'temperature')
-            psm_site_data_T = psm_data_T[(proxy, site)]
+            psm_obj_T = LinearPSM(linearTorP_cfg.tempearature, proxy_obj,
+                                  psm_data=psm_data_T)
         except (KeyError, IOError) as e:
-            # No precalibration found, have to do it for this proxy
-            # print 'PSM (temperature) not calibrated for:' + str((proxy, site))
+            psm_obj_T = None
             print e
             print ('PSM (temperature) not calibrated for:' +
                    str((proxy, site)))
 
-        # Try using pre-calibrated psm_data for **precipitation/moisture**
+        # Try loading pre-calibrated PSM for moisture
         try:
-            if psm_data_P is None:
-                psm_data_P = self._load_psm_data(config,'moisture')
-            psm_site_data_P = psm_data_P[(proxy, site)]
-
+            psm_obj_P = LinearPSM(linearTorP_cfg.moisture, proxy_obj,
+                                  psm_data=psm_data_P)
         except (KeyError, IOError) as e:
-            # No precalibration found, have to do it for this proxy
+            psm_obj_P = None
             print e
             print ('PSM (moisture) not calibrated for:' +
                    str((proxy, site)))
 
-        # Check if PSM is calibrated w.r.t. temperature and/or w.r.t.
-        # precipitation/moisture. Assign proxy "sensitivity" based on
-        # PSM calibration.
-
-        # First check if required PSM calibration data is available
-        psm_ok = True
-        if not psm_data_T:
-            print ('In "LinearPSM_TorP" class: Cannot find PSM calibration data for temperature.')
-            psm_ok = False
-        if not psm_data_P:
-            print ('In "LinearPSM_TorP" class: Cannot find PSM calibration data for moisture.')
-            psm_ok = False
-        if not psm_ok:
-            raise (SystemExit('Exiting! You must use the PSMbuild facility to generate the appropriate calibrated PSMs'))
-
-        # Now check about temperature vs. moisture ...
-        if (proxy, site) in psm_data_T.keys() and (proxy, site) in psm_data_P.keys():
-            # calibrated for temperature AND for precipitation, check relative goodness of fit
-            # and assign "sensitivity" & corresponding PSM parameters according to best fit.
-
-            # ... based on PSMmse (variance of residuals)
-            #if psm_site_data_T['PSMmse'] < psm_site_data_P['PSMmse']:
-            # ... based on PSMcorrel
-            if abs(psm_site_data_T['PSMcorrel']) >= abs(psm_site_data_P['PSMcorrel']):
-                # smaller residual errors / or stronger correlation w.r.t. temperature
-                self.sensitivity = 'temperature'
-                self.corr = psm_site_data_T['PSMcorrel']
-                self.slope = psm_site_data_T['PSMslope']
-                self.intercept = psm_site_data_T['PSMintercept']
-                self.R = psm_site_data_T['PSMmse']
-                self.seasonality = psm_site_data_T['Seasonality']
+        if psm_obj_T is not None and psm_obj_P is not None:
+            if metric == 'corr':
+                compare_T = psm_obj_T.corr
+                compare_P = psm_obj_P.corr
             else:
-                # smaller residual errors / or stronger correlation  w.r.t. precipitation/moisture
+                compare_T = psm_obj_T.R
+                compare_P = psm_obj_P.R
+
+            if abs(compare_T) >= abs(compare_P):
+                self.sensitivity = 'temperature'
+            else:
                 self.sensitivity = 'moisture'
-                self.corr = psm_site_data_P['PSMcorrel']
-                self.slope = psm_site_data_P['PSMslope']
-                self.intercept = psm_site_data_P['PSMintercept']
-                self.R = psm_site_data_P['PSMmse']
-                self.seasonality = psm_site_data_P['Seasonality']
-
-        elif (proxy, site) in psm_data_T.keys() and (proxy, site) not in psm_data_P.keys():
-            # calibrated for temperature and NOT for precipitation, assign as "temperature" sensitive
+        elif psm_obj_T is not None:
             self.sensitivity = 'temperature'
-            self.corr = psm_site_data_T['PSMcorrel']
-            self.slope = psm_site_data_T['PSMslope']
-            self.intercept = psm_site_data_T['PSMintercept']
-            self.R = psm_site_data_T['PSMmse']
-            self.seasonality = psm_site_data_T['Seasonality']
-        elif (proxy, site) not in psm_data_T.keys() and (proxy, site) in psm_data_P.keys():
-            # calibrated for precipitation/moisture and NOT for temperature, assign as "moisture" sensitive
+        elif psm_obj_P is not None:
             self.sensitivity = 'moisture'
-            self.corr = psm_site_data_P['PSMcorrel']
-            self.slope = psm_site_data_P['PSMslope']
-            self.intercept = psm_site_data_P['PSMintercept']
-            self.R = psm_site_data_P['PSMmse']
-            self.seasonality = psm_site_data_P['Seasonality']
         else:
-            raise ValueError('Proxy in database but not found in pre-calibration file... '
-                             'Skipping: {}'.format(proxy_obj.id))
+            raise SystemExit('Exiting! You must use the PSMbuild facility to '
+                             'generate the appropriate calibrated PSMs')
 
+        if self.sensitivity == 'temperature':
+            self.psm_obj = psm_obj_T
+            self.psm = psm_obj_T.psm
+        else:
+            self.psm_obj = psm_obj_P
+            self.psm = psm_obj_P.psm
 
         # Raise exception if critical correlation value not met
-        if abs(self.corr) < r_crit:
+        if abs(self.psm_obj.corr) < r_crit:
             raise ValueError(('Proxy model correlation ({:.2f}) does not meet '
                               'critical threshold ({:.2f}).'
                               ).format(self.corr, r_crit))
-
-
-    # TODO: Ideally prior state info and coordinates should all be in single obj
-    def psm(self, Xb, X_state_info, X_coords):
-        """
-        Maps a given state to observations for the given proxy
-
-        Parameters
-        ----------
-        Xb: ndarray
-            State vector to be mapped into observation space (stateDim x ensDim)
-        X_state_info: dict
-            Information pertaining to variables in the state vector
-        X_coords: ndarray
-            Coordinates for the state vector (stateDim x 2)
-
-        Returns
-        -------
-        Ye:
-            Equivalent observation from prior
-        """
-
-        # ----------------------
-        # Calculate the Ye's ...
-        # ----------------------
-        if self.sensitivity:
-            # "sensitivity" defined for this proxy
-            if self.sensitivity == 'temperature':
-                state_var = 'tas_sfc_Amon'
-            elif self.sensitivity == 'moisture':
-                # To consider different moisture variables
-                if self.datatag_calib_P == 'GPCC':
-                    state_var = 'pr_sfc_Amon'
-                elif self.datatag_calib_P == 'DaiPDSI':
-                    state_var = 'scpdsi_sfc_Amon'
-                else:
-                    raise KeyError('Unrecognized calibration-state variable association.'
-                                   ' State variable not identified for Ye calculation.')
-            else:
-                raise KeyError('Unkown PSM sensitivity. PSM not identified for Ye'
-                               ' calculation.')
-        else:
-            # "sensitivity" not defined for this proxy: simply revert to the default (temperature)
-            state_var = 'tas_sfc_Amon'
-
-        if state_var not in X_state_info.keys():
-            raise KeyError('Needed variable not in state vector for Ye'
-                           ' calculation.')
-
-        # TODO: end index should already be +1, more pythonic
-        calibvar_startidx, calibvar_endidx = X_state_info[state_var]['pos']
-        ind_lon = X_state_info[state_var]['spacecoords'].index('lon')
-        ind_lat = X_state_info[state_var]['spacecoords'].index('lat')
-        X_lons = X_coords[calibvar_startidx:(calibvar_endidx+1), ind_lon]
-        X_lats = X_coords[calibvar_startidx:(calibvar_endidx+1), ind_lat]
-
-        # Extract data from closest grid point to location of proxy site
-        # [self.lat,self.lon]
-        calibvar_data = Xb[calibvar_startidx:(calibvar_endidx+1), :]
-        # get_close_grid_point_data is inherited from the LinearPSM class
-        # on which this one is based.
-        gridpoint_data = self.get_close_grid_point_data(calibvar_data.T,
-                                                        X_lons,
-                                                        X_lats)
-
-        Ye = self.slope * gridpoint_data + self.intercept
-
-        return Ye
 
     # Define the error model for this proxy
     @staticmethod
     def error():
         return 0.1
 
-    # TODO: Simplify a lot of the actions in the calibration
-    def calibrate(self, C, proxy, diag_output=False, diag_output_figs=False):
+    def calibrate(self, calib_obj, proxy, diag_output=False, diag_output_figs=False):
         """
         Calibrate given proxy record against observation data and set relevant
         PSM attributes.
 
         Parameters
         ----------
-        C: calibration_master like
+        calib_obj: calibration_master like
             Calibration object containing data, time, lat, lon info
         proxy: BaseProxyObject like
             Proxy object to fit to the calibration data
@@ -954,17 +802,20 @@ class LinearPSM_TorP(LinearPSM):
             return {}
 
     @staticmethod
-    def _load_psm_data(config,calib_var):
+    def _load_psm_data(psm_config, calib_var):
         """Helper method for loading from dataframe"""
         if calib_var == 'temperature':
-            pre_calib_file = config.psm.linear_TorP.pre_calib_datafile_T
+            pre_calib_file = psm_config.psm.linear_TorP.pre_calib_datafile_T
         elif calib_var == 'moisture':
-            pre_calib_file = config.psm.linear_TorP.pre_calib_datafile_P
+            pre_calib_file = psm_config.psm.linear_TorP.pre_calib_datafile_P
         else:
             raise(ValueError('Unrecognized calibration variable'
                              ' to calibrate psm.'))
 
-        return load_cpickle(pre_calib_file)
+        with open(pre_calib_file, mode='r') as f:
+            data = cPickle.load(f)
+
+        return data
 
 
 class BilinearPSM(BasePSM):
@@ -1005,18 +856,21 @@ class BilinearPSM(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, config, proxy_obj, psm_data=None, calib_obj_T=None, calib_obj_P=None):
+    def __init__(self, bilinear_cfg, proxy_obj, psm_data=None, calib_obj_T=None,
+                 calib_obj_P=None, on_the_fly_calib=False):
 
         self.psm_key = 'bilinear'
 
         proxy = proxy_obj.type
         site = proxy_obj.id
-        r_crit = config.psm.bilinear.psm_r_crit
+        r_crit = bilinear_cfg.psm_r_crit
         self.lat  = proxy_obj.lat
         self.lon  = proxy_obj.lon
         self.elev = proxy_obj.elev
 
-        self.avgPeriod = config.psm.bilinear.avgPeriod
+        self.avgPeriod = bilinear_cfg.avg_interval
+        self.psm_vartype_T = bilinear_cfg.temperature.psm_vartype
+        self.psm_vartype_P = bilinear_cfg.moisture.psm_vartype
 
         # Assign sensitivity as temperature_moisture
         self.sensitivity = 'temperature_moisture'
@@ -1024,7 +878,7 @@ class BilinearPSM(BasePSM):
         # Try using pre-calibrated psm_data
         try:
             if psm_data is None:
-                psm_data = self._load_psm_data(config)
+                psm_data = self._load_psm_data(bilinear_cfg)
             psm_site_data = psm_data[(proxy, site)]
 
             self.corr = psm_site_data['PSMcorrel']
@@ -1046,28 +900,12 @@ class BilinearPSM(BasePSM):
                              'Skipping: {}'.format(proxy_obj.id))
         except IOError as e:
             # No precalibration found, have to do it for this proxy
-            print ('No pre-calibration found for'
-                   ' {} ({}) ... calibrating ...'.format(proxy_obj.id,
-                                                         proxy_obj.type))
-
-
-            # check if calibration object already exists
-            # Two calibration sources to consider
-            if calib_obj_T is None and  calib_obj_P is None:
-
-                datag_calib_T = config.psm.bilinear.datatag_calib_T
-                datag_calib_P = config.psm.bilinear.datatag_calib_P
-
-                self.calib_temperature = datag_calib_T
-                self.calib_moisture = datag_calib_P
-
-                # Two calibration objects, temperature and precipitation/moisture
-                calib_obj_T = LMR_calibrate.calibration_assignment(datag_calib_T)
-                calib_obj_T.datadir_calib = config.psm.bilinear.datadir_calib_T
-                calib_obj_T.read_calibration()
-                calib_obj_P = LMR_calibrate.calibration_assignment(datag_calib_P)
-                calib_obj_P.datadir_calib = config.psm.bilinear.datadir_calib_P
-                calib_obj_P.read_calibration()
+            print 'No pre-calibration found for {}:{}'.format(proxy_obj.id,
+                                                              proxy_obj.type)
+            if not on_the_fly_calib:
+                raise e
+            else:
+                print (' ... calibrating on the fly')
 
             self.calibrate(calib_obj_T, calib_obj_P, proxy_obj)
 
@@ -1079,13 +917,13 @@ class BilinearPSM(BasePSM):
 
 
     # TODO: Ideally prior state info and coordinates should all be in single obj
-    def psm(self, Xb, X_state_info, X_coords):
+    def psm(self, state_object):
         """
         Maps a given state to observations for the given proxy
 
         Parameters
         ----------
-        Xb: ndarray
+        state_object: LMR_gridded.State
             State vector to be mapped into observation space (stateDim x ensDim)
         X_state_info: dict
             Information pertaining to variables in the state vector
@@ -1101,63 +939,24 @@ class BilinearPSM(BasePSM):
         # ----------------------
         # Calculate the Ye's ...
         # ----------------------
+        state_var_T = state_object.get_psm_var_key(self.psm_vartype_T)
+        state_var_P = state_object.get_psm_var_key(self.psm_vartype_P)
 
-        # Defining state variables to consider in the calculation of Ye's
-        state_var_T = 'tas_sfc_Amon'
-        if self.calib_moisture == 'GPCC':
-            state_var_P = 'pr_sfc_Amon'
-        elif self.calib_moisture == 'DaiPDSI':
-            state_var_P = 'scpdsi_sfc_Amon'
-        else:
-            raise KeyError('Unrecognized calibration-state variable association. State variable not identified for Ye'
-                           ' calculation.')
+        gridpoint_data_T = self._get_gridpoint_data_from_state(state_var_T,
+                                                               state_object)
 
-        if state_var_T not in X_state_info.keys() or state_var_P not in X_state_info.keys():
-            raise KeyError('One or more needed variable not in state vector for Ye'
-                           ' calculation.')
+        gridpoint_data_P = self._get_gridpoint_data_from_state(state_var_P,
+                                                               state_object)
 
-        # Do not assume that temperature and precipitation/moisture variables are on same grid (for generality)
-        # So need to make distinct distance calculations for both state variables
-        # Temperature ---
-        # TODO: end index should already be +1, more pythonic
-        calibvar_startidx, calibvar_endidx = X_state_info[state_var_T]['pos']
-        ind_lon = X_state_info[state_var_T]['spacecoords'].index('lon')
-        ind_lat = X_state_info[state_var_T]['spacecoords'].index('lat')
-        # Find row index of X for which [X_lat,X_lon] corresponds to closest
-        # grid point to location of proxy site [self.lat,self.lon]
-        # Calclulate distances from proxy site.
-        stateDim = calibvar_endidx - calibvar_startidx + 1
-        ensDim = Xb.shape[1]
-        dist = np.empty(stateDim)
-        dist = haversine(self.lon, self.lat,
-                          X_coords[calibvar_startidx:(calibvar_endidx+1), ind_lon],
-                          X_coords[calibvar_startidx:(calibvar_endidx+1), ind_lat])
-
-        # row index of nearest grid pt. in prior (minimum distance)
-        kind_T = np.unravel_index(dist.argmin(), dist.shape)[0] + calibvar_startidx
-
-        # Precipitation/Moisture ---
-        # TODO: end index should already be +1, more pythonic
-        calibvar_startidx, calibvar_endidx = X_state_info[state_var_P]['pos']
-        ind_lon = X_state_info[state_var_P]['spacecoords'].index('lon')
-        ind_lat = X_state_info[state_var_P]['spacecoords'].index('lat')
-        # Find row index of X for which [X_lat,X_lon] corresponds to closest
-        # grid point to location of proxy site [self.lat,self.lon]
-        # Calclulate distances from proxy site.
-        stateDim = calibvar_endidx - calibvar_startidx + 1
-        ensDim = Xb.shape[1]
-        dist = np.empty(stateDim)
-        dist = haversine(self.lon, self.lat,
-                          X_coords[calibvar_startidx:(calibvar_endidx+1), ind_lon],
-                          X_coords[calibvar_startidx:(calibvar_endidx+1), ind_lat])
-
-        # row index of nearest grid pt. in prior (minimum distance)
-        kind_P = np.unravel_index(dist.argmin(), dist.shape)[0] + calibvar_startidx
-
-        # Now calculate the Ye's
-        Ye = self.slope_temperature * np.squeeze(Xb[kind_T, :]) + self.slope_moisture * np.squeeze(Xb[kind_P, :]) + self.intercept
+        Ye = self.basic_psm(gridpoint_data_T, gridpoint_data_P)
 
         return Ye
+
+    def basic_psm(self, data_T, data_P):
+
+        coef_T = self.slope_temperature
+        coef_P = self.slope_moisture
+        return coef_T*data_T + coef_P*data_P + self.intercept
 
     # Define the error model for this proxy
     @staticmethod

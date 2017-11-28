@@ -853,12 +853,6 @@ class psm(ConfigGroup):
     """
 
     ##** BEGIN User Parameters **##
-
-    avg_interval = 'annual'
-    # avgPeriod = 'season'
-
-    season_source = 'proxy_metadata'
-    # season_source = 'psm_calib'
     
     # Mapping of calibration sources w/ climate variable
     # To be modified only if a new calibration source is added. 
@@ -898,11 +892,17 @@ class psm(ConfigGroup):
 
         pre_calib_datafile = None
 
+        avg_interval = 'annual'
+        # avg_interval = 'season
+
+        season_source = 'proxy_metadata'
+        # season_source = 'psm_calib'
+
         psm_r_crit = 0.0
         min_data_req_frac = 1.0  # 0.0 no data required, 1.0 all data required
         ##** END User Parameters **##
 
-        def __init__(self, lmr_path=None,**kwargs):
+        def __init__(self, lmr_path=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
             self.datatag_calib = self.datatag_calib
@@ -916,10 +916,10 @@ class psm(ConfigGroup):
             self.psm_r_crit = self.psm_r_crit
             self.min_data_req_frac = self.min_data_req_frac
 
-            self.avg_interval = psm.avg_interval
-            self.season_source = psm.season_source
+            self.avg_interval = self.avg_interval
+            self.season_source = self.season_source
 
-            if 'PAGES2kv1' in proxies.use_from and 'season' in psm.avg_interval:
+            if 'PAGES2kv1' in proxies.use_from and 'season' in self.avg_interval:
                 raise ValueError('No seasonality information in PAGES2kv1 '
                                  'database.  Change avg_period to "annual" in '
                                  'your configuration')
@@ -1006,6 +1006,15 @@ class psm(ConfigGroup):
 
         psm_r_crit = 0.0
 
+        avg_interval = 'annual'
+        # avg_interval = 'season
+
+        season_source = 'proxy_metadata'
+        # season_source = 'psm_calib'
+
+        metric = 'corr'
+        # metric = 'mse'
+
         
         ##** END User Parameters **##
 
@@ -1013,15 +1022,20 @@ class psm(ConfigGroup):
             super(self.__class__, self).__init__(**kwargs)
 
             temp_kwarg = {'datatag_calib': self.datatag_calib_T,
-                          'pre_calib_datafile': self.pre_calib_datafile_T}
+                          'pre_calib_datafile': self.pre_calib_datafile_T,
+                          'avg_interval': self.avg_interval,
+                          'season_source': self.season_source}
             mois_kwarg = {'datatag_calib': self.datatag_calib_P,
-                          'pre_calib_datafile': self.pre_calib_datafile_P}
+                          'pre_calib_datafile': self.pre_calib_datafile_P,
+                          'avg_interval': self.avg_interval,
+                          'season_source': self.season_source}
 
             # Configuration for temperature and moisture psms
             self.temperature = psm.linear(lmr_path=lmr_path, **temp_kwarg)
             self.moisture = psm.linear(lmr_path=lmr_path, **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
+            self.metric = self.metric
                 
     class bilinear(ConfigGroup):
         """
@@ -1061,6 +1075,12 @@ class psm(ConfigGroup):
         # ---------------------------------------------
         datatag_calib_P = 'GPCC'
 
+        avg_interval = 'annual'
+        # avg_interval = 'season
+
+        season_source = 'proxy_metadata'
+        # season_source = 'psm_calib'
+
         pre_calib_datafile = None
         psm_r_crit = 0.0
 
@@ -1070,8 +1090,12 @@ class psm(ConfigGroup):
         def __init__(self, lmr_path=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
-            temp_kwarg = {'datatag_calib': self.datatag_calib_T}
-            mois_kwarg = {'datatag_calib': self.datatag_calib_P}
+            temp_kwarg = {'datatag_calib': self.datatag_calib_T,
+                          'avg_interval': self.avg_interval,
+                          'season_source': self.season_source}
+            mois_kwarg = {'datatag_calib': self.datatag_calib_P,
+                          'avg_interval': self.avg_interval,
+                          'season_source': self.season_source}
 
             # Configuration for temperature and moisture psms
             self.temperature = psm.linear(lmr_path=lmr_path, **temp_kwarg)
@@ -1084,7 +1108,7 @@ class psm(ConfigGroup):
                     dbversion = proxies.LMRdb.dbversion
                     filename = ('PSMs_'+'-'.join(proxies.use_from) +
                                 '_' + dbversion +
-                                '_' + self.avgPeriod +
+                                '_' + self.avg_interval +
                                 '_' + self.datatag_calib_T +
                                 '_' + self.datatag_calib_P + '.pckl')
                 else:
@@ -1377,6 +1401,7 @@ class prior(ConfigGroup):
         self.datadir_prior = dataset_descr['datadir']
         self.datafile_prior = dataset_descr['datafile']
         self.dataformat_prior = dataset_descr['dataformat']
+        self.psm_var_map = self.datainfo_prior['psm_var_map']
 
         self.state_variables = deepcopy(self.state_variables)
         self.detrend = self.detrend

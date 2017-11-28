@@ -856,7 +856,7 @@ class State(object):
     Class to create state vector and information
     """
 
-    def __init__(self, prior_vars):
+    def __init__(self, prior_vars, psm_var_map=None):
 
         self._prior_vars = prior_vars
         state = []
@@ -886,6 +886,7 @@ class State(object):
         self.state = np.concatenate(state, axis=0)
         self.shape = self.state.shape
         self.old_state_info = self.get_old_state_info()
+        self.psm_var_map = psm_var_map
 
     @classmethod
     def from_config(cls, prior_config):
@@ -901,6 +902,13 @@ class State(object):
         var_data = self.state[start:end]
 
         return var_data
+
+    def get_psm_var_key(self, psm_vartype_dict):
+
+        psm_type, psm_varkey = psm_vartype_dict.items()[0]
+        prior_var_key = self.psm_var_map[psm_type][psm_varkey]
+
+        return prior_var_key
 
     # TODO: Decide whether this should only be handled at prior level
     def truncate_state(self):
