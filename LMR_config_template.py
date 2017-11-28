@@ -250,9 +250,10 @@ class core(ConfigGroup):
     save_full_field = False
 
     online_reconstruction = False
+    # TODO: Move this to forecaster config
     persistence_forecast = False
     clean_start = True
-    use_precalc_ye = True
+    use_precalc_ye = False
     ignore_pre_avg_file = False
     save_pre_avg_file = True
     recon_period = [1950, 1960]
@@ -261,10 +262,6 @@ class core(ConfigGroup):
     seed = None
 
     loc_rad = None
-
-    assimilation_time_res = [1.0]  # in yrs
-    # maps year shift (in years) to resolution
-    res_yr_shift = {0.5: 0.25, 1.0: 0.0}
 
     # Forecasting Hybrid Update
     hybrid_update = True
@@ -277,15 +274,12 @@ class core(ConfigGroup):
     reg_inflate = False
     inflation_factor = 1.1
 
-
-
     ##** END User Parameters **##
 
     def __init__(self, curr_iter=None, **kwargs):
         super(self.__class__, self).__init__(**kwargs)
 
-        # some checks
-        if type(self.recon_timescale) != 'int': self.recon_timescale = int(self.recon_timescale)
+        self.recon_timescale = int(self.recon_timescale)
 
         self.nexp = self.nexp
         self.lmr_path = self.lmr_path
@@ -305,8 +299,6 @@ class core(ConfigGroup):
         self.seed = self.seed
         self.loc_rad = self.loc_rad
         self.inflation_factor = self.inflation_factor
-        self.assimilation_time_res = list(self.assimilation_time_res)
-        self.res_yr_shift = deepcopy(self.res_yr_shift)
         self.hybrid_update = self.hybrid_update
         self.hybrid_a = self.hybrid_a
         self.blend_prior = self.blend_prior
@@ -318,14 +310,6 @@ class core(ConfigGroup):
             self.curr_iter = wrapper.iter_range[0]
         else:
             self.curr_iter = curr_iter
-
-        # TODO: add rules for shift?
-        # If shifting on smaller time scales than smallest time chunk it becomes
-        # the base resolution
-        sub_base_res = self.assimilation_time_res[0]
-        for res, shift in self.res_yr_shift.iteritems():
-            if (res in self.assimilation_time_res and shift < sub_base_res and shift != 0.0):
-                sub_base_res = shift
 
 
 class proxies(ConfigGroup):
@@ -505,8 +489,6 @@ class proxies(ConfigGroup):
 
         regions = ['Antarctica', 'Arctic', 'Asia', 'Australasia', 'Europe',
                    'North America', 'South America']
-        proxy_resolution = core.assimilation_time_res
-
         proxy_resolution = [1.0]
 
         # DO NOT CHANGE *FORMAT* BELOW
@@ -817,14 +799,17 @@ class proxies(ConfigGroup):
 
     # Initialize subclasses with all attributes
     def __init__(self, lmr_path=None, seed=None, **kwargs):
-        self.PAGES2kv1 = self.PAGES2kv1(lmr_path=lmr_path, **kwargs.pop('PAGES2kv1', {}))
+        self.PAGES2kv1 = self.PAGES2kv1(lmr_path=lmr_path,
+                                        **kwargs.pop('PAGES2kv1', {}))
         self.LMRdb = self.LMRdb(lmr_path=lmr_path, **kwargs.pop('LMRdb', {}))
-        self.ncdcdtda = self.ncdcdtda(lmr_path=lmr_path, **kwargs.pop('ncdcdtda', {}))
+        self.ncdcdtda = self.ncdcdtda(lmr_path=lmr_path,
+                                      **kwargs.pop('ncdcdtda', {}))
 
         super(self.__class__, self).__init__(**kwargs)
         
         self.use_from = list(self.use_from)
         self.proxy_frac = self.proxy_frac
+        self.proxy_timeseries_kind = self.proxy_timeseries_kind
         self.load_psm_with_proxies = self.load_psm_with_proxies
         self.proxy_availability_filter = self.proxy_availability_filter
         self.proxy_availability_fraction = self.proxy_availability_fraction
@@ -837,30 +822,7 @@ class proxies(ConfigGroup):
 class psm(ConfigGroup):
     """
     Parameters for PSM classes
-
-    Attributes
-    ----------
-    avg_interval: str
-        Indicates use of PSMs calibrated on annual or seasonal data. 
-        Allowed tags are 'annual' or 'season'.
-    season_source: str
-        Use seasonality from proxy metadata or objectively derived 
-        seasonality from PSM calibration.
-        Allowed values are 'proxy_metadata' or 'psm_calib'
-    all_calib_sources: dict{str: list(str)}
-        Mapping of climate variable type (temperature or moisture) to a list
-        of calibration data sources.
     """
-
-    ##** BEGIN User Parameters **##
-    
-    # Mapping of calibration sources w/ climate variable
-    # To be modified only if a new calibration source is added. 
-    all_calib_sources = {'temperature': ['GISTEMP', 'MLOST',
-                                         'HadCRUT', 'BerkeleyEarth'],
-                         'moisture': ['GPCC', 'DaiPDSI']}
-    
-    ##** END User Parameters **##
 
     class linear(ConfigGroup):
         """
@@ -1262,8 +1224,6 @@ class psm(ConfigGroup):
         self.bayesreg_uk37 = self.bayesreg_uk37(**kwargs.pop('bayesreg_uk37', {}))
 
         super(self.__class__, self).__init__(**kwargs)
-        self.all_calib_sources = deepcopy(self.all_calib_sources)
-        self.detrend = self.detrend
 
         # TODO: Find out if this is the right level to have the save
         # TODO:   info (should it be in PSM-specific config
@@ -1550,7 +1510,6 @@ class forecaster(ConfigGroup):
 
             self.avg_interval = self.avg_interval
             self.avg_interval_kwargs = Constants.get_info('avg_interval')
-            self.regrid_method = self.regrid_method
 
             self.regrid_method = regrid_method
             self.regrid_grid = regrid_grid
