@@ -29,9 +29,10 @@ core:
   inflation_factor: null
 
 proxies:
-  use_from: [PAGES2kv1]
+  use_from: PAGES2kv1
   proxy_frac: 0.75
   proxy_timeseries_kind: asis
+  load_psm_with_proxies: True
   proxy_availability_filter: False
   proxy_availability_fraction: 1.0
 
@@ -251,17 +252,14 @@ proxies:
       Tree Rings_Isotopes: ['d18O']
 
 psm:
-  all_calib_sources:
-    temperature: [GISTEMP, MLOST, HadCRUT, BerkeleyEarth]
-    moisture: [GPCC, DaiPDSI]
-
-  avg_period: annual
-  season_source: proxy_metadata
 
   linear:
     datatag_calib: GISTEMP
     pre_calib_datafile: '/home/katabatic/wperkins/data/LMR/PSM/PSMs_GISTEMP.pckl'
     psm_r_crit: 0.2
+    avg_interval: annual
+    season_source: proxy_metadata
+    min_data_req_frac: 0.0
 
   linear_TorP:
     datatag_calib_T: GISTEMP
@@ -269,12 +267,17 @@ psm:
     pre_calib_datafile_T: null
     pre_calib_datafile_P: null
     psm_r_crit: 0.0
+    avg_interval: annual
+    season_source: proxy_metadata
+    metric: corr
 
   bilinear:
     datatag_calib_T: GISTEMP
     datatag_calib_P: GPCC
     pre_calib_datafile: null
     psm_r_crit: 0.0
+    avg_interval: annual
+    season_source: proxy_metadata
 
   h_interp:
     radius_influence: 50.0
@@ -288,25 +291,30 @@ prior:
   state_variables:
     tas_sfc_Amon: anom
     pr_sfc_Amon: anom
+
+  avg_interval: annual_std
+
   detrend: False
   # regridding options: null, simple, esmpy or spherical_harmonics
   regrid_method: spherical_harmonics
   regrid_resolution: 42
   esmpy_interp_method: bilinear
   esmpy_regrid_to: t42
-  state_variables_info:
-    temperature: [
-      'tas_sfc_Amon'
-      ]
-    moisture: [
-      'pr_sfc_Amon',
-      'scpdsi_sfc_Amon',
-      ]
 
 forecaster:
   use_forecaster: lim
 
   lim:
     datatag_calib: ccsm4_last_millenium
-    calib_varname: tas_sfc_Amon
+    avg_interval: annual_std
+
+    fcast_varnames: [tas_sfc_Amon]
+    prior_mapping:
+      tas_sfc_Amon: tas_sfc_Amon
+
+    fcast_lead: 1
+    fcast_num_pcs: 8
+    detrend: True
+    ignore_precalib_lim: True
+    use_ense_mean_fcast: False
 

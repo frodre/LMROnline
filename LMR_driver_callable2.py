@@ -416,17 +416,18 @@ def LMR_driver_callable(cfg=None):
                 # Forecast
                 fcast_out = forecaster.forecast(Xb_one)
 
+                # Recall orig state, any vars not forecast are climatological
+                #  sample
+                Xb_one.stash_recall_state_list('orig', copy=True)
+                Xb_one.update_var_data(fcast_out)
+
                 #Recalculate Ye values
-                ye_all = _calc_yevals_from_prior(assim_res_vals, res_yr_shift,
-                                                 ye_shp, Xb_one, prox_manager)
+                ye_all = _calc_yevals_from_prior(ye_shp, Xb_one, prox_manager)
                 Xb_one.reset_augmented_ye(ye_all)
 
                 # Inflation Adjustment
                 if reg_inf:
                     Xb_one.reg_inflate_xb(inf_factor)
-
-                # Propagate forecasted state and Ye values back down to h5
-                Xb_one.propagate_avg_to_backend(inext_yr, 0.0)
 
     end_time = time() - begin_time
 
@@ -436,9 +437,6 @@ def LMR_driver_callable(cfg=None):
         print '====================================================='
         print 'Reconstruction completed in ' + str(end_time/60.0)+' mins'
         print '====================================================='
-
-    # Close H5 file
-    Xb_one.close_xb_container()
 
     if online:
         # Save prior ensemble variance
@@ -450,11 +448,11 @@ def LMR_driver_callable(cfg=None):
 
     # 3 July 2015: compute and save the GMT for the full ensemble
     gmt_ensemble = np.zeros([ntimes, nens])
-    nhmt_ensemble = np.zeros([ntimes,nens])
-    shmt_ensemble = np.zeros([ntimes,nens])
-    for iyr, yr in enumerate(assim_times[0::nelem_pr_yr]):
+    nhmt_ensemble = np.zeros([ntimes, nens])
+    shmt_ensemble = np.zeros([ntimes, nens])
+    for iyr, yr in enumerate(assim_times):
         filen = join(workdir, 'year{:04d}'.format(int(yr)))
-        Xb_one.state_list = np.array([np.load(filen+'.npy')])
+        Xb_one.state = np.array([np.load(filen+'.npy')])
         Xa = np.squeeze(Xb_one.get_var_data('tas_sfc_Amon'))
         gmt, nhmt, shmt = \
             global_mean2(Xa.T,
@@ -500,7 +498,8 @@ def LMR_driver_callable(cfg=None):
         print '====================================================='
 
     # TODO: best method for Ye saving?
-    return prox_manager.sites_assim_proxy_objs(), prox_manager.sites_eval_proxy_objs()
+    return (prox_manager.sites_assim_proxy_objs(),
+            prox_manager.sites_eval_proxy_objs())
 # ------------------------------------------------------------------------------
 # --------------------------- end of main code ---------------------------------
 # ------------------------------------------------------------------------------

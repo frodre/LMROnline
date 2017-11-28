@@ -76,7 +76,7 @@ def test_default_configuration_psm_linear():
     assert hasattr(cfg_object.psm.linear, 'datafile_calib')
     assert hasattr(cfg_object.psm.linear, 'dataformat_calib')
     assert hasattr(cfg_object.psm.linear, 'season_source')
-    assert hasattr(cfg_object.psm.linear, 'avg_period')
+    assert hasattr(cfg_object.psm.linear, 'avg_interval')
     assert hasattr(cfg_object.psm.linear, 'psm_required_variables')
 
     assert cfg_object.core.lmr_path in cfg_object.psm.linear.datadir_calib
@@ -157,7 +157,7 @@ def test_config_update_with_yaml():
         yaml_dict = yaml.load(f)
 
     ref_yaml_dict = deepcopy(yaml_dict)
-    cfg.update_config_class_yaml(yaml_dict, cfg)
+    cfg.update_config_attrs_yaml(yaml_dict, cfg)
 
     # Recursive comparison function between instance and yaml dict
     def compare_obj_to_refdict(cfg_obj, ref_dict):
@@ -179,7 +179,7 @@ def test_config_update_with_yaml_unused_attrs():
     yaml_dict = {'core': {'unused1': 1},
                  'psm': {'linear': {'unused2': 2}}}
 
-    result = cfg.update_config_class_yaml(yaml_dict, cfg)
+    result = cfg.update_config_attrs_yaml(yaml_dict, cfg)
 
     assert result['core']['unused1'] == 1
     assert result['psm']['linear']['unused2'] == 2

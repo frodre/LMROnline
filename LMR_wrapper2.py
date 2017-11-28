@@ -26,8 +26,8 @@ import datetime
 import LMR_driver_callable2 as LMR
 import LMR_config
 
-import LMR_utils2 as util2
-from LMR_utils2 import ensemble_stats
+import LMR_utils2 as Util2
+from LMR_utils2 import ensemble_stats, validate_config
 
 print '\n' + str(datetime.datetime.now()) + '\n'
 
@@ -37,25 +37,7 @@ if not LMR_config.LEGACY_CONFIG:
     else:
         yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
-    try:
-        print 'Loading configuration: {}'.format(yaml_file)
-        f = open(yaml_file, 'r')
-        yml_dict = yaml.load(f)
-        update_result = LMR_config.update_config_class_yaml(yml_dict,
-                                                            LMR_config)
-
-        # Check that all yml params match value in LMR_config
-        if update_result:
-            raise SystemExit(
-                'Extra or mismatching values found in the configuration yaml'
-                ' file.  Please fix or remove them.\n  Residual parameters:\n '
-                '{}'.format(update_result))
-
-    except IOError as e:
-        raise SystemExit(
-            ('Could not locate {}.  If use of legacy LMR_config usage is '
-             'desired then please change LEGACY_CONFIG to True'
-             'in LMR_wrapper.py.').format(yaml_file))
+    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
 
 # Define main experiment output directory
 iter_range = LMR_config.wrapper.iter_range
@@ -83,11 +65,11 @@ if param_search is not None:
 for iter_and_params in itertools.product(*param_iterables):
 
     iter_num = iter_and_params[-1]
-    cfg_dict = Utils.param_cfg_update('core.curr_iter', iter_num)
+    cfg_dict = Util2.param_cfg_update('core.curr_iter', iter_num)
 
     if LMR_config.wrapper.multi_seed is not None:
         curr_seed = LMR_config.wrapper.multi_seed[iter_num]
-        cfg_dict = Utils.param_cfg_update('core.seed', curr_seed,
+        cfg_dict = Util2.param_cfg_update('core.seed', curr_seed,
                                           cfg_dict=cfg_dict)
         print ('Setting current iteration seed: {}'.format(curr_seed))
 
@@ -96,7 +78,7 @@ for iter_and_params in itertools.product(*param_iterables):
     # search space values and create a special sub-directory
     if param_search is not None:
         curr_param_values = iter_and_params[:-1]
-        cfg_dict, psearch_dir = Utils.psearch_list_cfg_update(sort_params,
+        cfg_dict, psearch_dir = Util2.psearch_list_cfg_update(sort_params,
                                                               curr_param_values,
                                                               cfg_dict=cfg_dict)
 
@@ -106,7 +88,7 @@ for iter_and_params in itertools.product(*param_iterables):
         working_dir = os.path.join(expdir, itr_str)
         mc_arc_dir = os.path.join(arc_dir, itr_str)
 
-    cfg_params = Utils.param_cfg_update('core.datadir_output', working_dir,
+    cfg_params = Util2.param_cfg_update('core.datadir_output', working_dir,
                                         cfg_dict=cfg_dict)
 
     cfg = LMR_config.Config(**cfg_params)
@@ -141,7 +123,7 @@ for iter_and_params in itertools.product(*param_iterables):
     # write the analysis ensemble mean and variance to separate files (per
     # state variable)
     ensemble_stats(core.datadir_output, assim_proxy_objs, eval_proxy_objs,
-                   core.write_posterior_Ye,core.save_full_field)
+                   core.write_posterior_Ye, core.save_full_field)
 
     # start: DO NOT DELETE
     # move files from local disk to an archive location

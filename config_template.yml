@@ -29,7 +29,7 @@ core:
 
   online_reconstruction: False
   clean_start: True
-  use_precalc_ye: True
+  use_precalc_ye: False
   write_posterior_Ye: False
   save_full_field: False
   recon_period: !!python/tuple [1800, 2000]
@@ -42,9 +42,9 @@ core:
   inflation_factor: null
 
 proxies:
-#  use_from: [PAGES2kv1]
-  use_from: [LMRdb]
-#  use_from: [NCDCdtda]  
+#  use_from: PAGES2kv1
+  use_from: LMRdb
+#  use_from: NCDCdtda
   proxy_frac: 1.0
   proxy_timeseries_kind: asis
   load_psm_with_proxies: True
@@ -295,19 +295,14 @@ proxies:
         ]
 
 psm:
-  all_calib_sources:
-    temperature: [GISTEMP, MLOST, HadCRUT, BerkeleyEarth]
-    moisture: [GPCC, DaiPDSI]
-
-#  avgPeriod: annual
-  avgPeriod: season
-  season_source: proxy_metadata
-#  season_source: psm_calib
 
   linear:
     datatag_calib: GISTEMP
     pre_calib_datafile: null
     psm_r_crit: 0.0
+    avg_interval: annual
+    season_source: proxy_metadata
+    min_data_req_frac: 0.0
 
   linear_TorP:
     datatag_calib_T: GISTEMP
@@ -315,12 +310,17 @@ psm:
     pre_calib_datafile_T: null
     pre_calib_datafile_P: null
     psm_r_crit: 0.0
+    avg_interval: annual
+    season_source: proxy_metadata
+    metric: corr
 
   bilinear:
     datatag_calib_T: GISTEMP
     datatag_calib_P: GPCC
     pre_calib_datafile: null
     psm_r_crit: 0.0
+    avg_interval: annual
+    season_source: proxy_metadata
 
   h_interp:
     radius_influence: 50.0
@@ -349,19 +349,20 @@ prior:
   esmpy_interp_method: bilinear
   esmpy_regrid_to: t42
 
-  state_variables_info:
-    temperature: [
-      'tas_sfc_Amon'
-      ]
-    moisture: [
-      'pr_sfc_Amon',
-      'scpdsi_sfc_Amon',
-      ]
-
 forecaster:
   use_forecaster: lim
 
   lim:
     datatag_calib: ccsm4_last_millenium
-    calib_varname: tas_sfc_Amon
+    avg_interval: annual_std
+
+    fcast_varnames: [tas_sfc_Amon]
+    prior_mapping:
+      tas_sfc_Amon: tas_sfc_Amon
+
+    fcast_lead: 1
+    fcast_num_pcs: 8
+    detrend: True
+    ignore_precalib_lim: True
+    use_ense_mean_fcast: False
 

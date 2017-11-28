@@ -96,7 +96,7 @@ class LIMForecaster(BaseForecaster):
         #     except IOError:
         #         print ('No pre-calibrated LIM found.')
 
-        self.lim = LIM.LIM(calib_state, nelem_in_tau=nelem_in_yr)
+        self.lim = LIM.LIM(calib_state, nelem_in_tau1=nelem_in_yr)
         self.var_order = var_order
         self.var_eofs = calib_eofs
         self.fcast_state_bnds = fcast_state_bnds
