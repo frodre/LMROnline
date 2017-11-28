@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from collections import OrderedDict
 from itertools import izip
 import numpy as np
+import warnings
 import os
 from os.path import join
 import random
@@ -948,6 +949,12 @@ class State(object):
         ye_state = self.get_var_data('ye_vals')
         ye_state[:] = ye_vals
 
+    def update_var_data(self, var_update_dict):
+
+        for var_key, var_data in var_update_dict:
+            data_view = self.get_var_data(var_key)
+            data_view[:] = var_data
+
     def stash_state(self, name):
 
         self._tmp_state[name] = self.state_list.copy()
@@ -992,6 +999,7 @@ class State(object):
         return state_info
 
     def initialize_storage_backend(self, btype, nyears, fdir):
+        warnings.warn("deprecated", DeprecationWarning)
 
         _types = {'NPY': _NPYStateStorage,
                   'H5': _HDF5StateStorage}
@@ -1015,6 +1023,7 @@ class State(object):
             self.stash_pop_state_list('tmp')
 
     def insert_upcoming_prior(self, curr_yr_idx, use_curr=False):
+        warnings.warn("deprecated", DeprecationWarning)
 
         if not use_curr:
             dat = self._orig_state
@@ -1024,16 +1033,19 @@ class State(object):
         self.output_backend.insert(dat, curr_yr_idx+1)
 
     def xb_from_backend(self, yr_idx, res, shift):
+        warnings.warn("deprecated", DeprecationWarning)
 
         self.state_list = self.output_backend.get_xb(shift, yr_idx)
         self.resolution = self.base_res
         self.avg_to_res(res, 0)
 
     def propagate_avg_to_backend(self, yr_idx, shift):
+        warnings.warn("deprecated", DeprecationWarning)
 
         self.output_backend.propagate_avg_to_storage(shift, self, yr_idx)
 
     def close_xb_container(self):
+        warnings.warn("deprecated", DeprecationWarning)
         self.output_backend.close()
 
 

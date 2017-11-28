@@ -234,9 +234,7 @@ def LMR_driver_callable(cfg=None):
     # ==========================================================================
     # Loop over all years and proxies, and perform assimilation ----------------
     # ==========================================================================
-
-    # Create sub_base_resolution output container (file is temporary for now)
-    Xb_one.initialize_storage_backend(state_backend, ntimes, workdir)
+    Xb_one.stash_state('orig')
 
     # Array containing the global and hemispheric-mean state
     # Now doing surface air temperature only (var = tas_sfc_Amon)!
@@ -244,7 +242,7 @@ def LMR_driver_callable(cfg=None):
     nhmt_save = np.zeros([assim_proxy_count+1, ntimes])
     shmt_save = np.zeros([assim_proxy_count+1, ntimes])
 
-    xbm = Xb_one.annual_avg('tas_sfc_Amon').mean(axis=1)  # ensemble mean
+    xbm = Xb_one.state.mean(axis=1)  # ensemble mean
     gmt, nhmt, shmt = global_mean2(xbm,
                                    Xb_one.var_coords['tas_sfc_Amon']['lat'],
                                    output_hemispheric=True)
@@ -259,9 +257,8 @@ def LMR_driver_callable(cfg=None):
 
     ens_calib_check = np.zeros((assim_proxy_count, 5))
 
-    nelem_pr_yr = int(np.ceil(1.0 / base_res))
     start_yr, end_yr = recon_period
-    assim_times = np.arange(start_yr, end_yr+1, base_res)
+    assim_times = np.arange(start_yr, end_yr+1)
 
     # ---------------------
     # Loop over proxy types
@@ -269,210 +266,168 @@ def LMR_driver_callable(cfg=None):
     lasttime = time()
     for iyr, t in enumerate(assim_times):
 
-        curr_yr_idx = int(iyr//nelem_pr_yr)
-
         if verbose > 0:
             print 'working on year: ' + str(t)
+            # Store original annual for hybrid update
+        if hybrid_update:
+            if iyr == 0:
+                # Creates a copy for use as our static prior
+                Xb_one.stash_state('orig_aug')
+                Xb_static = Xb_one.state
+                Yevals_static = Xb_one.get_var_data('ye_vals')
+                Xb_one.stash_recall_state_list('orig_aug',
+                                               copy=True)
+            else:
+                Xb_one.stash_state('tmp')
+                Xb_one.stash_recall_state_list('orig_aug', copy=True)
+                Xb_static = Xb_one.state
+                Yevals_static = Xb_one.get_var_data('ye_vals')
+                Xb_one.stash_pop_state_list('tmp')
 
-        # TODO: Loading prior file
-        if t % 1.0 == 0:
-            # Set iproxy to restart going through proxies for given year
-            iproxy = -1
-            # Insert prior into following year for shifted priors
-            Xb_one.insert_upcoming_prior(curr_yr_idx,
-                                         use_curr=online)
+            if blend_prior:
+                xbf = Xb_one.state
+                blend_forecast = (hybrid_a_val * xbf +
+                                  (1-hybrid_a_val) * Xb_static)
+                Xb_one.state_list[0] = blend_forecast
 
-        # if online and iyr == 0:
-        #     for k, proxy in enumerate(prox_manager.sites_assim_proxy_objs()):
-        #         Xb[k - total_proxy_count] = proxy.psm(Xb,)
+        # overwrite prior GMT from last sub_annual with annual
+        xam = Xb_one.get_var_data('tas_sfc_Amon').mean(axis=1)
+        gmt, nhmt, shmt = \
+            global_mean2(xam,
+                         Xb_one.var_coords['tas_sfc_Amon']['lat'],
+                         output_hemispheric=True)
+        gmt_save[iproxy+1, iyr] = gmt
+        nhmt_save[iproxy+1, iyr] = nhmt
+        shmt_save[iproxy+1, iyr] = shmt
 
-        # Which resolutions to assimilate for given year
-        res_to_assim = [res for res, freq in zip(assim_res_vals, res_assim_freq)
-                        if (iyr+1) % freq == 0 and (iyr+1)/freq > 0]
+        # Save prior variance if online assimilation
+        if online:
+            xbv = Xb_one.get_var_data('tas_sfc_Amon')
+            xbv = xbv.var(ddof=1, axis=1)
+            grd_shp = Xb_one.var_space_shp['tas_sfc_Amon']
+            xbv = xbv.reshape(grd_shp)
+            if iyr == 0:
+                xbv_out = np.zeros((len(assim_times), grd_shp[0],
+                                    grd_shp[1]))
+            xbv_out[iyr] = xbv
 
-        for res in res_to_assim:
+        # Update Xb with each proxy
+        for iproxy, Y in enumerate(prox_manager.sites_assim_proxy_objs()):
 
-            # Create prior for resolution
-            Xb_one.xb_from_backend(curr_yr_idx, res, res_yr_shift[res])
+            # Crude check if we have proxy ob for current time
+            try:
+                Y.values[t]
+            except KeyError:
+                # Make sure GMT spot filled from previous proxy
+                gmt_save[iproxy+1, iyr] = gmt_save[iproxy, iyr]
+                nhmt_save[iproxy+1, iyr] = nhmt_save[iproxy, iyr]
+                shmt_save[iproxy+1, iyr] = shmt_save[iproxy, iyr]
+                continue
 
-            if res == 1.0:
+            if verbose > 1:
+                print '--------------- Processing proxy: ' + Y.id
+            if verbose > 2:
+                print 'Site:', Y.id, ':', Y.type
+                print ' latitude, longitude: ' + str(Y.lat), str(Y.lon)
 
-                # Store original annual for hybrid update
-                if hybrid_update:
-                    if iyr//nelem_pr_yr == 0:
-                        # Creates a copy for use as our static prior
-                        Xb_one.stash_state('orig_aug')
-                        Xb_static = Xb_one.state_list[0]
-                        Yevals_static = Xb_one.get_var_data('ye_vals')[0]
-                        Xb_one.stash_recall_state_list('orig_aug',
-                                                       copy=True)
-                    else:
-                        Xb_one.stash_state('tmp')
-                        Xb_one.stash_recall_state_list('orig_aug', copy=True)
-                        Xb_static = Xb_one.state_list[0]
-                        Yevals_static = Xb_one.get_var_data('ye_vals')[0]
-                        Xb_one.stash_pop_state_list('tmp')
-
-                    if blend_prior:
-                        xbf = Xb_one.state_list[0]
-                        blend_forecast = (hybrid_a_val * xbf +
-                                          (1-hybrid_a_val) * Xb_static)
-                        Xb_one.state_list[0] = blend_forecast
-
-                # overwrite prior GMT from last sub_annual with annual
-                xam = Xb_one.get_var_data('tas_sfc_Amon',
-                                          idx=0).mean(axis=1)
-                gmt, nhmt, shmt = \
-                    global_mean2(xam,
-                                 Xb_one.var_coords['tas_sfc_Amon']['lat'],
-                                 output_hemispheric=True)
-                gmt_save[iproxy+1, curr_yr_idx] = gmt
-                nhmt_save[iproxy+1, curr_yr_idx] = nhmt
-                shmt_save[iproxy+1, curr_yr_idx] = shmt
-
-                # Save prior variance if online assimilation
-                if online:
-                    xbv = Xb_one.get_var_data('tas_sfc_Amon', idx=0)
-                    xbv = xbv.var(ddof=1, axis=1)
-                    grd_shp = Xb_one.var_space_shp['tas_sfc_Amon']
-                    xbv = xbv.reshape(grd_shp)
-                    if iyr//nelem_pr_yr == 0:
-                        xbv_out = np.zeros((len(assim_times), grd_shp[0],
-                                            grd_shp[1]))
-                    xbv_out[curr_yr_idx] = xbv
-
-            # Update Xb with each proxy
-            for iproxy, Y in enumerate(
-                    prox_manager.sites_assim_res_proxy_objs(res, t),
-                    iproxy+1):
-
-                # Crude check if we have proxy ob for current time
-                try:
-                    Y.values[t]
-                except KeyError:
-                    # Make sure GMT spot filled from previous proxy
-                    gmt_save[iproxy+1, curr_yr_idx] = \
-                        gmt_save[iproxy, curr_yr_idx]
-                    nhmt_save[iproxy+1, curr_yr_idx] = \
-                        nhmt_save[iproxy, curr_yr_idx]
-                    shmt_save[iproxy+1, curr_yr_idx] = \
-                        shmt_save[iproxy, curr_yr_idx]
-                    continue
-
-                if verbose > 1:
-                    print '--------------- Processing proxy: ' + Y.id
+            loc = None
+            if loc_rad is not None:
                 if verbose > 2:
-                    print 'Site:', Y.id, ':', Y.type
-                    print ' latitude, longitude: ' + str(Y.lat), str(Y.lon)
+                    print '...computing localization...'
+                    raise NotImplementedError('Covariance localization'
+                                              ' not properly implemented'
+                                              ' yet.')
+                    # loc = cov_localization(loc_rad, X, Y)
 
-                loc = None
-                if loc_rad is not None:
-                    if verbose > 2:
-                        print '...computing localization...'
-                        raise NotImplementedError('Covariance localization'
-                                                  ' not properly implemented'
-                                                  ' yet.')
-                        # loc = cov_localization(loc_rad, X, Y)
+            # Get Ye values for current proxy
+            Ye = Xb_one.get_var_data('ye_vals')[iproxy]
 
-                # Get Ye values for current proxy
-                Ye = Xb_one.get_var_data('ye_vals', idx=Y.subannual_idx)[iproxy]
+            # Define the ob error variance
+            ob_err = Y.psm_obj.R
 
-                # Define the ob error variance
-                ob_err = Y.psm_obj.R
-
-                # TODO: If I ever do subannual forecasts need to adjust this
-                mse = np.mean((Y.values[t] - Ye)**2)
-                y_ye_var = Ye.var(ddof=1) + ob_err
-                ens_calib_check[iproxy, curr_yr_idx % 5] = mse / y_ye_var
-                if not np.all(np.isfinite(ens_calib_check)):
-                    raise FilterDivergenceError('Filter divergence detected'
-                                                ' during year {}. Skipping '
-                                                'iteration.'.format(t))
-
-                # --------------------------------------------------------------
-                # Do the update (assimilation) ---------------------------------
-                # --------------------------------------------------------------
-                if verbose > 2:
-                    print ('updating time: ' + str(t) + ' proxy value : ' +
-                           str(Y.values[t]) + ' | mean prior proxy estimate: ' +
-                           str(Ye.mean()))
-
-                # Get static Ye for hybrid update
-                if hybrid_update:
-                    Ye_static = Yevals_static[iproxy]
-                    hybrid_tup = (Xb_static, Ye_static)
-                else:
-                    hybrid_tup = None
-
-                # Update the state
-                Xa = enkf_update_array_xb_blend(Xb_one.state_list[Y.subannual_idx],
-                                                Y.values[t], Ye, ob_err, loc,
-                                                static_prior=hybrid_tup,
-                                                a=hybrid_a_val)
-
-                Xb_one.state_list[Y.subannual_idx] = Xa
-
-                xam = Xb_one.get_var_data('tas_sfc_Amon',
-                                          idx=Y.subannual_idx).mean(axis=1)
-                gmt, nhmt, shmt = \
-                    global_mean2(xam,
-                                 Xb_one.var_coords['tas_sfc_Amon']['lat'],
-                                 output_hemispheric=True)
-                gmt_save[iproxy+1, curr_yr_idx] = gmt
-                nhmt_save[iproxy+1, curr_yr_idx] = nhmt
-                shmt_save[iproxy+1, curr_yr_idx] = shmt
-
-
-                # check the variance change for sign
-                thistime = time()
-                # if verbose > 2:
-                #     xbvar = Xb.var(axis=1, ddof=1)
-                #     xavar = Xa.var(ddof=1, axis=1)
-                #     vardiff = xavar - xbvar
-                #     print 'max change in variance:' + str(np.max(vardiff))
-                #     print 'update took ' + str(thistime-lasttime) + 'seconds'
-                lasttime = thistime
-
-            # Assimilated all proxies at given res, propagate mean to base res
-            Xb_one.propagate_avg_to_backend(curr_yr_idx, res_yr_shift[res])
-
-        if (iyr+1) % nelem_pr_yr == 0:
-            # Check for filter divergence
-            if ens_calib_check.mean() > 50:
+            # TODO: If I ever do subannual forecasts need to adjust this
+            mse = np.mean((Y.values[t] - Ye)**2)
+            y_ye_var = Ye.var(ddof=1) + ob_err
+            ens_calib_check[iproxy, iyr % 5] = mse / y_ye_var
+            if not np.all(np.isfinite(ens_calib_check)):
                 raise FilterDivergenceError('Filter divergence detected'
                                             ' during year {}. Skipping '
                                             'iteration.'.format(t))
-            # Save annual data to file
-            ypad = '{:04d}'.format(int(t))
-            filen = join(workdir, 'year' + ypad + '.npy')
-            np.save(filen, Xb_one.annual_avg())
 
-            if online:
-                # Push sub_base prior to next year
-                inext_yr = curr_yr_idx + 1
-                Xb_one.insert_upcoming_prior(curr_yr_idx, use_curr=True)
+            # --------------------------------------------------------------
+            # Do the update (assimilation) ---------------------------------
+            # --------------------------------------------------------------
+            if verbose > 2:
+                print ('updating time: ' + str(t) + ' proxy value : ' +
+                       str(Y.values[t]) + ' | mean prior proxy estimate: ' +
+                       str(Ye.mean()))
 
-                if not persistence:
-                    # Forecast
-                    forecaster.forecast(Xb_one)
+            # Get static Ye for hybrid update
+            if hybrid_update:
+                Ye_static = Yevals_static[iproxy]
+                hybrid_tup = (Xb_static, Ye_static)
+            else:
+                hybrid_tup = None
 
-                    # Propagate forecast average to next year
-                    Xb_one.propagate_avg_to_backend(inext_yr, 0)
+            # Update the state
+            Xa = enkf_update_array_xb_blend(Xb_one.state,
+                                            Y.values[t], Ye, ob_err, loc,
+                                            static_prior=hybrid_tup,
+                                            a=hybrid_a_val)
 
-                    # Get next year to calc Ye values
-                    Xb_one.xb_from_backend(inext_yr, sub_base_res, 0)
+            Xb_one.state = Xa
 
-                    #Recalculate Ye values
-                    ye_all = _calc_yevals_from_prior(assim_res_vals, res_yr_shift,
-                                                     ye_shp, Xb_one, prox_manager)
-                    Xb_one.reset_augmented_ye(ye_all)
+            xam = Xb_one.get_var_data('tas_sfc_Amon').mean(axis=1)
+            gmt, nhmt, shmt = \
+                global_mean2(xam,
+                             Xb_one.var_coords['tas_sfc_Amon']['lat'],
+                             output_hemispheric=True)
+            gmt_save[iproxy+1, iyr] = gmt
+            nhmt_save[iproxy+1, iyr] = nhmt
+            shmt_save[iproxy+1, iyr] = shmt
 
-                    # Inflation Adjustment
-                    if reg_inf:
-                        Xb_one.reg_inflate_xb(inf_factor)
 
-                    # Propagate forecasted state and Ye values back down to h5
-                    Xb_one.propagate_avg_to_backend(inext_yr, 0.0)
+            # check the variance change for sign
+            thistime = time()
+            # if verbose > 2:
+            #     xbvar = Xb.var(axis=1, ddof=1)
+            #     xavar = Xa.var(ddof=1, axis=1)
+            #     vardiff = xavar - xbvar
+            #     print 'max change in variance:' + str(np.max(vardiff))
+            #     print 'update took ' + str(thistime-lasttime) + 'seconds'
+            lasttime = thistime
+
+
+        # Check for filter divergence
+        if ens_calib_check.mean() > 50:
+            raise FilterDivergenceError('Filter divergence detected'
+                                        ' during year {}. Skipping '
+                                        'iteration.'.format(t))
+        # Save annual data to file
+        ypad = '{:04d}'.format(int(t))
+        filen = join(workdir, 'year' + ypad + '.npy')
+        np.save(filen, Xb_one.state)
+
+        if online:
+            # Push sub_base prior to next year
+            inext_yr = iyr + 1
+
+            if not persistence:
+                # Forecast
+                fcast_out = forecaster.forecast(Xb_one)
+
+                # Recall orig state, any vars not forecast are climatological
+                #  sample
+                Xb_one.stash_recall_state_list('orig', copy=True)
+                Xb_one.update_var_data(fcast_out)
+
+                #Recalculate Ye values
+                ye_all = _calc_yevals_from_prior(ye_shp, Xb_one, prox_manager)
+                Xb_one.reset_augmented_ye(ye_all)
+
+                # Inflation Adjustment
+                if reg_inf:
+                    Xb_one.reg_inflate_xb(inf_factor)
 
     end_time = time() - begin_time
 
@@ -482,9 +437,6 @@ def LMR_driver_callable(cfg=None):
         print '====================================================='
         print 'Reconstruction completed in ' + str(end_time/60.0)+' mins'
         print '====================================================='
-
-    # Close H5 file
-    Xb_one.close_xb_container()
 
     if online:
         # Save prior ensemble variance
@@ -496,11 +448,11 @@ def LMR_driver_callable(cfg=None):
 
     # 3 July 2015: compute and save the GMT for the full ensemble
     gmt_ensemble = np.zeros([ntimes, nens])
-    nhmt_ensemble = np.zeros([ntimes,nens])
-    shmt_ensemble = np.zeros([ntimes,nens])
-    for iyr, yr in enumerate(assim_times[0::nelem_pr_yr]):
+    nhmt_ensemble = np.zeros([ntimes, nens])
+    shmt_ensemble = np.zeros([ntimes, nens])
+    for iyr, yr in enumerate(assim_times):
         filen = join(workdir, 'year{:04d}'.format(int(yr)))
-        Xb_one.state_list = np.array([np.load(filen+'.npy')])
+        Xb_one.state = np.array([np.load(filen+'.npy')])
         Xa = np.squeeze(Xb_one.get_var_data('tas_sfc_Amon'))
         gmt, nhmt, shmt = \
             global_mean2(Xa.T,
@@ -546,7 +498,8 @@ def LMR_driver_callable(cfg=None):
         print '====================================================='
 
     # TODO: best method for Ye saving?
-    return prox_manager.sites_assim_proxy_objs(), prox_manager.sites_eval_proxy_objs()
+    return (prox_manager.sites_assim_proxy_objs(),
+            prox_manager.sites_eval_proxy_objs())
 # ------------------------------------------------------------------------------
 # --------------------------- end of main code ---------------------------------
 # ------------------------------------------------------------------------------

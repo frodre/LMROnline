@@ -96,7 +96,7 @@ class LIMForecaster(BaseForecaster):
         #     except IOError:
         #         print ('No pre-calibrated LIM found.')
 
-        self.lim = LIM.LIM(calib_state, nelem_in_tau=nelem_in_yr)
+        self.lim = LIM.LIM(calib_state, nelem_in_tau1=nelem_in_yr)
         self.var_order = var_order
         self.var_eofs = calib_eofs
         self.fcast_state_bnds = fcast_state_bnds
@@ -140,22 +140,6 @@ class LIMForecaster(BaseForecaster):
             fcast_state_out[self.prior_map[var]] = phys_space_fcast
 
         return fcast_state_out
-
-    def _forecast_helper(self, t0_data):
-
-        # TODO: Check anomaly stuff
-        # dummy time coordinate
-        time_coord = {'time': (0, range(t0_data.shape[1]))}
-        fcast_obj = DT.BaseDataObject(t0_data.T, dim_coords=time_coord,
-                                      force_flat=True,
-                                      is_run_mean=True,
-                                      is_anomaly=True,
-                                      is_detrended=True)
-
-        fcast, eofs = self.lim.forecast(fcast_obj)
-
-        # return physical forecast (dimensions of stateDim x nens)
-        return np.dot(eofs, np.squeeze(fcast, axis=0))
 
 
 @class_docs_fixer
