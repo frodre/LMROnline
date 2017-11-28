@@ -141,22 +141,6 @@ class LIMForecaster(BaseForecaster):
 
         return fcast_state_out
 
-    def _forecast_helper(self, t0_data):
-
-        # TODO: Check anomaly stuff
-        # dummy time coordinate
-        time_coord = {'time': (0, range(t0_data.shape[1]))}
-        fcast_obj = DT.BaseDataObject(t0_data.T, dim_coords=time_coord,
-                                      force_flat=True,
-                                      is_run_mean=True,
-                                      is_anomaly=True,
-                                      is_detrended=True)
-
-        fcast, eofs = self.lim.forecast(fcast_obj)
-
-        # return physical forecast (dimensions of stateDim x nens)
-        return np.dot(eofs, np.squeeze(fcast, axis=0))
-
 
 @class_docs_fixer
 class PersistanceForecaster(BaseForecaster):
