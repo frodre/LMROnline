@@ -531,7 +531,8 @@ class GriddedVariable(object):
              avg_data] = cls._avg_to_specified_period(dim_vals[_TIME],
                                                       var_dat,
                                                       data_req_frac=data_req_frac,
-                                                      **avg_interval_kwargs)
+                                                      **avg_interval_kwargs[
+                                                          avg])
 
             # Create gridded object
             grid_obj = cls(varname, dims, avg_data, fill_val=fill_val,

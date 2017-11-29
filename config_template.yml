@@ -12,7 +12,7 @@ wrapper:
   multi_seed: null
 
 core:
-  nexp: test
+  nexp: test_merge
 #  lmr_path: /home/katabatic/wperkins/data/LMR
 #  lmr_path: /home/disk/ice4/nobackup/hakim/lmr
   lmr_path: /home/disk/kalman3/rtardif/LMR

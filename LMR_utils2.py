@@ -1189,7 +1189,6 @@ def regrid_sphere_gridded_object(grid_obj, ntrunc):
         gridded_new[i] = regrid(specob_lmr, specob_new, time_slice,
                                 ntrunc=ntrunc)
 
-
     tmp_climo = np.squeeze(grid_obj.climo)
     new_climo = regrid(specob_lmr, specob_new, tmp_climo,
                        ntrunc=ntrunc)

@@ -1402,7 +1402,8 @@ class prior(ConfigGroup):
         #                      'core.recon_timescale!')
 
         self.avg_interval = self.avg_interval
-        self.avg_interval_kwargs = Constants.get_info('avg_interval')
+        avg_interval_defs = Constants.get_info('avg_interval')
+        self.avg_interval_kwargs = avg_interval_defs[self.avg_interval]
 
         if self.regrid_method != 'esmpy':
             self.regrid_resolution = int(self.regrid_resolution)
@@ -1509,7 +1510,8 @@ class forecaster(ConfigGroup):
             self.use_ens_mean_fcast = self.use_ens_mean_fcast
 
             self.avg_interval = self.avg_interval
-            self.avg_interval_kwargs = Constants.get_info('avg_interval')
+            avg_interval_defs = Constants.get_info('avg_interval')
+            self.avg_interval_kwargs = avg_interval_defs[self.avg_interval]
 
             self.regrid_method = regrid_method
             self.regrid_grid = regrid_grid
