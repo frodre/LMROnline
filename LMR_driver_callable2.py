@@ -181,7 +181,8 @@ def LMR_driver_callable(cfg=None):
 
     # Build dictionaries of proxy sites to assimilate and those set aside for
     # verification
-    prox_manager = LMR_proxy2.ProxyManager(cfg, recon_period)
+    prox_manager = LMR_proxy2.ProxyManager(cfg.proxies, recon_period,
+                                           cfg.psm)
     type_site_assim = prox_manager.assim_ids_by_group
     # count the total number of proxies
     assim_proxy_count = len(prox_manager.ind_assim)
