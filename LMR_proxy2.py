@@ -68,7 +68,7 @@ class ProxyManager:
         reconstruction
     """
 
-    def __init__(self, proxy_config, data_range):
+    def __init__(self, proxy_config, data_range, psm_config):
 
         self.all_ids_by_group = defaultdict(list)
 
@@ -76,7 +76,8 @@ class ProxyManager:
 
         # Load proxies for current class
         ids_by_grp, proxies = pclass.load_all(proxy_config,
-                                              data_range)
+                                              data_range,
+                                              psm_config)
 
         self.all_proxies = proxies
         self.all_ids_by_group = ids_by_grp
@@ -245,7 +246,8 @@ class BaseProxyObject:
 
     @classmethod
     @abstractmethod
-    def load_site(cls,  config, site, data_range=None, meta_src=None,
+    def load_site(cls,  config, site, psm_config,
+                  data_range=None, meta_src=None,
                   data_src=None):
         """
         Load proxy object from single site.
@@ -279,13 +281,13 @@ class BaseProxyObject:
 
     @classmethod
     @abstractmethod
-    def load_all(cls, config, data_range):
+    def load_all(cls, proxy_config, data_range, psm_config):
         """
         Load proxy objects from all sites matching filter criterion.
 
         Parameters
         ----------
-        config: LMR_config
+        proxy_config: LMR_config
             Configuration for current LMR run
         meta_src: optional
             Source for proxy metadata
@@ -328,7 +330,9 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_site(cls, pages2kv1_cfg, site, data_range=None, meta_src=None,
+    def load_site(cls, pages2kv1_cfg, site, psm_config,
+                  data_range=None,
+                  meta_src=None,
                   data_src=None, load_psm=True):
         """%%aug%%
 
@@ -375,7 +379,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
             values = values - values.mean()
 
         # Send full proxy timeseries in case calibration is necessary
-        proxy_obj = cls(proxy_config, pid, proxy_type, start_yr, end_yr, lat,
+        proxy_obj = cls(psm_config, pid, proxy_type, start_yr, end_yr, lat,
                         lon, elev, seasonality, values, times,
                         load_psm_obj=load_psm)
 
@@ -388,8 +392,8 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_all(cls, proxy_config, data_range, meta_src=None,
-                 data_src=None):
+    def load_all(cls, proxy_config, data_range, psm_config,
+                 meta_src=None, data_src=None):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.
@@ -483,7 +487,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
         all_proxies = []
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(proxy_config, site, data_range,
+                pobj = cls.load_site(proxy_config, site, data_range, psm_config,
                                      meta_src=meta_src, data_src=data_src,
                                      load_psm=load_psm)
                 all_proxies.append(pobj)
