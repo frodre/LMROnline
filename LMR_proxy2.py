@@ -225,7 +225,7 @@ class BaseProxyObject:
         # Retrieve appropriate PSM function
         self.psm_config = psm_config
         if load_psm_obj:
-            psm_obj = self.get_psm_obj(psm_type)
+            psm_obj = LMR_psms.get_psm_class(psm_type)
             self.psm_obj = psm_obj(psm_config, self)
             self.psm = self.psm_obj.psm
 
@@ -324,8 +324,8 @@ class BaseProxyObject:
 class ProxyPAGES2kv1(BaseProxyObject):
 
     @staticmethod
-    def get_psm_obj(proxy_config, proxy_type):
-        psm_key = proxy_config.PAGES2kv1.proxy_psm_type[proxy_type]
+    def get_psm_obj(pages2kv1_cfg, proxy_type):
+        psm_key = pages2kv1_cfg.proxy_psm_type[proxy_type]
         return LMR_psms.get_psm_class(psm_key)
 
     @classmethod
