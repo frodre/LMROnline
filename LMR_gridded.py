@@ -107,13 +107,13 @@ class GriddedVariable(object):
             raise ValueError('Class cannot handle 3D data yet!')
 
         if not self._space_dims:
-            self.type = 'timeseries'
+            self.type = '0D:time series'
             self.space_shp = [1]
             self.data = self.data.reshape(self.nsamples, 1)
         elif _LAT in self._space_dims and _LON in self._space_dims:
-            self.type = 'horizontal'
+            self.type = '2D:horizontal'
         elif _LAT in self._space_dims and _LEV in self._space_dims:
-            self.type = 'meridional_vertical'
+            self.type = '2D:meridional_vertical'
         else:
             raise ValueError('Unrecognized dimension combination.')
 
@@ -171,7 +171,7 @@ class GriddedVariable(object):
     def regrid(self, regrid_method, regrid_grid=None, grid_def=None,
                interp_method=None):
 
-        assert self.type == 'horizontal'
+        assert self.type == '2D:horizontal'
         class_obj = type(self)
 
         if regrid_method == 'simple':
@@ -301,6 +301,36 @@ class GriddedVariable(object):
 
         self.data = self.data + self.climo
         self.climo = None
+
+    def forecast_var_to_pylim_dataobj(self):
+
+        print ('Converting ForecastVariable to pylim.DataObject: '
+               '{}'.format(self.name))
+
+        BDO = DT.BaseDataObject
+
+        key_map = {_TIME: BDO.TIME,
+                   _LEV: BDO.LEVEL,
+                   _LAT: BDO.LAT,
+                   _LON: BDO.LON}
+
+        dim_coords = {key_map[dim]: (i, getattr(self, dim)[:])
+                      for i, dim in enumerate(self.dim_order)}
+        coord_grids = {}
+        if self.lat_grid is not None:
+            coord_grids[BDO.LAT] = self.lat_grid
+        if self.lon_grid is not None:
+            coord_grids[BDO.LON] = self.lon_grid
+        if not coord_grids:
+            coord_grids = None
+
+        new_dobj = DT.BaseDataObject(self.data,
+                                     dim_coords=dim_coords,
+                                     coord_grids=coord_grids,
+                                     force_flat=True,
+                                     fill_value=self._fill_val)
+
+        return new_dobj
 
     @abstractmethod
     def load(cls, config, *args):
@@ -531,8 +561,7 @@ class GriddedVariable(object):
              avg_data] = cls._avg_to_specified_period(dim_vals[_TIME],
                                                       var_dat,
                                                       data_req_frac=data_req_frac,
-                                                      **avg_interval_kwargs[
-                                                          avg])
+                                                      **avg_interval_kwargs)
 
             # Create gridded object
             grid_obj = cls(varname, dims, avg_data, fill_val=fill_val,
@@ -755,7 +784,7 @@ class ForecasterVariable(GriddedVariable):
         var_names = forecaster_cfg.fcast_varnames
 
         fcast_dict = OrderedDict()
-        for vname in var_names.iteritems():
+        for vname in var_names:
             fobj = cls.load(forecaster_cfg, vname, anomaly=True)
             fcast_dict[vname] = fobj
 
@@ -892,8 +921,9 @@ class State(object):
     @classmethod
     def from_config(cls, prior_config):
         pvars = PriorVariable.load_allvars(prior_config)
+        psm_var_map = prior_config.psm_var_map
 
-        return cls(pvars)
+        return cls(pvars, psm_var_map=psm_var_map)
 
     def get_var_data(self, var_name):
         """
@@ -931,7 +961,7 @@ class State(object):
 
         # Add leading axis and repeat to match state_list length
         nproxies = len(ye_vals)
-        self.state = np.concatenate((self.state_list, ye_vals), axis=0)
+        self.state = np.concatenate((self.state, ye_vals), axis=0)
         self.augmented = True
 
         self.var_view_range['state'] = (0, self.len_state)
@@ -950,7 +980,7 @@ class State(object):
         -------
         """
 
-        xb_vals = self.state_list[0]
+        xb_vals = self.state
         xb_vals[:] = regular_cov_infl(xb_vals, inf_factor)
 
     def reset_augmented_ye(self, ye_vals):
@@ -960,13 +990,13 @@ class State(object):
 
     def update_var_data(self, var_update_dict):
 
-        for var_key, var_data in var_update_dict:
+        for var_key, var_data in var_update_dict.iteritems():
             data_view = self.get_var_data(var_key)
             data_view[:] = var_data
 
     def stash_state(self, name):
 
-        self._tmp_state[name] = self.state_list.copy()
+        self._tmp_state[name] = self.state.copy()
 
     def stash_recall_state_list(self, name, pop=False, copy=False):
 
@@ -993,7 +1023,8 @@ class State(object):
 
         state_info = {}
         for var in self.var_view_range.keys():
-            var_info = {'pos': self.var_view_range[var]}
+            var_info = {'pos': self.var_view_range[var],
+                        'vartype': self._prior_vars[var].type}
 
             space_dims = [dim for dim in _DEFAULT_DIM_ORDER
                           if dim in self.var_coords[var].keys()]

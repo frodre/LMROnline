@@ -558,8 +558,8 @@ class ProxyLMRdb(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_site(cls, lmr_db_cfg, site, data_range=None, meta_src=None,
-                  data_src=None, load_psm=True):
+    def load_site(cls, lmr_db_cfg, site, psm_config, data_range=None,
+                  meta_src=None, data_src=None, load_psm=True, anomly=False):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.
@@ -576,6 +576,7 @@ class ProxyLMRdb(BaseProxyObject):
         LMRdb_type = site_meta['Archive type'].iloc[0]
         try:
             proxy_type = lmr_db_cfg.proxy_type_mapping[(LMRdb_type, pmeasure)]
+            psm_type = lmr_db_cfg.proxy_psm_type[proxy_type]
         except (KeyError, ValueError) as e:
             print 'Proxy type/measurement not found in mapping: {}'.format(e)
             raise ValueError(e)
@@ -603,18 +604,19 @@ class ProxyLMRdb(BaseProxyObject):
         times = values.index.values
 
         # transform in "anomalies" (time-mean removed) if option activated
-        if lmr_db_cfg.proxies.LMRdb.proxy_timeseries_kind == 'anom':
+        if anomly:
             values = values - values.mean()
 
         if len(values) == 0:
             raise ValueError('No observations in specified time range.')
 
-        return cls(lmr_db_cfg, pid, proxy_type, start_yr, end_yr, lat, lon,
+        return cls(psm_config, psm_type,
+                   pid, proxy_type, start_yr, end_yr, lat, lon,
                    elev, seasonality, values, times, load_psm_obj=load_psm)
 
     @classmethod
     @augment_docstr
-    def load_all(cls, proxy_config, data_range, meta_src=None,
+    def load_all(cls, proxy_config, data_range, psm_config, meta_src=None,
                  data_src=None):
         """%%aug%%
 
@@ -623,6 +625,11 @@ class ProxyLMRdb(BaseProxyObject):
 
         lmr_db_cfg = proxy_config.LMRdb
         load_psm = proxy_config.load_psm_with_proxies
+        if proxy_config.proxy_timeseries_kind == 'anom':
+            convert_anomly = True
+        else:
+            convert_anomly = False
+
 
         # Load source data files
         if meta_src is None:
@@ -748,9 +755,10 @@ class ProxyLMRdb(BaseProxyObject):
         all_proxies = []
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(proxy_config, site, data_range,
+                pobj = cls.load_site(lmr_db_cfg, site, psm_config,
+                                     data_range=data_range,
                                      meta_src=meta_src, data_src=data_src,
-                                     load_psm=load_psm)
+                                     load_psm=load_psm, anomly=convert_anomly)
                 all_proxies.append(pobj)
             except ValueError as e:
                 # Proxy had no obs or didn't meet psm r crit
@@ -815,8 +823,8 @@ class ProxyNCDCdtda(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_site(cls, config, site, data_range=None, meta_src=None,
-                  data_src=None):
+    def load_site(cls, config, site, psm_config,
+                  data_range=None, meta_src=None, data_src=None):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.

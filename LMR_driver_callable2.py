@@ -217,8 +217,14 @@ def LMR_driver_callable(cfg=None):
     # case saving
     # Dump prior state vector (Xb_one) to file 
     filen = workdir + '/' + 'Xb_one'
-    np.savez(filen, Xb_one=Xb_one.get_var_data('state'),
-             Xb_one_aug=Xb_one.state_list,
+    if isinstance(Xb_one.state, np.ma.MaskedArray):
+        state = Xb_one.get_var_data('state').filled()
+        aug_state = Xb_one.state.filled()
+    else:
+        state = Xb_one.get_var_data('state')
+        aug_state = Xb_one.state
+    np.savez(filen, Xb_one=state,
+             Xb_one_aug=aug_state,
              stateDim=state_dim,
              Xb_one_coords=Xb_one.var_coords,
              state_info=Xb_one.old_state_info)
@@ -289,17 +295,8 @@ def LMR_driver_callable(cfg=None):
                 xbf = Xb_one.state
                 blend_forecast = (hybrid_a_val * xbf +
                                   (1-hybrid_a_val) * Xb_static)
-                Xb_one.state_list[0] = blend_forecast
+                Xb_one.state = blend_forecast
 
-        # overwrite prior GMT from last sub_annual with annual
-        xam = Xb_one.get_var_data('tas_sfc_Amon').mean(axis=1)
-        gmt, nhmt, shmt = \
-            global_mean2(xam,
-                         Xb_one.var_coords['tas_sfc_Amon']['lat'],
-                         output_hemispheric=True)
-        gmt_save[iproxy+1, iyr] = gmt
-        nhmt_save[iproxy+1, iyr] = nhmt
-        shmt_save[iproxy+1, iyr] = shmt
 
         # Save prior variance if online assimilation
         if online:
@@ -407,7 +404,11 @@ def LMR_driver_callable(cfg=None):
         # Save annual data to file
         ypad = '{:04d}'.format(int(t))
         filen = join(workdir, 'year' + ypad + '.npy')
-        np.save(filen, Xb_one.state)
+        if isinstance(Xb_one.state, np.ma.MaskedArray):
+            state = Xb_one.state.filled()
+        else:
+            state = Xb_one.state
+        np.save(filen, state)
 
         if online:
             # Push sub_base prior to next year
@@ -453,10 +454,10 @@ def LMR_driver_callable(cfg=None):
     shmt_ensemble = np.zeros([ntimes, nens])
     for iyr, yr in enumerate(assim_times):
         filen = join(workdir, 'year{:04d}'.format(int(yr)))
-        Xb_one.state = np.array([np.load(filen+'.npy')])
-        Xa = np.squeeze(Xb_one.get_var_data('tas_sfc_Amon'))
+        Xb_one.state = np.load(filen+'.npy')
+        xam = Xb_one.get_var_data('tas_sfc_Amon').mean(axis=1)
         gmt, nhmt, shmt = \
-            global_mean2(Xa.T,
+            global_mean2(xam,
                          Xb_one.var_coords['tas_sfc_Amon']['lat'],
                          output_hemispheric=True)
         gmt_ensemble[iyr] = gmt

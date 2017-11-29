@@ -411,7 +411,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
     npzfile = np.load(prior_filn)
     npzfile.files
     Xbtmp = npzfile['Xb_one']
-    Xb_coords = npzfile['Xb_one_coords']
+    Xb_coords = npzfile['Xb_one_coords'][()]
 
     # get state vector content info (state variables and their position in vector)
     # note: the .item() is necessary to access a dict stored in a npz file 
@@ -441,7 +441,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
             ndim2 = state_info[var]['spacedims'][1]
 
             # Prior
-            Xb = np.reshape(Xbtmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
+            Xb = np.reshape(Xbtmp[ibeg:iend,:],(ndim1,ndim2,nens))
             xbm = np.mean(Xb,axis=2)       # ensemble mean
             xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
 
@@ -459,7 +459,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
                 year = fname_end[:ii]
                 years.append(year)
                 Xatmp = np.load(f)
-                Xa = np.reshape(Xatmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
+                Xa = np.reshape(Xatmp[ibeg:iend,:],(ndim1,ndim2,nens))
                 xa_ens[k,:,:,:] = Xa                  # total ensemble
                 xam[k,:,:] = np.mean(Xa,axis=2)       # ensemble mean
                 xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
@@ -471,8 +471,8 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
             dimcoord1 = 'n'+coordname1
             dimcoord2 = 'n'+coordname2
 
-            coord1 = np.reshape(Xb_coords[ibeg:iend+1,0],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
-            coord2 = np.reshape(Xb_coords[ibeg:iend+1,1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+            coord1 = np.reshape(Xb_coords[var][coordname1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+            coord2 = np.reshape(Xb_coords[var][coordname2],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
 
             vars_to_save_ens  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
                                      coordname1:coord1, coordname2:coord2, 'xb_ens':Xb, 'xa_ens':xa_ens}
@@ -488,7 +488,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
             ndim2 = state_info[var]['spacedims'][1]
 
             # Prior
-            Xb = np.reshape(Xbtmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
+            Xb = np.reshape(Xbtmp[ibeg:iend,:],(ndim1,ndim2,nens))
             xbm = np.mean(Xb,axis=2)       # ensemble mean
             xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
 
@@ -506,7 +506,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
                 year = fname_end[:ii]
                 years.append(year)
                 Xatmp = np.load(f)
-                Xa = np.reshape(Xatmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
+                Xa = np.reshape(Xatmp[ibeg:iend,:],(ndim1,ndim2,nens))
                 xam[k,:,:,:] = Xa                     # total ensemble
                 xam[k,:,:] = np.mean(Xa,axis=2)       # ensemble mean
                 xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
@@ -518,8 +518,8 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
             dimcoord1 = 'n'+coordname1
             dimcoord2 = 'n'+coordname2
 
-            coord1 = np.reshape(Xb_coords[ibeg:iend+1,0],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
-            coord2 = np.reshape(Xb_coords[ibeg:iend+1,1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+            coord1 = np.reshape(Xb_coords[ibeg:iend,0],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+            coord2 = np.reshape(Xb_coords[ibeg:iend,1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
 
             vars_to_save_ens  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
                                      coordname1:coord1, coordname2:coord2, 'xb_ens':Xb, 'xa_ens':xa_ens}
@@ -534,7 +534,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
             ndim1 = state_info[var]['spacedims'][0]
 
             # Prior
-            Xb = np.reshape(Xbtmp[ibeg:iend+1,:],(ndim1,nens))
+            Xb = np.reshape(Xbtmp[ibeg:iend,:],(ndim1,nens))
             xbm = np.mean(Xb,axis=1)       # ensemble mean
             xbv = np.var(Xb,axis=1,ddof=1) # ensemble variance
 
@@ -552,7 +552,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
                 year = fname_end[:ii]
                 years.append(year)
                 Xatmp = np.load(f)
-                Xa = np.reshape(Xatmp[ibeg:iend+1,:],(ndim1,nens))
+                Xa = np.reshape(Xatmp[ibeg:iend,:],(ndim1,nens))
                 xa_ens[k,:,:] = Xa                  # total ensemble
                 xam[k,:] = np.mean(Xa,axis=1)       # ensemble mean
                 xav[k,:] = np.var(Xa,axis=1,ddof=1) # ensemble variance
@@ -561,7 +561,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
             coordname1 = state_info[var]['spacecoords'][0]
             dimcoord1 = 'n'+coordname1
 
-            coord1 = np.reshape(Xb_coords[ibeg:iend+1,0],(state_info[var]['spacedims'][0]))
+            coord1 = np.reshape(Xb_coords[ibeg:iend,0],(state_info[var]['spacedims'][0]))
 
             vars_to_save_ens  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], \
                                      coordname1:coord1, 'xb_ens':Xb, 'xa_ens':xa_ens}
@@ -572,7 +572,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
 
         elif state_info[var]['vartype'] == '0D:time series':
             # 0D:time series variable (no spatial dims)
-            Xb = Xbtmp[ibeg:iend+1,:] # prior (full) ensemble
+            Xb = Xbtmp[ibeg:iend,:] # prior (full) ensemble
             xbm = np.mean(Xb,axis=1)  # ensemble mean
             xbv = np.var(Xb,axis=1,ddof=1)   # ensemble variance
 
@@ -590,7 +590,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
                 year = fname_end[:ii]
                 years.append(year)
                 Xatmp = np.load(f)
-                Xa = Xatmp[ibeg:iend+1,:]
+                Xa = Xatmp[ibeg:iend,:]
                 xa_ens[k] = Xa  # total ensemble
                 xam[k] = np.mean(Xa,axis=1) # ensemble mean
                 xav[k] = np.var(Xa,axis=1,ddof=1)  # ensemble variance
@@ -1045,12 +1045,19 @@ def regrid_esmpy_grid_object(target_nlat, target_nlon,
     print ('    target grid: nlat={}, nlon={}'.format(target_nlat,
                                                       target_nlon))
 
+    if grid_obj.lat_grid is None or grid_obj.lon_grid is None:
+        lon_grid, lat_grid = np.meshgrid(grid_obj.lon, grid_obj.lat)
+    else:
+        lon_grid = grid_obj.lon_grid
+        lat_grid = grid_obj.lat_grid
+
+
     if grid_obj.climo is not None:
         new_climo, lat, lon  = regrid_esmpy(target_nlat, target_nlon,
                                             1,
                                             grid_obj.climo,
-                                            grid_obj.lat_grid,
-                                            grid_obj.lon_grid,
+                                            lat_grid,
+                                            lon_grid,
                                             len(grid_obj.lat),
                                             len(grid_obj.lon),
                                             method=interp_method)
@@ -1060,8 +1067,8 @@ def regrid_esmpy_grid_object(target_nlat, target_nlon,
     new_data, new_lat, new_lon =regrid_esmpy(target_nlat, target_nlon,
                                              grid_obj.nsamples,
                                              grid_obj.data,
-                                             grid_obj.lat_grid,
-                                             grid_obj.lon_grid,
+                                             lat_grid,
+                                             lon_grid,
                                              len(grid_obj.lat),
                                              len(grid_obj.lon),
                                              method=interp_method)

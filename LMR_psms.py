@@ -178,7 +178,7 @@ class BasePSM:
         var_lat = state_object.var_coords[var_key]['lat']
         var_lon = state_object.var_coords[var_key]['lon']
 
-        return self.get_close_grid_point_data(var_data, var_lon, var_lat)
+        return self.get_close_grid_point_data(var_data.T, var_lon, var_lat)
 
 
 @class_docs_fixer
@@ -241,6 +241,7 @@ class LinearPSM(BasePSM):
 
         self.datainfo_calib = linear_psm_cfg.datainfo_calib
         self.psm_vartype = self.datainfo_calib['psm_vartype']
+        self.sensitivity = self.psm_vartype.keys()[0]
 
         try:
             # Try using pre-calibrated psm_data
@@ -871,9 +872,9 @@ class BilinearPSM(BasePSM):
         self.lon  = proxy_obj.lon
         self.elev = proxy_obj.elev
 
-        self.avgPeriod = bilinear_cfg.avg_interval
-        self.psm_vartype_T = bilinear_cfg.temperature.psm_vartype
-        self.psm_vartype_P = bilinear_cfg.moisture.psm_vartype
+        self.avg_interval = bilinear_cfg.avg_interval
+        self.psm_vartype_T = bilinear_cfg.temperature.datainfo_calib['psm_vartype']
+        self.psm_vartype_P = bilinear_cfg.moisture.datainfo_calib['psm_vartype']
 
         # Assign sensitivity as temperature_moisture
         self.sensitivity = 'temperature_moisture'
@@ -1032,11 +1033,11 @@ class BilinearPSM(BasePSM):
         # Calculate averages of calibration data over appropriate
         # intervals (annual or according to proxy seasonality
         # -------------------------------------------------------
-        if self.avgPeriod == 'annual':
+        if self.avg_interval == 'annual':
             # Simply use annual averages
             avgMonths_T = [1,2,3,4,5,6,7,8,9,10,11,12]
             avgMonths_P = [1,2,3,4,5,6,7,8,9,10,11,12]
-        elif 'season' in self.avgPeriod:
+        elif 'season' in self.avg_interval:
 
             # Distinction btw temperature & moisture seasonalities?
             if hasattr(proxy,'seasonality_T') and  hasattr(proxy,'seasonality_P'):
@@ -1271,12 +1272,18 @@ class BilinearPSM(BasePSM):
             return {}
 
     @staticmethod
-    def _load_psm_data(config):
+    def _load_psm_data(bilinear_psm_cfg):
         """Helper method for loading from dataframe"""
 
-        pre_calib_file = config.psm.bilinear.pre_calib_datafile
+        pre_calib_file = bilinear_psm_cfg.pre_calib_datafile
 
-        return load_cpickle(pre_calib_file)
+        if pre_calib_file is None:
+            raise IOError('No pre-calibration file specified.')
+
+        with open(pre_calib_file, mode='r') as f:
+            data = cPickle.load(f)
+
+        return data
 
 
 class h_interpPSM(BasePSM):

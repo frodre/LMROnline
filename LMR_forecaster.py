@@ -54,6 +54,7 @@ class LIMForecaster(BaseForecaster):
         fcast_calib_vars = LMR_gridded.ForecasterVariable.load_allvars(lim_cfg)
         fcast_calib_dobjs = {key: var.forecast_var_to_pylim_dataobj()
                              for key, var in fcast_calib_vars.iteritems()}
+        self.calib_dobjs = fcast_calib_dobjs
 
         var_order = []
         calib_state = []
@@ -111,8 +112,13 @@ class LIMForecaster(BaseForecaster):
     def forecast(self, state_obj):
 
         fcast_state = []
+        is_compressed = []
         for var in self.var_order:
             data = state_obj.get_var_data(self.prior_map[var])
+            if np.ma.is_masked(data):
+                nens = data.shape[-1]
+                data = data.compressed().reshape(-1, nens)
+                is_compressed.append(var)
             eof_proj = np.dot(data.T, self.var_eofs[var])
             fcast_state.append(eof_proj)
 
@@ -129,7 +135,7 @@ class LIMForecaster(BaseForecaster):
             fcast_data = fcast_data + fcast_data_enspert
         else:
             # Forecast each individual ensemble member
-            fcast_data = self.lim.forecast(fcast_state, [self.fcast_lead])
+            fcast_data = self.lim.forecast(fcast_state, [self.fcast_lead])[0]
 
         # var_data is returned as a view for annual, so this re-assigns
         fcast_state_out = {}
@@ -137,7 +143,11 @@ class LIMForecaster(BaseForecaster):
             start, end = self.fcast_state_bnds[var]
             fcast_out = fcast_data[:, start:end]
             phys_space_fcast = np.dot(fcast_out, self.var_eofs[var].T)
-            fcast_state_out[self.prior_map[var]] = phys_space_fcast
+            if var in is_compressed:
+                dobj = self.calib_dobjs[var]
+                phys_space_fcast = dobj.inflate_full_grid(data=phys_space_fcast)
+                phys_space_fcast = np.ma.masked_invalid(phys_space_fcast)
+            fcast_state_out[self.prior_map[var]] = phys_space_fcast.T
 
         return fcast_state_out
 
