@@ -219,10 +219,11 @@ class LinearPSM(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, linear_psm_cfg, proxy_obj, psm_data=None, calib_obj=None,
+    def __init__(self, psm_config, proxy_obj, psm_data=None, calib_obj=None,
                  diag_out=None, diag_fig=None, on_the_fly_calib=False):
 
         self.psm_key = 'linear'
+        linear_psm_cfg = psm_config.linear
 
         proxy = proxy_obj.type
         site = proxy_obj.id
@@ -697,9 +698,10 @@ class LinearPSM_TorP(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, linearTorP_cfg, proxy_obj, psm_data_T=None, psm_data_P=None):
+    def __init__(self, psm_config, proxy_obj, psm_data_T=None, psm_data_P=None):
 
         self.psm_key = 'linear_TorP'
+        linearTorP_cfg = psm_config.linear_TorP
 
         proxy = proxy_obj.type
         site = proxy_obj.id
@@ -856,10 +858,11 @@ class BilinearPSM(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, bilinear_cfg, proxy_obj, psm_data=None, calib_obj_T=None,
+    def __init__(self, psm_config, proxy_obj, psm_data=None, calib_obj_T=None,
                  calib_obj_P=None, on_the_fly_calib=False):
 
         self.psm_key = 'bilinear'
+        bilinear_cfg = psm_config.bilinear
 
         proxy = proxy_obj.type
         site = proxy_obj.id
