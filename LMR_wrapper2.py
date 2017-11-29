@@ -93,11 +93,11 @@ for iter_and_params in itertools.product(*param_iterables):
 
     cfg = LMR_config.Config(**cfg_params)
 
-    proceed = validate_config(cfg)
-    if not proceed:
-        raise SystemExit()
-    else:
-        print 'OK!'
+    # proceed = validate_config(cfg)
+    # if not proceed:
+    #     raise SystemExit()
+    # else:
+    #     print 'OK!'
     core = cfg.core
 
     # Check if it exists, if not create it

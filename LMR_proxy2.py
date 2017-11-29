@@ -488,7 +488,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
         all_proxies = []
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(proxy_config, site, psm_config,
+                pobj = cls.load_site(pages2kv1_cfg, site, psm_config,
                                      data_range=data_range,
                                      meta_src=meta_src, data_src=data_src,
                                      load_psm=load_psm)

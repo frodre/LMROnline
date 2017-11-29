@@ -1189,8 +1189,11 @@ def regrid_sphere_gridded_object(grid_obj, ntrunc):
         gridded_new[i] = regrid(specob_lmr, specob_new, time_slice,
                                 ntrunc=ntrunc)
 
-    new_climo = regrid(specob_lmr, specob_new, grid_obj.climo,
+
+    tmp_climo = np.squeeze(grid_obj.climo)
+    new_climo = regrid(specob_lmr, specob_new, tmp_climo,
                        ntrunc=ntrunc)
+    new_climo = new_climo[None]  # Add in leading time dim
 
     return gridded_new, lat_new, lon_new, new_climo
 
@@ -2146,7 +2149,7 @@ def validate_config(config):
         Boolean indicating if the configuration settings were validated or not.
     """
 
-    proxy_database = config.proxies.use_from[0]
+    proxy_database = config.proxies.use_from
     if proxy_database == 'LMRdb':
         proxy_cfg = config.proxies.LMRdb
     elif proxy_database == 'PAGES2kv1':
@@ -2154,8 +2157,7 @@ def validate_config(config):
     elif proxy_database == 'NCDCdtda':
         proxy_cfg = config.proxies.ncdcdtda
     else:
-        print 'ERROR in specification of proxy database.'
-        raise SystemExit()
+        raise SystemExit('ERROR in specification of proxy database.')
 
     # proxy types activated in configuration
     proxy_types = proxy_cfg.proxy_order

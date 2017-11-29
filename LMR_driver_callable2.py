@@ -107,10 +107,10 @@ def LMR_driver_callable(cfg=None):
     hybrid_a_val = core_cfg.hybrid_a
     blend_prior = core_cfg.blend_prior
     reg_inf = core_cfg.reg_inflate
-    inf_factor = core_cfg.inf_factor
+    inf_factor = core_cfg.inflation_factor
     nens = core_cfg.nens
     loc_rad = core_cfg.loc_rad
-    inflation_fact = core_cfg.inflation_fact
+    inflation_fact = core_cfg.inflation_factor
     state_backend = prior_cfg.backend_type
 
     # ==========================================================================
