@@ -243,7 +243,7 @@ def LMR_driver_callable(cfg=None):
     nhmt_save = np.zeros([assim_proxy_count+1, ntimes])
     shmt_save = np.zeros([assim_proxy_count+1, ntimes])
 
-    xbm = Xb_one.state.mean(axis=1)  # ensemble mean
+    xbm = Xb_one.get_var_data('tas_sfc_Amon').mean(axis=1)  # ensemble mean
     gmt, nhmt, shmt = global_mean2(xbm,
                                    Xb_one.var_coords['tas_sfc_Amon']['lat'],
                                    output_hemispheric=True)
