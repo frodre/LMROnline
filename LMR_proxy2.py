@@ -351,6 +351,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
         try:
             proxy_type = pages2kv1_cfg.proxy_type_mapping[(pages2kv1_type,
                                                            pmeasure)]
+            psm_type = pages2kv1_cfg.proxy_psm_type[proxy_type]
         except (KeyError, ValueError) as e:
             print 'Proxy type/measurement not found in mapping: {}'.format(e)
             raise ValueError(e)
@@ -379,8 +380,8 @@ class ProxyPAGES2kv1(BaseProxyObject):
             values = values - values.mean()
 
         # Send full proxy timeseries in case calibration is necessary
-        proxy_obj = cls(psm_config, pid, proxy_type, start_yr, end_yr, lat,
-                        lon, elev, seasonality, values, times,
+        proxy_obj = cls(psm_config, psm_type, pid, proxy_type, start_yr,
+                        end_yr, lat, lon, elev, seasonality, values, times,
                         load_psm_obj=load_psm)
 
         proxy_obj._constrain_to_date_range(data_range)
@@ -487,7 +488,8 @@ class ProxyPAGES2kv1(BaseProxyObject):
         all_proxies = []
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(proxy_config, site, data_range, psm_config,
+                pobj = cls.load_site(proxy_config, site, psm_config,
+                                     data_range=data_range,
                                      meta_src=meta_src, data_src=data_src,
                                      load_psm=load_psm)
                 all_proxies.append(pobj)
