@@ -32,6 +32,8 @@ _DEFAULT_DIM_ORDER = [_TIME, _LEV, _LAT, _LON]
 _ALT_DIMENSION_DEFS = {'latitude': _LAT,
                        'longitude': _LON,
                        'plev': _LEV}
+_BYPASS_DIMENSION_DEFS = {'j': _LAT,
+                          'i': _LON}
 
 _ftypes = LMR_config.Constants.data['file_types']
 
@@ -210,14 +212,29 @@ class GriddedVariable(object):
                          climo=climo)
 
     def fill_val_to_nan(self):
-        mask = self.data == self._fill_val
 
-        if np.any(mask):
-            self.data[mask] = np.nan
-            self.data = np.ma.masked_array(self.data, mask=mask)
+        step = 10
+        for i in np.arange(0, len(self.data), step=step):
+            tmp_data = self.data[i:i+step]
+            mask = tmp_data == self._fill_val
+
+            if np.any(mask):
+                tmp_data[mask] = np.nan
+                self.data[i:i+step] = tmp_data
+
+        self.data = np.ma.masked_invalid(self.data)
 
     def nan_to_fill_val(self):
-        self.data[~np.isfinite(self.data)] = self._fill_val
+        if np.ma.is_masked(self.data):
+            self.data = self.data.filled(fill_value=self._fill_val)
+        else:
+            step = 10
+            for i in np.arange(0, len(self.data), step=step):
+                tmp_dat = self.data[i:i+step]
+                tmp_dat[np.isnan(tmp_dat)] = self._fill_val
+                self.data[i:i+step] = tmp_dat
+
+        # self.data[~da.isfinite(self.data)] = self._fill_val
 
     def flattened_spatial(self):
 
@@ -367,7 +384,8 @@ class GriddedVariable(object):
                                             seed=seed,
                                             interp_method=interp_method)
         except IOError:
-            print 'No pre-averaged file found or ignore specified ... '
+            print ('No pre-averaged file found ({}) or '
+                   'ignore specified ... '.format(varname))
             var_obj = ftype_loader(file_dir, file_name, varname, save=save,
                                    data_req_frac=data_req_frac,
                                    avg_interval=avg_interval,
@@ -519,6 +537,9 @@ class GriddedVariable(object):
                 elif dim in _DEFAULT_DIM_ORDER:
                     dims.append(dim.lower())
                     dim_keys.append(dim)
+                elif dim in _BYPASS_DIMENSION_DEFS:
+                    dims.append(_BYPASS_DIMENSION_DEFS[dim])
+                    dim_keys.append(_BYPASS_DIMENSION_DEFS[dim])
                 else:
                     dims.append(_ALT_DIMENSION_DEFS[dim.lower()])
                     dim_keys.append(dim)
@@ -572,7 +593,7 @@ class GriddedVariable(object):
             if anomaly:
                 grid_obj.convert_to_anomaly()
 
-            grid_obj.print_data_stats()
+            # grid_obj.print_data_stats()
 
             if save:
                 new_dir = join(dir_name, pre_proc_filedir)
@@ -667,7 +688,13 @@ class GriddedVariable(object):
         # Average the data
         new_times = time_vals[:, 0, 0]
         data = data[:, :, 0:len_of_sample]
-        new_data = np.nanmean(data, axis=(1, 2))
+
+        data_list = []
+        for i in np.arange(0, data.shape[0], 10):
+            data_chk = np.nanmean(data[i:i+10], axis=(1,2))
+            data_list.append(data_chk)
+
+        new_data = np.concatenate(data_list, axis=0)
 
         # Mask times which did not have enough data in the average
         if data_req_frac is not None and np.any(np.isnan(data)):
