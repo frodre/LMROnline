@@ -32,7 +32,9 @@ core:
   use_precalc_ye: False
   write_posterior_Ye: False
   save_full_field: False
-  recon_period: !!python/tuple [1800, 2000]
+  ignore_pre_avg_file: False
+  save_pre_avg_file: True
+  recon_period: !!python/tuple [1870, 2000]
 #  recon_period: !!python/tuple [-120000, 2000]
   recon_timescale: 1
 #  recon_timescale: 250
@@ -40,6 +42,14 @@ core:
   seed: null
   loc_rad: null
   inflation_factor: null
+
+  hybrid_update: True
+  hybrid_a: 0.85
+  blend_prior: True
+
+  adaptive_inflate: False
+  reg_inflate: False
+  inflation_factor: 1.1
 
 proxies:
 #  use_from: PAGES2kv1

@@ -717,6 +717,8 @@ class proxies(ConfigGroup):
 
         def __init__(self, lmr_path=None, **kwargs):
             super(proxies.LMRdb, self).__init__(lmr_path=lmr_path, **kwargs)
+            self.metafile_proxy = self.metafile_proxy.format(self.dbversion)
+            self.datafile_proxy = self.datafile_proxy.format(self.dbversion)
             self.database_filter = list(self.database_filter)
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
 
@@ -807,7 +809,7 @@ class proxies(ConfigGroup):
 
         super(self.__class__, self).__init__(**kwargs)
         
-        self.use_from = list(self.use_from)
+        self.use_from = self.use_from
         self.proxy_frac = self.proxy_frac
         self.proxy_timeseries_kind = self.proxy_timeseries_kind
         self.load_psm_with_proxies = self.load_psm_with_proxies
@@ -897,12 +899,12 @@ class psm(ConfigGroup):
             if self.pre_calib_datafile is None:
                 if 'LMRdb' in proxies.use_from:
                     dbversion = proxies.LMRdb.dbversion
-                    filename = ('PSMs_' + '-'.join(proxies.use_from) +
+                    filename = ('PSMs_' + proxies.use_from +
                                 '_' + dbversion +
                                 '_' + self.avg_interval +
                                 '_' + self.datatag_calib +'.pckl')
                 else:
-                    filename = ('PSMs_' + '-'.join(proxies.use_from) +
+                    filename = ('PSMs_' + proxies.use_from +
                                 '_' + self.datatag_calib+'.pckl')
                 self.pre_calib_datafile = join(lmr_path,
                                                'PSM',
@@ -1066,15 +1068,22 @@ class psm(ConfigGroup):
             self.psm_r_crit = self.psm_r_crit
                 
             if self.pre_calib_datafile is None:
-                if '-'.join(proxies.use_from) == 'LMRdb':
+                if proxies.use_from == 'LMRdb':
+                    if self.avg_interval == 'season':
+                        if self.season_source == 'proxy_metadata':
+                            source = 'META'
+                        elif self.season_source == 'psm_calib':
+                            source = 'PSM'
+                    else:
+                        source = ''
                     dbversion = proxies.LMRdb.dbversion
-                    filename = ('PSMs_'+'-'.join(proxies.use_from) +
+                    filename = ('PSMs_'+proxies.use_from +
                                 '_' + dbversion +
-                                '_' + self.avg_interval +
+                                '_' + self.avg_interval + source +
                                 '_' + self.datatag_calib_T +
                                 '_' + self.datatag_calib_P + '.pckl')
                 else:
-                    filename = ('PSMs_'+'-'.join(proxies.use_from) +
+                    filename = ('PSMs_'+proxies.use_from +
                                 '_' + self.datatag_calib_T +
                                 '_' + self.datatag_calib_P + '.pckl')
                 self.pre_calib_datafile = join(lmr_path,
@@ -1682,7 +1691,7 @@ def initialize_config_yaml(cfg_module, yaml_file=None):
         print 'Loading configuration: {}'.format(yaml_file)
         f = open(yaml_file, 'r')
         yml_dict = yaml.load(f)
-        update_result = cfg_module.update_config_class_yaml(yml_dict,
+        update_result = cfg_module.update_config_attrs_yaml(yml_dict,
                                                             cfg_module)
 
         # Check that all yml params match value in LMR_config
