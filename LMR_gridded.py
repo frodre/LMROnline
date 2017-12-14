@@ -213,16 +213,20 @@ class GriddedVariable(object):
 
     def fill_val_to_nan(self):
 
+        convert_to_masked_array = False
+
         step = 10
         for i in np.arange(0, len(self.data), step=step):
             tmp_data = self.data[i:i+step]
             mask = tmp_data == self._fill_val
 
             if np.any(mask):
+                if not convert_to_masked_array:
+                    convert_to_masked_array = True
                 tmp_data[mask] = np.nan
                 self.data[i:i+step] = tmp_data
-
-        self.data = np.ma.masked_invalid(self.data)
+        if convert_to_masked_array:
+            self.data = np.ma.masked_invalid(self.data)
 
     def nan_to_fill_val(self):
         if np.ma.is_masked(self.data):
@@ -383,7 +387,7 @@ class GriddedVariable(object):
                                             sample=sample,
                                             seed=seed,
                                             interp_method=interp_method)
-        except IOError:
+        except (IOError, tb.exceptions.NoSuchNodeError):
             print ('No pre-averaged file found ({}) or '
                    'ignore specified ... '.format(varname))
             var_obj = ftype_loader(file_dir, file_name, varname, save=save,
