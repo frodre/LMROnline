@@ -9,7 +9,6 @@ from abc import abstractmethod, ABCMeta
 from netCDF4 import Dataset, num2date
 from datetime import datetime, timedelta
 from collections import OrderedDict
-from itertools import izip
 import numpy as np
 import warnings
 import os
@@ -21,8 +20,9 @@ import LMR_config
 from LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
     empty_hdf5_carray, regrid_esmpy_grid_object
 from LMR_utils2 import fix_lon, regular_cov_infl
-import pylim.DataTools as DT
+# import pylim.DataTools as DT
 
+# Constant definitions
 _LAT = 'lat'
 _LON = 'lon'
 _LEV = 'lev'
@@ -39,7 +39,9 @@ _ftypes = LMR_config.Constants.data['file_types']
 
 
 class GriddedVariable(object):
-
+    """
+    Object for holding and manipulating gridded data of a single variable.
+    """
     __metaclass__ = ABCMeta
 
     PRE_PROCESSED_FILETAG = '.pre_{}.h5'
@@ -52,6 +54,65 @@ class GriddedVariable(object):
                  sampled=None, avg_interval=None, regrid_method=None,
                  regrid_grid=None, esmpy_interp=None, lat_grid=None,
                  lon_grid=None, climo=None, rotated_pole=False):
+        """
+
+        Parameters
+        ----------
+        name: str
+            Name of gridded variable.
+        dims_ordered: list of str
+            Ordered list of the gridded variable dimensions.  Dimension names
+            should match the constant definitions at the beginning of this
+            module.
+        data: ndarray
+            Gridded variable data
+        time: ndarray, optional
+            Array of time dimension values
+        lev: ndarray, optional
+            Array of level dimension values
+        lat: ndarray, optional
+            Array of latitude dimension values
+        lon: ndarray, optional
+            Array of longitude dimension values
+        fill_val: float, optional
+            Fill value indicating missing data
+        sampled: array of int, optional
+            List of indices indicating the sample from the original data
+            used to create this object.
+        avg_interval: str, optional
+            Key indicating the averaging interval of the data in this
+            object.  Should match distinction in constants.yml.
+        regrid_method: str, optional
+            Key indicating which regridding method was used to create
+            data in this object.
+        regrid_grid: str, optional
+            Key indicating which grid the data is on
+        esmpy_interp: str, optional
+            Key indicating the interpolation method used when ESMPy was used to
+            regrid the data
+        lat_grid: ndarray, optional
+            Latitude values for the grid.  Necessary for non-regular grids for
+            certain operations.
+        lon_grid: ndarray, optional
+            Longitude values for the grid.  Necessary for non-regular grids for
+            certain operations.
+        climo: ndarray, optional
+            Climatology used to center the data
+        rotated_pole: bool, optional
+            Indication of whether or not the data is on a rotated pole grid
+
+        Attributes
+        ----------
+        ndim: int
+            Number of data dimensions
+        nsamples: int
+            Number of samples in the data
+        space_shp: tuple of int
+            Shape of spatial dimensions of the data
+        type: str
+            Variable definition based on dimensions. E.g., timeseries,
+            2D:horizontal, 2D:vertical/meridional
+        """
         self.name = name
         self.dim_order = dims_ordered
         self.ndim = len(dims_ordered)
@@ -93,7 +154,7 @@ class GriddedVariable(object):
                 raise ValueError('Dimension values provided do not match in '
                                  'length with dimension axis of data')
 
-        # Right now it shouldn't happen for loaders, may change in future
+        # Determine sampling dimension size if any
         if time is not None:
             self.nsamples = len(self.time)
         else:
@@ -108,6 +169,7 @@ class GriddedVariable(object):
         if len(self._space_dims) > 2:
             raise ValueError('Class cannot handle 3D data yet!')
 
+        # Determine the type of field for this gridded variable
         if not self._space_dims:
             self.type = '0D:time series'
             self.space_shp = [1]
@@ -120,11 +182,31 @@ class GriddedVariable(object):
             raise ValueError('Unrecognized dimension combination.')
 
     def save(self, filename):
+        """
+        Save gridded data object to file.  Creats a PyTables HDF5 file
+        for the data and the gridded variable object.
+
+        Parameters
+        ----------
+        filename: str
+            Absolute path to the saving file.
+
+        Returns
+        -------
+        None
+
+        Notes
+        -----
+        If the file exists, it is opened in append mode.  This can probably
+        result in very large files if resaving the same variable multiple
+        times.
+        """
         avg_interval = self.avg_interval
         regrid_method = self.regrid_method
         regrid_grid = self.regrid_grid
         esmpy_interp = self.esmpy_interp
 
+        # create the path to save data within the HDF5 file
         path_pieces = [avg_interval, regrid_method, regrid_grid, esmpy_interp]
         path_pieces = [str(piece) for piece in path_pieces if piece is not None]
 
@@ -145,6 +227,8 @@ class GriddedVariable(object):
                           filters=tb.Filters(complib='blosc',
                                              complevel=2)) as h5f:
 
+            # If the node exists already at the path remove it, else create
+            # the group
             try:
                 h5f.get_node(data_path, name=obj_node_name)
                 h5f.remove_node(data_path, name=obj_node_name)
@@ -156,23 +240,52 @@ class GriddedVariable(object):
             obj_out = h5f.create_vlarray(data_path, name=obj_node_name,
                                          atom=tb.ObjectAtom())
 
+            # Save the data to a CArray
             self.nan_to_fill_val()
             var_to_hdf5_carray(h5f, data_path, data_node_name, self.data)
             self.fill_val_to_nan()
 
+            # Save self object to a VLArray (
             tmp_dat = self.data
             del self.data
             obj_out.append(self)
             self.data = tmp_dat
 
     def print_data_stats(self):
+        """
+        Print stats of the data contained in the object.
+        **Don't call on large data! You may run out of memory**
+
+        Returns
+        -------
+        None
+        """
         print ('{}: Global: mean={:1.3e}, '
                'std-dev:={:1.3e}'.format(self.name, np.nanmean(self.data),
                                          np.nanstd(self.data)))
 
     def regrid(self, regrid_method, regrid_grid=None, grid_def=None,
                interp_method=None):
+        """
+        Regrid data in gridded object.  Only works for 2D:horizontal data
 
+        Parameters
+        ----------
+        regrid_method: str
+            Key indicating regridding package to use.  Allowed: 'simple',
+            'sperical_harmonics', and 'esmpy'.
+        regrid_grid: str, optional
+            Key indicating the destination grid for spherical harmonics.
+        grid_def: dict, optional
+            Grid definition dictionary from grid_def.yml for ESMPy regridding
+        interp_method: str, optional
+            Interpolation method to use in ESMPy.  Allowed: bilinear, patch
+
+        Returns
+        -------
+        GriddedVariable
+            New gridded variable object with regridded data.
+        """
         assert self.type == '2D:horizontal'
         class_obj = type(self)
 
@@ -212,14 +325,24 @@ class GriddedVariable(object):
                          climo=climo)
 
     def fill_val_to_nan(self):
+        """
+        Convert fill value to NaN
 
+        Returns
+        -------
+        None
+        """
         convert_to_masked_array = False
 
+        # Steps through the data in chunks to handle instances where data is
+        # very large.  Slower, but doesn't go into swap ;)
         step = 10
         for i in np.arange(0, len(self.data), step=step):
             tmp_data = self.data[i:i+step]
             mask = tmp_data == self._fill_val
 
+            # Determine if invalid data and set flag to convert to
+            # np.ma.MaskedArray
             if np.any(mask):
                 if not convert_to_masked_array:
                     convert_to_masked_array = True
@@ -229,6 +352,13 @@ class GriddedVariable(object):
             self.data = np.ma.masked_invalid(self.data)
 
     def nan_to_fill_val(self):
+        """
+        Convert NaN to fill value.
+
+        Returns
+        -------
+        None
+        """
         if np.ma.is_masked(self.data):
             self.data = self.data.filled(fill_value=self._fill_val)
         else:
@@ -241,7 +371,18 @@ class GriddedVariable(object):
         # self.data[~da.isfinite(self.data)] = self._fill_val
 
     def flattened_spatial(self):
+        """
+        Get a flattened spatial field representation of the data. Preserves
+        sampling dimension.
 
+        Returns
+        -------
+        flat_data: ndarray
+            Flattened view of the data array
+        flat_coords: dict{str: ndarray}
+            Flattened full coordinate grids for each spatial dimension.
+            Shape will match flat_data shape.
+        """
         flat_data = self.data.reshape(len(self.time),
                                       np.product(self.space_shp))
 
@@ -253,7 +394,23 @@ class GriddedVariable(object):
 
         return flat_data, flat_coords
 
-    def random_sample(self, nens, seed):
+    def random_sample(self, nens, seed=None):
+        """
+        Take a random sample along the sampling dimension of the data.
+
+        Parameters
+        ----------
+        nens: int
+            Size of sample
+        seed: int, optional
+            Seed for the random number generator
+
+        Returns
+        -------
+        GriddedVariable
+            New gridded variable object with the sampled data.
+
+        """
         sample_range = range(self.data.shape[0])
         random.seed(seed)
         sample = random.sample(sample_range, nens)
@@ -261,7 +418,17 @@ class GriddedVariable(object):
 
     def sample_from_idx(self, sample_idxs):
         """
-        Random sample ensemble of current gridded variable
+        Take a specified sample along the sampling dimension of the data.
+
+        Parameters
+        ----------
+        sample_idxs: list[int]
+            A list of indices to take along the sampling dimension of the data
+
+        Returns
+        -------
+        GriddedVariable
+            New gridded variable object with the sampled data
         """
 
         cls = type(self)
@@ -299,6 +466,14 @@ class GriddedVariable(object):
                    sampled=sample_idxs)
 
     def is_sampled(self):
+        """
+        Return whether data in the current object is from a sampling
+        operation.
+
+        Returns
+        -------
+        bool
+        """
 
         if self._idx_used_for_sample is None:
             return False
@@ -306,6 +481,20 @@ class GriddedVariable(object):
             return True
 
     def convert_to_anomaly(self, climo=None):
+        """
+        Center data by removing climatological mean.
+
+        Parameters
+        ----------
+        climo: ndarray, optional
+            Climatological reference to center data to.  If not provided,
+            the climatology is determined across the entire sampling
+            dimension.
+
+        Returns
+        -------
+        None
+        """
         print ('Removing temporal mean for every gridpoint...')
         if climo is None:
             self.climo = self.data[:].mean(axis=0, keepdims=True)
@@ -315,6 +504,13 @@ class GriddedVariable(object):
         self.data = self.data - self.climo
 
     def convert_to_standard(self):
+        """
+        Add back climatology to centered data.
+
+        Returns
+        -------
+        None
+        """
         print ('Adding temporal mean to every gridpoint...')
         if self.climo is None:
             raise ValueError('Cannot convert to standard state data is not an '
@@ -324,6 +520,14 @@ class GriddedVariable(object):
         self.climo = None
 
     def forecast_var_to_pylim_dataobj(self):
+        """
+        Create a pyLIM data object for use in LIM forecasting.
+
+        Returns
+        -------
+        pylim.DataTools.BaseDataObject
+            Data object for a LIM that has the same dimensions.
+        """
 
         print ('Converting ForecastVariable to pylim.DataObject: '
                '{}'.format(self.name))
@@ -367,11 +571,20 @@ class GriddedVariable(object):
                           ignore_pre_avg=False, rotated_pole=False,
                           anomaly=True, detrend=False):
 
+        """
+        Main helper for deciding which loading function to use based on the
+        data.  Resampling and regridding operations are decided in this
+        method.
+        """
+
+        # Get correct loader class for specified filetype.
         try:
             ftype_loader = cls.get_loader_for_filetype(file_type)
         except KeyError:
             raise TypeError('Specified file type not supported yet.')
 
+        # Try to load pre-averaged data if it exists.  Otherwise, use the
+        # specific loader for the filetype
         try:
             if ignore_pre_avg:
                 raise IOError('Ignore pre_averaged files is set to True.')
@@ -400,6 +613,7 @@ class GriddedVariable(object):
 
         var_obj.fill_val_to_nan()
 
+        # Do regridding and save if specified
         if regrid_method is not None and var_obj.regrid_method is None:
             var_obj = var_obj.regrid(regrid_method=regrid_method,
                                      regrid_grid=regrid_grid,
@@ -413,6 +627,7 @@ class GriddedVariable(object):
                 path = join(file_dir, pre_dir, file_name + pre_tag)
                 var_obj.save(path)
 
+        # Sample the data
         if not var_obj.is_sampled() and (nens is not None or sample is not None):
 
             if sample is not None:
@@ -424,6 +639,17 @@ class GriddedVariable(object):
 
     @classmethod
     def get_loader_for_filetype(cls, file_type):
+        """
+        Retrieve the correct function for loading specific filetypes
+        Parameters
+        ----------
+        file_type: str
+            Key for the file type to get loader for.
+
+        Returns
+        -------
+        Method that will load data for the given file type
+        """
         ftype_map = {_ftypes['netcdf']: cls._load_from_netcdf}
         return ftype_map[file_type]
 
@@ -493,6 +719,9 @@ class GriddedVariable(object):
             if anomaly and obj.climo is None:
                 obj.convert_to_anomaly()
 
+            # Sampling done to pre-average data to take advantage of lazy
+            # loading.  Sampling will be ignored by the main loader in this
+            # case.
             if do_sample:
                 if sample is not None:
                     obj = obj.sample_from_idx(sample)
@@ -510,8 +739,8 @@ class GriddedVariable(object):
                           data_req_frac=None, rotated_pole=False,
                           anomaly=False):
         """
-        General structure for load origininal:
-        1. Load data
+        General structure for from netCDF:
+        1. Load data and information about dimensions
         2. Avg to base resolution
         3. Separate into subannual groups
         4. Create GriddedVar Object for each group and save pre-averaged
@@ -531,22 +760,26 @@ class GriddedVariable(object):
             except AttributeError:
                 fill_val = 2**15 - 1
 
-            # Convert to key names defined in _DEFAULT_DIM_ORDER
+            # Convert to dimension key names defined in _DEFAULT_DIM_ORDER
             dims = []
             dim_keys = []
             dim_exclude = []
             for i, dim in enumerate(var.dimensions):
+                dim = dim.lower()
                 if data_shp[i] == 1:
                     dim_exclude.append(dim)
                 elif dim in _DEFAULT_DIM_ORDER:
-                    dims.append(dim.lower())
+                    dims.append(dim)
                     dim_keys.append(dim)
                 elif dim in _BYPASS_DIMENSION_DEFS:
                     dims.append(_BYPASS_DIMENSION_DEFS[dim])
                     dim_keys.append(_BYPASS_DIMENSION_DEFS[dim])
-                else:
-                    dims.append(_ALT_DIMENSION_DEFS[dim.lower()])
+                elif dim in _ALT_DIMENSION_DEFS:
+                    dims.append(_ALT_DIMENSION_DEFS[dim])
                     dim_keys.append(dim)
+                else:
+                    raise KeyError('Dimension, {}, not found in '
+                                   'definitions.'.format(dim))
 
             # Make sure it has time dimension
             if _TIME not in dims:
@@ -569,7 +802,9 @@ class GriddedVariable(object):
             # Extract data for each dimension
             dim_vals = {k: val[:] for k, val in dim_vals.iteritems()}
 
-            # Extract grid in rotated pole
+            # Extract single dimension from irregularly spaced rotated pole
+            # grids the netCDF files I've encountered have 2D dimensions
+            # for this case
             if rotated_pole:
                 lat_grid = dim_vals[_LAT]
                 lon_grid = dim_vals[_LON]
@@ -597,8 +832,6 @@ class GriddedVariable(object):
             if anomaly:
                 grid_obj.convert_to_anomaly()
 
-            # grid_obj.print_data_stats()
-
             if save:
                 new_dir = join(dir_name, pre_proc_filedir)
                 if not os.path.exists(new_dir):
@@ -608,12 +841,6 @@ class GriddedVariable(object):
                 grid_obj.save(pre_proc_fname)
 
             return grid_obj
-
-    @staticmethod
-    def _cnvt_to_float_64(data):
-        if data is not None:
-            data = data.astype(np.float64)
-        return data
 
     @staticmethod
     def _netcdf_datetime_convert(time_var):
@@ -631,17 +858,25 @@ class GriddedVariable(object):
 
         try:
             time = num2date(time_var[:], units=time_var.units,
-                                calendar=cal)
+                            calendar=cal)
             return time
         except ValueError:
-            # num2date needs calendar year start >= 0001 C.E. (bug submitted
-            # to unidata about this
-            # TODO: Add a warning about likely inaccuracy day res and smaller
+            # num2date needs calendar year start >= 0001 C.E. but some fields
+            # start at year 0000 C.E. (bug submitted to unidata about this)
+            warnings.warn('Detected invalid unit specification for num2date'
+                          ' when converting netCDF time dimension.'
+                          ' If using time values please confirm converted'
+                          ' datetimes are reasonable.')
+
             tunits = time_var.units
+
+            # expecting format of '<units> since YYYY-MM-DD'
+            # calculate the time delta in years for the updated units
             since_yr_idx = tunits.index('since ') + 6
             year = int(tunits[since_yr_idx:since_yr_idx+4])
             year_diff = year - 0001
 
+            # Shift YYYY from 0 -> 1 and account for it in date time creation
             new_units = tunits[:since_yr_idx] + '0001-01-01 00:00:00'
             time = num2date(time_var[:], new_units, calendar=cal)
             reshifted_time = [datetime(d.year + year_diff, d.month, d.day,
@@ -654,8 +889,42 @@ class GriddedVariable(object):
                                  elem_to_avg=(1,2,3), nyears=1,
                                  data_req_frac=None):
 
-        """Resample data to specified averaging period.  Assumes contiguous
-        intevals are being used to resample."""
+        """
+        Resample data to specified averaging period.  Assumes contiguous
+        intevals are being used to resample.
+
+        Parameters
+        ----------
+        time_vals: ndarray
+            Sampling dimension values that will be updated along with
+            the data re-averaging
+        data: ndarray
+            Data to re-average
+        nelem_in_yr: int, Optional
+            Number of elements that comprise a single year along the sampling
+            dimension. Defaults to 12
+        elem_to_avg: tuple(int), Optional
+            List of subannual elements included in the average.  These are
+            assumed to be contiguous.
+        nyears: int, Optional
+            Number of years to include in the average. Defaults to 1.
+        data_req_frac: float, Optional
+            Fraction of valid data (between 0.0 and 1.0) required for
+            average to be taken over data.  Only considered if invalid
+            values are encountered in data.
+
+        Returns
+        -------
+        new_times: ndarray
+            Time values corresponding to the re-averaged data
+        new_data: ndarray
+            Re-averaged data
+
+        Notes
+        -----
+        This operation will remove partial averages at the beginning and end
+        of the samples reducing the number of total samples by 1.
+        """
 
         time_vals = np.array(time_vals)
 
@@ -693,6 +962,8 @@ class GriddedVariable(object):
         new_times = time_vals[:, 0, 0]
         data = data[:, :, 0:len_of_sample]
 
+        # Average over multi-annual and annual (with sub-annual specification)
+        # dimensions in chunks to keep memory usage reasonable.
         data_list = []
         for i in np.arange(0, data.shape[0], 10):
             data_chk = np.nanmean(data[i:i+10], axis=(1,2))
@@ -713,8 +984,33 @@ class GriddedVariable(object):
 
 class PriorVariable(GriddedVariable):
 
+    """
+    Gridded variable with load functions defined for handling variables used
+    for the prior.
+    """
+
     @classmethod
     def load(cls, prior_config, varname, anomaly=False, sample=None):
+        """
+        Load a single variable as a GriddedVariable
+
+        Parameters
+        ----------
+        prior_config: LMR_Config.prior
+            Configuration definition object for prior variable
+        varname: str
+            The name of the variable to load
+        anomaly: bool, Optional
+            Whether to convert data to an anomaly format
+        sample: list[int]
+            List of integer indices representing a sample to be taken over the
+            time dimension
+
+        Returns
+        -------
+        PriorVariable
+
+        """
         file_dir = prior_config.datadir_prior
         file_name = prior_config.datafile_prior
         file_type = prior_config.dataformat_prior
@@ -758,6 +1054,21 @@ class PriorVariable(GriddedVariable):
 
     @classmethod
     def load_allvars(cls, prior_config):
+        """
+        Load all variables specified in the prior configuration
+
+        Parameters
+        ----------
+        prior_config: LMR_Config.prior
+            Configuration definition object for prior variables
+
+        Returns
+        -------
+        dict{str: PriorVariable}
+            A dictionary with key value pairs of the variable name and the
+            PriorVariable instance.
+
+        """
         var_names = prior_config.state_variables
 
         prior_dict = OrderedDict()
@@ -774,6 +1085,11 @@ class PriorVariable(GriddedVariable):
 
 
 class ForecasterVariable(GriddedVariable):
+
+    """
+    Gridded variable with load functions defined for handling variables used
+    for forecasting.
+    """
 
     @classmethod
     def load(cls, forecaster_cfg, varname, anomaly=False):
@@ -850,8 +1166,6 @@ class ForecasterVariable(GriddedVariable):
                                      fill_value=self._fill_val)
 
         return new_dobj
-
-
 
 
 class AnalysisVariable(GriddedVariable):
