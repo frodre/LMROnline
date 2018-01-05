@@ -37,7 +37,7 @@ def test_default_configuration_core():
     assert cfg.core.lmr_path == cfg_object.core.lmr_path
     assert hasattr(cfg_object.core, 'curr_iter')
 
-    assert hasattr(cfg_object.prior, 'datadir_prior')
+    assert hasattr(cfg_object.prior, 'datadir')
 
 # Test that the seed is propagated to the correct configuration modules.
 def test_default_configuration_seed():
@@ -71,15 +71,15 @@ def test_default_configuration_psm_linear():
     cfg_object = cfg.Config()
 
     assert hasattr(cfg_object.psm, 'linear')
-    assert hasattr(cfg_object.psm.linear, 'datadir_calib')
-    assert hasattr(cfg_object.psm.linear, 'datainfo_calib')
-    assert hasattr(cfg_object.psm.linear, 'datafile_calib')
-    assert hasattr(cfg_object.psm.linear, 'dataformat_calib')
+    assert hasattr(cfg_object.psm.linear, 'datadir')
+    assert hasattr(cfg_object.psm.linear, 'datainfo')
+    assert hasattr(cfg_object.psm.linear, 'datafile')
+    assert hasattr(cfg_object.psm.linear, 'dataformat')
     assert hasattr(cfg_object.psm.linear, 'season_source')
     assert hasattr(cfg_object.psm.linear, 'avg_interval')
     assert hasattr(cfg_object.psm.linear, 'psm_required_variables')
 
-    assert cfg_object.core.lmr_path in cfg_object.psm.linear.datadir_calib
+    assert cfg_object.core.lmr_path in cfg_object.psm.linear.datadir
 
 
 def test_default_configuration_psm_linear_t_or_p():
@@ -99,11 +99,11 @@ def test_default_configuration_change_default_path():
     cfg2 = cfg.Config(**update_dict)
 
     assert cfg1.core.lmr_path != cfg2.core.lmr_path
-    assert new_path in cfg2.prior.datadir_prior
-    assert new_path in cfg2.psm.linear.datadir_calib
+    assert new_path in cfg2.prior.datadir
+    assert new_path in cfg2.psm.linear.datadir
     assert new_path in cfg2.proxies.PAGES2kv1.datadir_proxy
-    assert orig_path not in cfg2.prior.datadir_prior
-    assert orig_path not in cfg2.psm.linear.datadir_calib
+    assert orig_path not in cfg2.prior.datadir
+    assert orig_path not in cfg2.psm.linear.datadir
     assert orig_path not in cfg2.proxies.PAGES2kv1.datadir_proxy
 
     cfg.core.lmr_path = orig_path
@@ -189,16 +189,16 @@ def test_config_update_with_yaml_unused_attrs():
 def test_config_update_with_kwarg():
 
     kwargs = {'wrapper': {'multi_seed': [1, 2, 3]},
-              'psm': {'linear': {'datatag_calib': 'BerkeleyEarth'}}}
+              'psm': {'linear': {'datatag': 'BerkeleyEarth'}}}
 
     tmp = cfg.Config(**kwargs)
 
     # Was instance updated?
     assert tmp.wrapper.multi_seed == [1, 2, 3]
-    assert tmp.psm.linear.datatag_calib == 'BerkeleyEarth'
+    assert tmp.psm.linear.datatag == 'BerkeleyEarth'
     # Was the class left unaltered?
     assert cfg.wrapper.multi_seed != [1, 2, 3]
-    assert cfg.psm.linear.datatag_calib != 'BerkeleyEarth'
+    assert cfg.psm.linear.datatag != 'BerkeleyEarth'
 
 
 # DatasetDescriptor Tests #
@@ -229,20 +229,20 @@ def test_datadescr_config_init():
 def test_datadescr_null_datadir():
 
     cfg._DataInfo.data['GISTEMP']['datadir'] = None
-    cfg_update = {'psm': {'linear': {'datatag_calib': 'GISTEMP'}}}
+    cfg_update = {'psm': {'linear': {'datatag': 'GISTEMP'}}}
     cfg_obj = cfg.Config(**cfg_update)
 
     path = os.path.join(cfg_obj.core.lmr_path, 'data', 'analyses')
-    assert cfg_obj.psm.linear.datadir_calib == path
+    assert cfg_obj.psm.linear.datadir == path
 
 
 def test_datadescr_non_default_datadir():
 
     cfg._DataInfo.data['GISTEMP']['datadir'] = '/new/data/dir/path'
-    cfg_update = {'psm': {'linear': {'datatag_calib': 'GISTEMP'}}}
+    cfg_update = {'psm': {'linear': {'datatag': 'GISTEMP'}}}
     cfg_obj = cfg.Config(**cfg_update)
 
-    assert cfg_obj.psm.linear.datadir_calib == '/new/data/dir/path'
+    assert cfg_obj.psm.linear.datadir == '/new/data/dir/path'
 
 
 def test_constant_avg_period(constant_def):

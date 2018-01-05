@@ -4,20 +4,13 @@ __author__ = 'wperkins'
 Test LMR_gridded classes and methods
 """
 
-# Temporary import until it's turned into a package
-import sys
-sys.path.append('../')
-
+from .. import LMR_gridded as lmrgrid
 import pytest
-import LMR_gridded as lmrgrid
-import test_config
-import LMR_calibrate
 import numpy as np
 import netCDF4 as ncf
 import os
 import random
 from itertools import izip
-from copy import deepcopy
 
 
 

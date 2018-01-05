@@ -61,6 +61,7 @@ class _YamlStorage(object):
         return dict(self.data[tag])
 
 
+# TODO: I think these can just be a function with a special one for constants
 class _DatasetDescriptors(_YamlStorage):
     """
     Loads and stores the datasets.yml file and return dictionaries of file
@@ -832,19 +833,19 @@ class psm(ConfigGroup):
 
         Attributes
         ----------
-        datatag_calib: str
+        datatag: str
             Source key of calibration data for PSM
-        datadir_calib: str
+        datadir: str
             Absolute path to calibration data *or* None if using default
             lmr_path
-        datafile_calib: str
+        datafile: str
             Filename for calibration data
-        dataformat_calib: str
+        dataformat: str
             Data storage type for calibration data
-        pre_calib_datafile: str
+        pre_datafile: str
             Absolute path to precalibrated Linear PSM data *or* None if using
             default LMR path
-        varname_calib: str
+        varname: str
             Variable name to use from the calibration dataset
         psm_r_crit: float
             Usage threshold for correlation of linear PSM
@@ -852,7 +853,7 @@ class psm(ConfigGroup):
 
         ##** BEGIN User Parameters **##
 
-        datatag_calib = 'GISTEMP'
+        datatag = 'GISTEMP'
 
         pre_calib_datafile = None
 
@@ -869,13 +870,13 @@ class psm(ConfigGroup):
         def __init__(self, lmr_path=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
-            self.datatag_calib = self.datatag_calib
+            self.datatag = self.datatag
 
-            dataset_descr = _DataInfo.get_info(self.datatag_calib)
-            self.datainfo_calib = dataset_descr['info']
-            self.datadir_calib = dataset_descr['datadir']
-            self.datafile_calib = dataset_descr['datafile']
-            self.dataformat_calib = dataset_descr['dataformat']
+            dataset_descr = _DataInfo.get_info(self.datatag)
+            self.datainfo = dataset_descr['info']
+            self.datadir = dataset_descr['datadir']
+            self.datafile = dataset_descr['datafile']
+            self.dataformat = dataset_descr['dataformat']
 
             self.psm_r_crit = self.psm_r_crit
             self.min_data_req_frac = self.min_data_req_frac
@@ -891,10 +892,10 @@ class psm(ConfigGroup):
             if lmr_path is None:
                 lmr_path = core.lmr_path
 
-            if self.datadir_calib is None:
-                self.datadir_calib = join(lmr_path, 'data', 'analyses')
+            if self.datadir is None:
+                self.datadir = join(lmr_path, 'data', 'analyses')
             else:
-                self.datadir_calib = self.datadir_calib
+                self.datadir = self.datadir
 
             if self.pre_calib_datafile is None:
                 if 'LMRdb' in proxies.use_from:
@@ -902,24 +903,24 @@ class psm(ConfigGroup):
                     filename = ('PSMs_' + proxies.use_from +
                                 '_' + dbversion +
                                 '_' + self.avg_interval +
-                                '_' + self.datatag_calib +'.pckl')
+                                '_' + self.datatag +'.pckl')
                 else:
                     filename = ('PSMs_' + proxies.use_from +
-                                '_' + self.datatag_calib+'.pckl')
+                                '_' + self.datatag+'.pckl')
                 self.pre_calib_datafile = join(lmr_path,
                                                'PSM',
                                                filename)
             else:
                 self.pre_calib_datafile = self.pre_calib_datafile
 
-            if self.datainfo_calib['multiple_vars']:
+            if self.datainfo['multiple_vars']:
                 raise ValueError('Ambiguous calibration variable source '
                                  'detected in configuration.  If '
                                  'multiple_vars is true for dataset, '
                                  'calibration does not currently have ability t'
                                  'o choose specific variable. Switch '
                                  'datatag_calib in the config.')
-            self.psm_required_variables = self.datainfo_calib['psm_vartype']
+            self.psm_required_variables = self.datainfo['psm_vartype']
                 
     class linear_TorP(ConfigGroup):                
         """
@@ -928,21 +929,21 @@ class psm(ConfigGroup):
 
         Attributes
         ----------
-        datatag_calib_T: str
+        datatag_T: str
             Source of temperature calibration data for linear PSM
-        datadir_calib_T: str
+        datadir_T: str
             Absolute path to temperature calibration data *or* None if using
             default lmr_path
-        datafile_calib_T: str
+        datafile_T: str
             Filename for temperature calibration data
-        datatag_calib_P: str
+        datatag_P: str
             Source of precipitation calibration data for linear PSM
-        datadir_calib_P: str
+        datadir_P: str
             Absolute path to precipitation calibration data *or* None if using
             default lmr_path
-        datafile_calib_P: str
+        datafile_P: str
             Filename for precipitation calibration data
-        dataformat_calib: str
+        dataformat: str
             Data storage type for calibration data
         pre_calib_datafile_T: str
             Absolute path to precalibrated Linear temperature PSM data
@@ -959,11 +960,11 @@ class psm(ConfigGroup):
         # -----------------------------
         # Choice between:
         # ---------------
-        datatag_calib_T = 'GISTEMP'
+        datatag_T = 'GISTEMP'
         
         # linear PSM w.r.t. precipitation/moisture
         # ----------------------------------------
-        datatag_calib_P = 'GPCC'
+        datatag_P = 'GPCC'
 
         pre_calib_datafile_T = None
         pre_calib_datafile_P = None
@@ -985,11 +986,11 @@ class psm(ConfigGroup):
         def __init__(self, lmr_path=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
-            temp_kwarg = {'datatag_calib': self.datatag_calib_T,
+            temp_kwarg = {'datatag': self.datatag_T,
                           'pre_calib_datafile': self.pre_calib_datafile_T,
                           'avg_interval': self.avg_interval,
                           'season_source': self.season_source}
-            mois_kwarg = {'datatag_calib': self.datatag_calib_P,
+            mois_kwarg = {'datatag': self.datatag_P,
                           'pre_calib_datafile': self.pre_calib_datafile_P,
                           'avg_interval': self.avg_interval,
                           'season_source': self.season_source}
@@ -1007,21 +1008,21 @@ class psm(ConfigGroup):
 
         Attributes
         ----------
-        datatag_calib_T: str
+        datatag_T: str
             Source of calibration temperature data for PSM
-        datadir_calib_T: str
+        datadir_T: str
             Absolute path to calibration temperature data
-        datafile_calib_T: str
+        datafile_T: str
             Filename for calibration temperature data
-        dataformat_calib_T: str
+        dataformat_T: str
             Data storage type for calibration temperature data
-        datatag_calib_P: str
+        datatag_P: str
             Source of calibration precipitation/moisture data for PSM
-        datadir_calib_P: str
+        datadir_P: str
             Absolute path to calibration precipitation/moisture data
-        datafile_calib_P: str
+        datafile_P: str
             Filename for calibration precipitation/moisture data
-        dataformat_calib_P: str
+        dataformat_P: str
             Data storage type for calibration precipitation/moisture data
         pre_calib_datafile: str
             Absolute path to precalibrated Linear PSM data
@@ -1033,11 +1034,11 @@ class psm(ConfigGroup):
 
         # calibration source for  temperature
         # -----------------------------------
-        datatag_calib_T = 'GISTEMP'
+        datatag_T = 'GISTEMP'
         
         # calibration source for precipitation/moisture
         # ---------------------------------------------
-        datatag_calib_P = 'GPCC'
+        datatag_P = 'GPCC'
 
         avg_interval = 'annual'
         # avg_interval = 'season
@@ -1054,10 +1055,10 @@ class psm(ConfigGroup):
         def __init__(self, lmr_path=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
-            temp_kwarg = {'datatag_calib': self.datatag_calib_T,
+            temp_kwarg = {'datatag': self.datatag_T,
                           'avg_interval': self.avg_interval,
                           'season_source': self.season_source}
-            mois_kwarg = {'datatag_calib': self.datatag_calib_P,
+            mois_kwarg = {'datatag': self.datatag_P,
                           'avg_interval': self.avg_interval,
                           'season_source': self.season_source}
 
@@ -1080,12 +1081,12 @@ class psm(ConfigGroup):
                     filename = ('PSMs_'+proxies.use_from +
                                 '_' + dbversion +
                                 '_' + self.avg_interval + source +
-                                '_' + self.datatag_calib_T +
-                                '_' + self.datatag_calib_P + '.pckl')
+                                '_' + self.datatag_T +
+                                '_' + self.datatag_P + '.pckl')
                 else:
                     filename = ('PSMs_'+proxies.use_from +
-                                '_' + self.datatag_calib_T +
-                                '_' + self.datatag_calib_P + '.pckl')
+                                '_' + self.datatag_T +
+                                '_' + self.datatag_P + '.pckl')
                 self.pre_calib_datafile = join(lmr_path,
                                                  'PSM',
                                                  filename)
@@ -1253,11 +1254,11 @@ class prior(ConfigGroup):
     ----------
     prior_source: str
         Source of prior data
-    datadir_prior: str
+    datadir: str
         Absolute path to prior data *or* None if using default LMR path
-    datafile_prior: str
+    datafile: str
         Name of prior file to use
-    dataformat_prior: str
+    dataformat: str
         Datatype of prior container ('NCD' for netCDF, 'TXT' for ascii files).
         Note: Currently not used. 
     backend_type: str
@@ -1366,11 +1367,11 @@ class prior(ConfigGroup):
         self.prior_source = self.prior_source
 
         dataset_descr = _DataInfo.get_info(self.prior_source)
-        self.datainfo_prior = dataset_descr['info']
-        self.datadir_prior = dataset_descr['datadir']
-        self.datafile_prior = dataset_descr['datafile']
-        self.dataformat_prior = dataset_descr['dataformat']
-        self.psm_var_map = self.datainfo_prior['psm_var_map']
+        self.datainfo = dataset_descr['info']
+        self.datadir = dataset_descr['datadir']
+        self.datafile = dataset_descr['datafile']
+        self.dataformat = dataset_descr['dataformat']
+        self.psm_var_map = self.datainfo['psm_var_map']
 
         self.state_variables = deepcopy(self.state_variables)
         self.detrend = self.detrend
@@ -1396,8 +1397,8 @@ class prior(ConfigGroup):
             ignore_pre_avg_file = core.ignore_pre_avg_file
         self.ignore_pre_avg_file = ignore_pre_avg_file
 
-        if self.datadir_prior is None:
-            self.datadir_prior = join(lmr_path, 'data', 'model',
+        if self.datadir is None:
+            self.datadir = join(lmr_path, 'data', 'model',
                                       self.prior_source)
 
         # TODO: Move these into visible configuration param, fix multiyear DADT
@@ -1427,7 +1428,7 @@ class prior(ConfigGroup):
 
         # Is variable requested in list of those specified as available?
         var_mismat = [varname for varname in self.state_variables
-                      if varname not in self.datainfo_prior['available_vars']]
+                      if varname not in self.datainfo['available_vars']]
         if var_mismat:
             raise SystemExit(('Could not find requested variable(s) {} in the '
                               'list of available variables for the {} '
@@ -1449,16 +1450,16 @@ class forecaster(ConfigGroup):
 
     class lim(ConfigGroup):
         """
-        datatag_calib: str
+        datatag: str
             Source key of calibration data for LIM
-        datainfo_calib: dict
+        datainfo: dict
             Information about the calibration data. From the info section of
             datasets.yml
-        datadir_calib: str
+        datadir: str
             Absolute path to the source data file for the LIM
-        datafile_calib: str
+        datafile: str
             Filename of source data for LIM
-        dataformat_calib: str
+        dataformat: str
             Dataformat key of source data for LIM
         avg_interval: str
             Average interval key as defined in constants.yml for averaging
@@ -1482,7 +1483,7 @@ class forecaster(ConfigGroup):
         """
         #TODO: Make this general to prior or analysis var, potentiall can remove
         #  the distinction in LMR_gridded
-        datatag_calib = 'ccsm4_last_millenium'
+        datatag = 'ccsm4_last_millenium'
 
         avg_interval = 'annual_std'
 
@@ -1501,13 +1502,13 @@ class forecaster(ConfigGroup):
 
             super(ConfigGroup, self).__init__(**kwargs)
 
-            self.datatag_calib = self.datatag_calib
+            self.datatag = self.datatag
 
-            dataset_descr = _DataInfo.get_info(self.datatag_calib)
-            self.datainfo_calib = dataset_descr['info']
-            self.datadir_calib = dataset_descr['datadir']
-            self.datafile_calib = dataset_descr['datafile']
-            self.dataformat_calib = dataset_descr['dataformat']
+            dataset_descr = _DataInfo.get_info(self.datatag)
+            self.datainfo = dataset_descr['info']
+            self.datadir = dataset_descr['datadir']
+            self.datafile = dataset_descr['datafile']
+            self.dataformat = dataset_descr['dataformat']
 
             self.fcast_varnames = list(self.fcast_varnames)
             self.prior_mapping = deepcopy(self.prior_mapping)
@@ -1543,18 +1544,18 @@ class forecaster(ConfigGroup):
                 ignore_pre_avg_file = core.ignore_pre_avg_file
             self.ignore_pre_avg_file = ignore_pre_avg_file
 
-            if self.datadir_calib is None:
-                model_dir = join(lmr_path, 'data', 'model', self.datatag_calib)
+            if self.datadir is None:
+                model_dir = join(lmr_path, 'data', 'model', self.datatag)
                 analysis_dir = join(lmr_path, 'data', 'analyses',
-                                    self.datatag_calib)
+                                    self.datatag)
 
                 # TODO: Currently only allowing single source calibration
-                self.datadir_calib = model_dir
+                self.datadir = model_dir
 
-                # if exists(join(model_dir, self.datafile_calib)):
-                #     self.datadir_calib = model_dir
-                # elif exists(join(analysis_dir, self.datafile_calib)):
-                #     self.datadir_calib = analysis_dir
+                # if exists(join(model_dir, self.datafile)):
+                #     self.datadir = model_dir
+                # elif exists(join(analysis_dir, self.datafile)):
+                #     self.datadir = analysis_dir
                 # else:
                 #     raise ValueError('Could not find calibration datafile in '
                 #                      'default model or analyses directory.')
@@ -1652,7 +1653,7 @@ def update_config_attrs_yaml(yaml_dict, cfg_module):
     If cfg_module is an imported LMR_config as cfg then the following
     dictionary could be used to update a core and linear psm attribute.
     yaml_dict = {'core': {'lmr_path': '/new/path/to/LMR_files'},
-                 'psm': {'linear': {'datatag_calib': 'GISTEMP'}}}
+                 'psm': {'linear': {'datatag': 'GISTEMP'}}}
 
     These are the types of dictionaries that result from a yaml.load function.
 
@@ -1711,6 +1712,6 @@ def initialize_config_yaml(cfg_module, yaml_file=None):
 
 if __name__ == "__main__":
     # kwargs = {'wrapper': {'multi_seed': [1, 2, 3]},
-    #           'psm': {'linear': {'datatag_calib': 'BE'}}}
+    #           'psm': {'linear': {'datatag': 'BE'}}}
     tmp = Config()
     pass

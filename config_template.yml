@@ -307,7 +307,7 @@ proxies:
 psm:
 
   linear:
-    datatag_calib: GISTEMP
+    datatag: GISTEMP
     pre_calib_datafile: null
     psm_r_crit: 0.0
     avg_interval: annual
@@ -315,8 +315,8 @@ psm:
     min_data_req_frac: 0.0
 
   linear_TorP:
-    datatag_calib_T: GISTEMP
-    datatag_calib_P: GPCC
+    datatag_T: GISTEMP
+    datatag_P: GPCC
     pre_calib_datafile_T: null
     pre_calib_datafile_P: null
     psm_r_crit: 0.0
@@ -325,8 +325,8 @@ psm:
     metric: corr
 
   bilinear:
-    datatag_calib_T: GISTEMP
-    datatag_calib_P: GPCC
+    datatag_T: GISTEMP
+    datatag_P: GPCC
     pre_calib_datafile: null
     psm_r_crit: 0.0
     avg_interval: annual
@@ -363,7 +363,7 @@ forecaster:
   use_forecaster: lim
 
   lim:
-    datatag_calib: ccsm4_last_millenium
+    datatag: ccsm4_last_millenium
     avg_interval: annual_std
 
     fcast_varnames: [tas_sfc_Amon]

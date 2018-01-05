@@ -37,12 +37,14 @@ _BYPASS_DIMENSION_DEFS = {'j': _LAT,
 
 _ftypes = LMR_config.Constants.data['file_types']
 
+def _cnvt_to_float64(num):
+    return np.float64(num)
+
 
 class GriddedVariable(object):
     """
     Object for holding and manipulating gridded data of a single variable.
     """
-    __metaclass__ = ABCMeta
 
     PRE_PROCESSED_FILETAG = '.pre_{}.h5'
     PRE_PROCESSED_FILEDIR = 'pre_proc_files'
@@ -119,16 +121,16 @@ class GriddedVariable(object):
         self.data = data
         self.climo = climo
         self.time = time
-        self.lev = self._cnvt_to_float_64(lev)
-        self.lat = self._cnvt_to_float_64(lat)
+        self.lev = _cnvt_to_float64(lev)
+        self.lat = _cnvt_to_float64(lat)
         lon_adjusted = fix_lon(lon)
-        self.lon = self._cnvt_to_float_64(lon_adjusted)
+        self.lon = _cnvt_to_float64(lon_adjusted)
         self.avg_interval = avg_interval
         self.regrid_method = regrid_method
         self.regrid_grid = regrid_grid
         self.esmpy_interp = esmpy_interp
-        self.lat_grid = lat_grid
-        self.lon_grid = lon_grid
+        self.lat_grid = _cnvt_to_float64(lat_grid)
+        self.lon_grid = _cnvt_to_float64(lon_grid)
         self.rotated_pole = rotated_pole
 
         self._fill_val = fill_val
@@ -557,9 +559,87 @@ class GriddedVariable(object):
 
         return new_dobj
 
-    @abstractmethod
-    def load(cls, config, *args):
-        pass
+    @classmethod
+    def load(cls, gridded_config, varname, anomaly=False, sample=None):
+        """
+        Load a single variable as a GriddedVariable
+
+        Parameters
+        ----------
+        gridded_config: LMR_Config.prior
+            Configuration definition object for prior variable
+        varname: str
+            The name of the variable to load
+        anomaly: bool, Optional
+            Whether to convert data to an anomaly format.
+        sample: list[int], Optional
+            List of integer indices representing a sample to be taken over the
+            time dimension
+        nens: int, Optional
+            The number of ensemble members to randomly sample from the data
+        seed: int, Optional
+            Seed for the random number generator.  Only used when nens is 
+            specified.
+        detrend: bool, Optional
+            Flag specifying whether or not to detrend the data along the 
+            sampling dimension.
+
+        Returns
+        -------
+        GriddedVariable
+
+        """
+        file_dir = gridded_config.datadir
+        file_name = gridded_config.datafile
+        file_type = gridded_config.dataformat
+        save = gridded_config.save_pre_avg_file
+        ignore_pre_avg = gridded_config.ignore_pre_avg_file
+        avg_interval = gridded_config.avg_interval
+        avg_interval_kwargs = gridded_config.avg_interval_kwargs
+        regrid_method = gridded_config.regrid_method
+        regrid_grid = gridded_config.regrid_grid
+        esmpy_kwargs = {'grid_def': gridded_config.esmpy_grid_def,
+                        'interp_method': gridded_config.esmpy_interp_method}
+
+        unique_cfg_kwargs = _load_unique_kwargs(gridded_config)
+
+        # Prior specific config
+        try:
+            nens = gridded_config.nens
+            seed = gridded_config.seed
+            detrend = gridded_config.detrend
+        except AttributeError:
+            pass
+
+        datainfo = gridded_config.datainfo_prior
+        if 'rotated_pole' in datainfo.keys():
+            rotated_pole = varname in datainfo['rotated_pole']
+        else:
+            rotated_pole = False
+
+        if datainfo['template'] is not None:
+            file_name = file_name.replace(datainfo['template'], varname)
+            varname = varname.split('_')[0]
+
+        return cls._main_load_helper(file_dir, file_name, varname, file_type,
+                                     nens=nens,
+                                     seed=seed,
+                                     sample=sample,
+                                     save=save,
+                                     ignore_pre_avg=ignore_pre_avg,
+                                     avg_interval=avg_interval,
+                                     avg_interval_kwargs=avg_interval_kwargs,
+                                     data_req_frac=1.0,
+                                     regrid_method=regrid_method,
+                                     regrid_grid=regrid_grid,
+                                     esmpy_kwargs=esmpy_kwargs,
+                                     rotated_pole=rotated_pole,
+                                     anomaly=anomaly,
+                                     detrend=detrend)
+
+    @staticmethod
+    def _load_unique_cfg_kwargs(config):
+        return {}
 
     @classmethod
     def _main_load_helper(cls, file_dir, file_name, varname, file_type,
@@ -989,68 +1069,12 @@ class PriorVariable(GriddedVariable):
     for the prior.
     """
 
-    @classmethod
-    def load(cls, prior_config, varname, anomaly=False, sample=None):
-        """
-        Load a single variable as a GriddedVariable
-
-        Parameters
-        ----------
-        prior_config: LMR_Config.prior
-            Configuration definition object for prior variable
-        varname: str
-            The name of the variable to load
-        anomaly: bool, Optional
-            Whether to convert data to an anomaly format
-        sample: list[int]
-            List of integer indices representing a sample to be taken over the
-            time dimension
-
-        Returns
-        -------
-        PriorVariable
-
-        """
-        file_dir = prior_config.datadir_prior
-        file_name = prior_config.datafile_prior
-        file_type = prior_config.dataformat_prior
-        nens = prior_config.nens
-        seed = prior_config.seed
-        save = prior_config.save_pre_avg_file
-        ignore_pre_avg = prior_config.ignore_pre_avg_file
-        detrend = prior_config.detrend
-        avg_interval = prior_config.avg_interval
-        avg_interval_kwargs = prior_config.avg_interval_kwargs
-        regrid_method = prior_config.regrid_method
-        regrid_grid = prior_config.regrid_grid
-        esmpy_kwargs = {'grid_def': prior_config.esmpy_grid_def,
-                        'interp_method': prior_config.esmpy_interp_method}
-
-        datainfo = prior_config.datainfo_prior
-        if 'rotated_pole' in datainfo.keys():
-            rotated_pole = varname in datainfo['rotated_pole']
-        else:
-            rotated_pole = False
-
-        if datainfo['template'] is not None:
-            file_name = file_name.replace(datainfo['template'], varname)
-            varname = varname.split('_')[0]
-
-        return cls._main_load_helper(file_dir, file_name, varname, file_type,
-                                     nens=nens,
-                                     seed=seed,
-                                     sample=sample,
-                                     save=save,
-                                     ignore_pre_avg=ignore_pre_avg,
-                                     avg_interval=avg_interval,
-                                     avg_interval_kwargs=avg_interval_kwargs,
-                                     data_req_frac=1.0,
-                                     regrid_method=regrid_method,
-                                     regrid_grid=regrid_grid,
-                                     esmpy_kwargs=esmpy_kwargs,
-                                     rotated_pole=rotated_pole,
-                                     anomaly=anomaly,
-                                     detrend=detrend)
+    @staticmethod
+    def _load_unique_cfg_kwargs(config):
+        unique_kwargs = {'detrend': config.detrend,
+                         'nens': config.nens,
+                         'seed': config.seed}
+        return unique_kwargs
 
     @classmethod
     def load_allvars(cls, prior_config):
@@ -1090,41 +1114,6 @@ class ForecasterVariable(GriddedVariable):
     Gridded variable with load functions defined for handling variables used
     for forecasting.
     """
-
-    @classmethod
-    def load(cls, forecaster_cfg, varname, anomaly=False):
-        file_dir = forecaster_cfg.datadir_calib
-        file_name = forecaster_cfg.datafile_calib
-        file_type = forecaster_cfg.dataformat_calib
-        save = forecaster_cfg.save_pre_avg_file
-        ignore_pre_avg = forecaster_cfg.ignore_pre_avg_file
-        avg_interval = forecaster_cfg.avg_interval
-        avg_interval_kwargs = forecaster_cfg.avg_interval_kwargs
-        regrid_method = forecaster_cfg.regrid_method
-        regrid_grid = forecaster_cfg.regrid_grid
-        esmpy_kwargs = {'grid_def': forecaster_cfg.esmpy_grid_def,
-                        'interp_method': forecaster_cfg.esmpy_interp_method}
-
-        datainfo = forecaster_cfg.datainfo_calib
-        if 'rotated_pole' in datainfo.keys():
-            rotated_pole = varname in datainfo['rotated_pole']
-        else:
-            rotated_pole = False
-
-        if datainfo['template'] is not None:
-            file_name = file_name.replace(datainfo['template'], varname)
-            varname = varname.split('_')[0]
-
-        return cls._main_load_helper(file_dir, file_name, varname, file_type,
-                                     save=save,
-                                     ignore_pre_avg=ignore_pre_avg,
-                                     avg_interval=avg_interval,
-                                     avg_interval_kwargs=avg_interval_kwargs,
-                                     regrid_method=regrid_method,
-                                     regrid_grid=regrid_grid,
-                                     esmpy_kwargs=esmpy_kwargs,
-                                     rotated_pole=rotated_pole,
-                                     anomaly=anomaly)
 
     @classmethod
     def load_allvars(cls, forecaster_cfg):
@@ -1170,37 +1159,17 @@ class ForecasterVariable(GriddedVariable):
 
 class AnalysisVariable(GriddedVariable):
 
-    @classmethod
-    def load(cls, psm_config, save=False, ignore=False):
-        file_dir = psm_config.datadir_prior
-        file_name = psm_config.datafile_prior
-        file_type = psm_config.dataformat_prior
-        datainfo = psm_config.datainfo_prior
-        varname = datainfo['available_vars'][0] # Only one var in analyses data
-        # save = psm_config.save_pre_avg_file
-        # ignore_pre_avg = psm_config.ignore_pre_avg_file
-        detrend = psm_config.detrend
-        avg_interval = psm_config.avg_interval
-        avg_interval_kwargs = psm_config.avg_interval_kwargs
-
-        return cls._main_load_helper(file_dir, file_name, varname, file_type,
-                                     save=save,
-                                     ignore_pre_avg=ignore,
-                                     avg_interval=avg_interval,
-                                     avg_interval_kwargs=avg_interval_kwargs,
-                                     data_req_frac=1.0,
-                                     detrend=detrend)
+    @staticmethod
+    def _load_unique_cfg_kwargs(config):
+        unique_kwargs = {'detrend': config.detrend}
+        return unique_kwargs
 
     @classmethod
     def load_allvars(cls):
-        pass
+        raise NotImplementedError()
 
 
 class BerkeleyEarthAnalysisVariable(AnalysisVariable):
-
-    @classmethod
-    def load(cls, psm_config):
-        return super(BerkeleyEarthAnalysisVariable, cls)
 
     @staticmethod
     def _netcdf_datetime_convert(time_var):

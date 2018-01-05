@@ -21,6 +21,8 @@ core:
   use_precalc_ye: False
   write_posterior_Ye: False
   save_full_field: False
+  ignore_pre_avg_file: False
+  save_pre_avg_file: True
   recon_period: !!python/tuple [1960, 1970]
   recon_timescale: 1
   nens: 10
@@ -28,9 +30,19 @@ core:
   loc_rad: null
   inflation_factor: null
 
+  hybrid_update: True
+  hybrid_a: 0.85
+  blend_prior: True
+
+  adaptive_inflate: False
+  reg_inflate: False
+  inflation_factor: 1.1
+
 proxies:
-  use_from: PAGES2kv1
-  proxy_frac: 0.75
+#  use_from: PAGES2kv1
+  use_from: LMRdb
+#  use_from: NCDCdtda
+  proxy_frac: 1.0
   proxy_timeseries_kind: asis
   load_psm_with_proxies: True
   proxy_availability_filter: False
@@ -251,10 +263,38 @@ proxies:
         ]
       Tree Rings_Isotopes: ['d18O']
 
+
+  ncdcdtda:
+    dbversion: 'v0.0.1'
+    datadir_proxy: null
+    datafile_proxy: 'DTDA_{}_Proxies.df.pckl'
+    metafile_proxy: 'DTDA_{}_Metadata.df.pckl'
+    dataformat_proxy: 'DF'
+    regions: []
+    proxy_resolution: [!!python/tuple [0.,5000.]]
+    database_filter: []
+    proxy_blacklist: []
+    proxy_order: [
+#     'Marine Cores_uk37',
+     'Marine sediments_uk37'
+     ]
+    proxy_psm_type:
+      Marine Cores_uk37:     bayesreg_uk37
+      Marine sediments_uk37: bayesreg_uk37
+    proxy_assim2:
+      Marine Cores_uk37: [
+        'uk37',
+        'UK37'
+        ]
+      Marine sediments_uk37: [
+        'uk37',
+        'UK37'
+        ]
+
 psm:
 
   linear:
-    datatag_calib: GISTEMP
+    datatag: GISTEMP
     pre_calib_datafile: '/home/katabatic/wperkins/data/LMR/PSM/PSMs_GISTEMP.pckl'
     psm_r_crit: 0.2
     avg_interval: annual
@@ -262,8 +302,8 @@ psm:
     min_data_req_frac: 0.0
 
   linear_TorP:
-    datatag_calib_T: GISTEMP
-    datatag_calib_P: GPCC
+    datatag_T: GISTEMP
+    datatag_P: GPCC
     pre_calib_datafile_T: null
     pre_calib_datafile_P: null
     psm_r_crit: 0.0
@@ -272,8 +312,8 @@ psm:
     metric: corr
 
   bilinear:
-    datatag_calib_T: GISTEMP
-    datatag_calib_P: GPCC
+    datatag_T: GISTEMP
+    datatag_P: GPCC
     pre_calib_datafile: null
     psm_r_crit: 0.0
     avg_interval: annual
@@ -286,8 +326,14 @@ psm:
     dataformat_obsError: TXT
     datafile_obsError: None
 
+  bayesreg_uk37:
+    datadir_BayesRegressionData: null
+    filename_BayesRegressionData: null
+    dataformat_BayesRegressionData: MAT
+
 prior:
   prior_source: ccsm4_last_millenium
+
   state_variables:
     tas_sfc_Amon: anom
     pr_sfc_Amon: anom
@@ -305,7 +351,7 @@ forecaster:
   use_forecaster: lim
 
   lim:
-    datatag_calib: ccsm4_last_millenium
+    datatag: ccsm4_last_millenium
     avg_interval: annual_std
 
     fcast_varnames: [tas_sfc_Amon]
