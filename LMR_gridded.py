@@ -38,7 +38,11 @@ _BYPASS_DIMENSION_DEFS = {'j': _LAT,
 _ftypes = LMR_config.Constants.data['file_types']
 
 def _cnvt_to_float64(num):
-    return np.float64(num)
+    if num is None:
+        return None
+    else:
+        num_as_array = np.array(num)
+        return num_as_array.astype(np.float64)
 
 
 class GriddedVariable(object):
@@ -141,6 +145,9 @@ class GriddedVariable(object):
                                _LAT: self.lat,
                                _LON: self.lon}
 
+        # TODO: Robert's code flips latitudes so it monotonically increases
+        #  Is it necessary here?
+
         # Make sure ndimensions specified match data
         if self.ndim != len(self.data.shape):
             raise ValueError('Number of dimensions given do not match data'
@@ -161,27 +168,35 @@ class GriddedVariable(object):
             self.nsamples = len(self.time)
         else:
             self.nsamples = 1
-            self.dim_order.insert(_TIME, 0)
+            self.dim_order = list(self.dim_order)
+            self.dim_order.insert(0, _TIME)
             self.data = self.data.reshape(1, *self.data.shape)
 
         self._space_dims = [dim for dim in dims_ordered if dim != _TIME]
+        # Spatial shape is left as a list for easy shape combining w/ sampling
         self.space_shp = [len(self._dim_coord_map[dim])
                           for dim in self._space_dims]
 
         if len(self._space_dims) > 2:
-            raise ValueError('Class cannot handle 3D data yet!')
+            raise NotImplementedError('Class cannot handle >2D data yet!'
+                                      ' spatial shape = '
+                                      '{}'.format(self.space_shp))
 
         # Determine the type of field for this gridded variable
         if not self._space_dims:
-            self.type = '0D:time series'
+            self.type = '0D:time_series'
             self.space_shp = [1]
             self.data = self.data.reshape(self.nsamples, 1)
+        elif len(self.space_shp) == 1 and _LAT in self._space_dims:
+            self.type = '1D:meridional'
         elif _LAT in self._space_dims and _LON in self._space_dims:
             self.type = '2D:horizontal'
         elif _LAT in self._space_dims and _LEV in self._space_dims:
             self.type = '2D:meridional_vertical'
         else:
-            raise ValueError('Unrecognized dimension combination.')
+            raise NotImplementedError('Unrecognized dimension combination. '
+                                      'This type of variable has not been '
+                                      'implemented yet.')
 
     def save(self, filename):
         """
