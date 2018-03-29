@@ -19,7 +19,7 @@ Module: summarize_linearPSMs.py
 """
 import sys
 import os
-import cPickle
+import pickle
 import numpy as np
 import pandas as pd
 import math
@@ -75,7 +75,7 @@ if not os.path.isdir(dirfig):
 
 fname = inputdir+'/PSMs_LMRdb_'+calib_tag+'_diag.pckl'
 infile = open(fname,'r')
-psm_data = cPickle.load(infile)
+psm_data = pickle.load(infile)
 infile.close()
 
 proxy_types_sites = sorted(psm_data.keys())
@@ -228,12 +228,12 @@ for t in sorted(proxy_types):
     ALLcorr = np.asarray([sites_allPSM_corr[i] for i in range(len(sites_allPSM_corr))])
     GOODcorr = np.asarray([sites_goodPSM_corr[i] for i in range(len(sites_goodPSM_corr))])
 
-    print('Proxy type: %s' %t)
-    print('  Total nb of sites        : %4d' %len(sites_allPSM_corr))
-    print('  Nb of sites w/ good PSM  : %4d' %len(sites_goodPSM))
+    print(('Proxy type: %s' %t))
+    print(('  Total nb of sites        : %4d' %len(sites_allPSM_corr)))
+    print(('  Nb of sites w/ good PSM  : %4d' %len(sites_goodPSM)))
     if len(sites_goodPSM) > 0:
-        print('  Stats correlation magnitude for sites w/ good PSM: min=%6.4f mean=%6.4f median=%6.4f max=%6.4f' \
-              %(np.min(abs(GOODcorr)), np.mean(abs(GOODcorr)), np.median(abs(GOODcorr)), np.max(abs(GOODcorr))))
+        print(('  Stats correlation magnitude for sites w/ good PSM: min=%6.4f mean=%6.4f median=%6.4f max=%6.4f' \
+              %(np.min(abs(GOODcorr)), np.mean(abs(GOODcorr)), np.median(abs(GOODcorr)), np.max(abs(GOODcorr)))))
 
     vsMetadata_unknown  = sites_PSMagreeMetadata.count('unknown')
     vsMetadata_agree    = sites_PSMagreeMetadata.count('agree')

@@ -220,10 +220,10 @@ def test_datadescr_config_init():
     assert hasattr(cfg, '_DataInfo')
     res = cfg._DataInfo.get_info('GISTEMP')
 
-    assert 'info' in res.keys()
-    assert 'datadir' in res.keys()
-    assert 'datafile' in res.keys()
-    assert 'dataformat' in res.keys()
+    assert 'info' in list(res.keys())
+    assert 'datadir' in list(res.keys())
+    assert 'datafile' in list(res.keys())
+    assert 'dataformat' in list(res.keys())
 
 
 def test_datadescr_null_datadir():
@@ -254,7 +254,7 @@ def test_constant_avg_period(constant_def):
     assert 'nyears' in annual
 
     np.testing.assert_array_equal(annual['elem_to_avg'],
-                                  range(annual['nelem_in_yr']))
+                                  list(range(annual['nelem_in_yr'])))
 
 
 def test_constant_avg_period_negative_indices(constant_def):
@@ -262,7 +262,7 @@ def test_constant_avg_period_negative_indices(constant_def):
     negs = constant_def.get_info('avg_interval')['negative_vals']
 
     np.testing.assert_array_equal(negs['elem_to_avg'],
-                                  range(9, 15))
+                                  list(range(9, 15)))
 
 
 def test_constants_non_contiguous_avg_period():

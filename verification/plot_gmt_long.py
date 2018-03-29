@@ -35,7 +35,7 @@ for nexp in expts:
     niters = len(dirset)
 
     print('--------------------------------------------------')
-    print('niters = %s' % str(niters))
+    print(('niters = %s' % str(niters)))
     print('--------------------------------------------------')
 
     first = True
@@ -49,7 +49,7 @@ for nexp in expts:
         nhmt = npzfile['nhmt_ensemble']
         shmt = npzfile['shmt_ensemble']
         recon_times = npzfile['recon_times']
-        print gmtpfile
+        print(gmtpfile)
         gmt_shape = np.shape(gmt)
         nhmt_shape = np.shape(nhmt)
         shmt_shape = np.shape(shmt)

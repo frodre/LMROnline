@@ -26,7 +26,7 @@ new_meta = meta.copy()
 new_data = data.copy()
 
 for i,id in enumerate(ids):
-    print 'updating site {}'.format(id)
+    print('updating site {}'.format(id))
     site_meta = new_meta[new_meta['PAGES ID'] == id]
     row_idx = site_meta.index.values[0]
     if site_meta['Archive type'].iloc[0] == 'Tree ring':
@@ -79,7 +79,7 @@ for i,id in enumerate(ids):
             assert_array_equal(new_data[id][new_data[id].notnull()].values,
                                data[id][data[id].notnull()].values)
 
-print 'Total sites updated ', i
+print('Total sites updated ', i)
 pd.to_pickle(new_meta, out_meta)
 pd.to_pickle(new_data, out_data)
 

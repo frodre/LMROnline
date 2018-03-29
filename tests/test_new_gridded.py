@@ -75,7 +75,7 @@ class TestGriddedVariable(object):
         """Test for checks that dimensions must match those in the data"""
         data = smooth_wave_init.pop('data')
 
-        for key, item in smooth_wave_init.iteritems():
+        for key, item in smooth_wave_init.items():
             with pytest.raises(ValueError):
                 smooth_wave_init[key] = item[:-2]
                 LMR_gridded.GriddedVariable('test_data',

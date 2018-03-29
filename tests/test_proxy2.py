@@ -7,12 +7,12 @@ sys.path.append('../')
 
 import pytest
 import copy
-import cPickle
+import pickle
 import numpy as np
 import LMR_proxy2 as proxy2
 import LMR_config as cfg
 import yaml
-from itertools import izip
+
 
 
 @pytest.fixture()
@@ -25,11 +25,11 @@ def dummy_proxy(request):
     p.ptype = 'Tree ring_Width'
     p.start_yr = 1950
     p.end_yr = 1960
-    p.values = range(11)
+    p.values = list(range(11))
     p.lat = 45
     p.lon = 210
     p.elev = 0
-    p.time = range(1950, 1961)
+    p.time = list(range(1950, 1961))
     p.resolution = 1.0
     p.seasonality = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
@@ -53,21 +53,21 @@ def cfg(request):
     try:
         reload(test_config)
     except NameError:
-        import test_config
+        from . import test_config
 
     return test_config
 
 @pytest.fixture(scope='module')
 def meta(request):
     with open('test_meta.pckl', 'rb') as f:
-        dat = cPickle.load(f)
+        dat = pickle.load(f)
     return dat
 
 
 @pytest.fixture(scope='module')
 def pdata(request):
     with open('test_pdata.pckl', 'rb') as f:
-        return cPickle.load(f)
+        return pickle.load(f)
 
 
 @pytest.fixture(scope='module')
@@ -290,7 +290,7 @@ def test_pages_proxy_manager_all():
 
     bytype, allp = proxy2.ProxyPages.load_all(config, drange)
 
-    for mobj, pobj in izip(pmanager.sites_assim_proxy_objs(), allp):
+    for mobj, pobj in zip(pmanager.sites_assim_proxy_objs(), allp):
         assert mobj.id == pobj.id
 
 
@@ -338,7 +338,7 @@ def test_pages_proxy_manager_seeded():
 
 
 if __name__ == '__main__':
-    import test_config as cfg2
+    from . import test_config as cfg2
 
     test_pages_load_all_specific_regions(meta(None), pdata(None), psm_dat(None), cfg2)
     test_pages_load_all_specific_type(meta(None), pdata(None), psm_dat(None), cfg2)

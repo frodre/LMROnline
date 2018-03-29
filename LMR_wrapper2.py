@@ -23,13 +23,13 @@ import sys
 import yaml
 import itertools
 import datetime
-import LMR_driver_callable2 as LMR
-import LMR_config
+from . import LMR_driver_callable2 as LMR
+from . import LMR_config
 
-import LMR_utils2 as Util2
-from LMR_utils2 import ensemble_stats, validate_config
+from . import LMR_utils2 as Util2
+from .LMR_utils2 import ensemble_stats, validate_config
 
-print '\n' + str(datetime.datetime.now()) + '\n'
+print('\n' + str(datetime.datetime.now()) + '\n')
 
 if not LMR_config.LEGACY_CONFIG:
     if len(sys.argv) > 1:
@@ -50,14 +50,14 @@ if not os.path.isdir(expdir):
 
 # Monte-Carlo approach: loop over iterations (range of iterations defined in
 # namelist)
-MCiters = xrange(iter_range[0], iter_range[1]+1)
+MCiters = range(iter_range[0], iter_range[1]+1)
 param_iterables = [MCiters]
 
 # get other parameters to sweep over in the reconstruction
 param_search = LMR_config.wrapper.param_search
 if param_search is not None:
     # sort them by parameter name and combine into a list of iterables
-    sort_params = param_search.keys()
+    sort_params = list(param_search.keys())
     sort_params.sort(key=lambda x: x.split('.')[-1])
     param_values = [param_search[key] for key in sort_params]
     param_iterables = param_values + [MCiters]
@@ -71,7 +71,7 @@ for iter_and_params in itertools.product(*param_iterables):
         curr_seed = LMR_config.wrapper.multi_seed[iter_num]
         cfg_dict = Util2.param_cfg_update('core.seed', curr_seed,
                                           cfg_dict=cfg_dict)
-        print ('Setting current iteration seed: {}'.format(curr_seed))
+        print(('Setting current iteration seed: {}'.format(curr_seed)))
 
     itr_str = 'r{:d}'.format(iter_num)
     # If parameter space search is being performed then set the current
@@ -112,11 +112,11 @@ for iter_and_params in itertools.product(*param_iterables):
     try:
         assim_proxy_objs, eval_proxy_objs = LMR.LMR_driver_callable(cfg)
     except LMR.FilterDivergenceError as e:
-        print e
+        print(e)
 
         # removing the work output directory
         cmd = 'rm -f -r ' + working_dir
-        print cmd
+        print(cmd)
         os.system(cmd)
         continue
 
@@ -140,21 +140,21 @@ for iter_and_params in itertools.product(*param_iterables):
     # or just move select files and delete the rest
 
     cmd = 'mv -f ' + working_dir + '/*.npz' + ' ' + mc_arc_dir + '/'
-    print cmd
+    print(cmd)
     os.system(cmd)
     cmd = 'mv -f ' + working_dir + '/*.pckl' + ' ' + mc_arc_dir + '/'
-    print cmd
+    print(cmd)
     os.system(cmd)
     cmd = 'mv -f ' + working_dir + '/assim*' + ' ' + mc_arc_dir + '/'
-    print cmd
+    print(cmd)
     os.system(cmd)
     cmd = 'mv -f ' + working_dir + '/nonassim*' + ' ' + mc_arc_dir + '/'
-    print cmd
+    print(cmd)
     os.system(cmd)
 
     # removing the work output directory once selected files have been moved
     cmd = 'rm -f -r ' + working_dir
-    print cmd
+    print(cmd)
     os.system(cmd)
 
     # copy the configuration file to archive directory
@@ -162,10 +162,10 @@ for iter_and_params in itertools.product(*param_iterables):
         cmd = 'cp ./LMR_config.py ' + mc_arc_dir + '/'
     else:
         cmd = 'cp ' + yaml_file + ' ' + mc_arc_dir + '/'
-    print cmd
+    print(cmd)
     os.system(cmd)
 
-    print '\n' + str(datetime.datetime.now()) + '\n'
+    print('\n' + str(datetime.datetime.now()) + '\n')
 
     #   end: DO NOT DELETE
     

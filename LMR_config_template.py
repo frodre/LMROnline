@@ -46,7 +46,7 @@ class _YamlStorage(object):
     """
 
     def __init__(self, filename):
-        print 'Loading information from {}'.format(filename)
+        print('Loading information from {}'.format(filename))
         try:
             f = open(join(SRC_DIR, filename), 'r')
             self.data = yaml.load(f)
@@ -91,7 +91,7 @@ class _ConstantDefinitions(_YamlStorage):
 
         # Convert month indices to more machine friendly 0-indexed non-negative
         # values
-        for key, val in self.data['avg_interval'].iteritems():
+        for key, val in self.data['avg_interval'].items():
             avg_indices = val['elem_to_avg']
             nelem_in_yr = val['nelem_in_yr']
 
@@ -457,7 +457,7 @@ class proxies(ConfigGroup):
 
             # Create mapping for Proxy Type/Measurement Type to type names above
             self.proxy_type_mapping = {}
-            for ptype, measurements in self.proxy_assim2.iteritems():
+            for ptype, measurements in self.proxy_assim2.items():
                 # Fetch proxy type name that occurs before underscore
                 type_name = ptype.split('_', 1)[0]
                 for measure in measurements:
@@ -1664,7 +1664,7 @@ def update_config_attrs_yaml(yaml_dict, cfg_module):
     instance then please use keyword arguments during initialization.
     """
 
-    for attr_name in yaml_dict.keys():
+    for attr_name in list(yaml_dict.keys()):
         try:
             curr_cfg_obj = getattr(cfg_module, attr_name)
             cfg_attr = yaml_dict.pop(attr_name)
@@ -1678,7 +1678,7 @@ def update_config_attrs_yaml(yaml_dict, cfg_module):
             else:
                 setattr(cfg_module, attr_name, cfg_attr)
         except (AttributeError, KeyError) as e:
-            print e
+            print(e)
 
     return yaml_dict
 
@@ -1689,7 +1689,7 @@ def initialize_config_yaml(cfg_module, yaml_file=None):
         yaml_file = join(cfg_module.SRC_DIR, 'config.yml')
 
     try:
-        print 'Loading configuration: {}'.format(yaml_file)
+        print('Loading configuration: {}'.format(yaml_file))
         f = open(yaml_file, 'r')
         yml_dict = yaml.load(f)
         update_result = cfg_module.update_config_attrs_yaml(yml_dict,

@@ -6,8 +6,8 @@ import logging
 
 import pylim.LIM as LIM
 import pylim.DataTools as DT
-from LMR_utils2 import class_docs_fixer, augment_docstr, regrid_sphere
-import LMR_gridded
+from .LMR_utils2 import class_docs_fixer, augment_docstr, regrid_sphere
+from . import LMR_gridded
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class LIMForecaster(BaseForecaster):
 
         fcast_calib_vars = LMR_gridded.ForecasterVariable.load_allvars(lim_cfg)
         fcast_calib_dobjs = {key: var.forecast_var_to_pylim_dataobj()
-                             for key, var in fcast_calib_vars.iteritems()}
+                             for key, var in fcast_calib_vars.items()}
         self.calib_dobjs = fcast_calib_dobjs
 
         var_order = []
@@ -61,7 +61,7 @@ class LIMForecaster(BaseForecaster):
         calib_eofs = {}
         fcast_state_bnds = {}
         start = 0
-        for key, dobj in fcast_calib_dobjs.iteritems():
+        for key, dobj in fcast_calib_dobjs.items():
             dobj.calc_anomaly(nelem_in_yr)  # TODO: hardcoded annual
             if detrend:
                 dobj.detrend_data()

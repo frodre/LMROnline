@@ -4,7 +4,7 @@ sys.path.append('../.')
 
 import misc_config as cfg
 import LMR_proxy2
-import cPickle as cpckl
+import pickle as cpckl
 from os.path import join
 
 # NOTE: Loads from misc_config, should have pre_calib_datafile set to None
@@ -14,9 +14,9 @@ fracs = [1.0]
 
 output_dir = '/home/chaos2/wperkins/data/LMR/PSM/test_psms'
 
-print 'Starting pre-calibration for ' + calib_datatag + ' fracs ' + str(fracs)
+print('Starting pre-calibration for ' + calib_datatag + ' fracs ' + str(fracs))
 for frac in fracs:
-    print 'Working on fraction {:1.2f}'.format(frac)
+    print('Working on fraction {:1.2f}'.format(frac))
     cfg.psm.linear.min_data_req_frac = frac
     # pre_calib_fname = 'PSMs_{}_multires_{:1.2f}datfrac'.format(calib_datatag, frac)
     pre_calib_fname = 'PSMs_{}_1pt0res_{:1.2f}datfrac'.format(calib_datatag, frac)

@@ -5,7 +5,7 @@ import sys
 sys.path.append('../')
 
 import pytest
-import cPickle
+import pickle
 import yaml
 import LMR_psms as psms
 import LMR_config
@@ -19,7 +19,7 @@ def psm_dat(request):
     fname = ('/home/katabatic/wperkins/data/LMR/PSM/'
              'PSMs_GISTEMP.pckl')
     f = open(fname)
-    dat = cPickle.load(f)
+    dat = pickle.load(f)
     f.close()
 
     return dat
@@ -136,7 +136,7 @@ def test_linear_psm_ye_val():
 def test_linear_get_kwargs(psm_dat, config):
     psm_kwargs = psms.LinearPSM.get_kwargs(config)
 
-    assert 'psm_data' in psm_kwargs.keys()
+    assert 'psm_data' in list(psm_kwargs.keys())
     assert psm_kwargs['psm_data'] == psm_dat
 
 

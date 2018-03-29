@@ -4,7 +4,7 @@ import matplotlib as mpl
 import seaborn as sns
 import pandas as pd
 import glob
-from itertools import izip, product
+from itertools import product
 from os.path import join, exists
 import os
 from sklearn import linear_model
@@ -35,7 +35,7 @@ def compile_gmts(parent_dir, a_d_vals=None, a_infl_vals=None, r_iters=None):
                        for a, infl in a_infl_vals]
     else:
         if r_iters is not None:
-            print 'Joining on r iters ', r_iters
+            print('Joining on r iters ', r_iters)
             param_iters = [join(parent_dir, 'r{:d}'.format(r)) for r in r_iters]
         else:
             param_iters = glob.glob(join(parent_dir, 'r*'))
@@ -52,7 +52,7 @@ def compile_gmts(parent_dir, a_d_vals=None, a_infl_vals=None, r_iters=None):
                 gmts = np.zeros((len(param_iters), len(times))) * np.nan
             gmts[k] = npdict['gmt_save'][-1]
         except IOError as e:
-            print e
+            print(e)
 
     return times, gmts
 
@@ -61,12 +61,12 @@ def compile_ens_var(parent_dir, out_dir, out_fname,
                     a_d_vals=None, r_iters=None, ignore_npz=False):
 
     if exists(join(out_dir, out_fname)) and not ignore_npz:
-        print 'Loading pre-compiled ensemble variance metrics.'
+        print('Loading pre-compiled ensemble variance metrics.')
         return np.load(join(out_dir, out_fname))
 
     # Get reconstruction iteration directory
     if r_iters is not None:
-        print 'Joining on r iters ', r_iters
+        print('Joining on r iters ', r_iters)
         parent_iters = [join(parent_dir, 'r{:d}'.format(r)) for r in r_iters]
     else:
         parent_iters = glob.glob(join(parent_dir, 'r*'))
@@ -81,7 +81,7 @@ def compile_ens_var(parent_dir, out_dir, out_fname,
 
     for i, parent in enumerate(parent_iters):
 
-        print 'Compiling iteration {:d}/{:d}'.format(i+1, len(parent_iters))
+        print('Compiling iteration {:d}/{:d}'.format(i+1, len(parent_iters)))
         # Directories for each parameter value
         if a_d_vals is not None:
             ad_dir = 'a{:1.2g}_d{:1.2f}'
@@ -119,7 +119,7 @@ def compile_ens_var(parent_dir, out_dir, out_fname,
                 pri_gm_ens_var[i, j] = utils2.global_mean2(pri_ens_var[i, j], lats)
 
             except IOError as e:
-                print e
+                print(e)
 
     ens_var = ens_var.mean(axis=0).astype(np.float32)
     gm_ens_var = gm_ens_var.mean(axis=0)
@@ -165,8 +165,8 @@ def compile_iters(iter_folder, analysis_gmt, analysis_times, a_d_vals=None,
     # parameter space
     for i, fdir in enumerate(iter_folder_list):
 
-        print 'Compiling GMT: file {:02d}/{:02d}'.format(i+1,
-                                                         len(iter_folder_list))
+        print('Compiling GMT: file {:02d}/{:02d}'.format(i+1,
+                                                         len(iter_folder_list)))
         if a_d_vals is not None:
             times, gmts = compile_gmts(fdir, a_d_vals=a_d_vals)
         else:
@@ -182,7 +182,7 @@ def compile_iters(iter_folder, analysis_gmt, analysis_times, a_d_vals=None,
     ce_vals = np.zeros(gmt_out.shape[:2])
     r_vals = np.zeros_like(ce_vals)
 
-    for gmt_iter, ce_val, r_val in izip(gmt_out, ce_vals, r_vals):
+    for gmt_iter, ce_val, r_val in zip(gmt_out, ce_vals, r_vals):
         tmp_ce, tmp_r = ce_r_ens_avg(gmt_iter, times, analysis_gmt,
                                      analysis_times, trange=trange,
                                      center_trange=center_trange)

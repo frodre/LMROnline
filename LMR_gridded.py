@@ -16,10 +16,10 @@ from os.path import join
 import random
 import tables as tb
 
-import LMR_config
-from LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
+from . import LMR_config
+from .LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
     empty_hdf5_carray, regrid_esmpy_grid_object
-from LMR_utils2 import fix_lon, regular_cov_infl
+from .LMR_utils2 import fix_lon, regular_cov_infl
 # import pylim.DataTools as DT
 
 # Constant definitions
@@ -229,8 +229,8 @@ class GriddedVariable(object):
 
         data_path = join('/', *path_pieces)
 
-        print ('Saving pre-processed data file: {}'.format(filename))
-        print ('Storing data under HDF5 path: {}'.format(data_path))
+        print(('Saving pre-processed data file: {}'.format(filename)))
+        print(('Storing data under HDF5 path: {}'.format(data_path)))
 
         obj_node_name = self.PRE_PROCESSED_OBJ_NODENAME
         data_node_name = self.PRE_PROCESSED_DATA_NODENAME
@@ -277,9 +277,9 @@ class GriddedVariable(object):
         -------
         None
         """
-        print ('{}: Global: mean={:1.3e}, '
+        print(('{}: Global: mean={:1.3e}, '
                'std-dev:={:1.3e}'.format(self.name, np.nanmean(self.data),
-                                         np.nanstd(self.data)))
+                                         np.nanstd(self.data))))
 
     def regrid(self, regrid_method, regrid_grid=None, grid_def=None,
                interp_method=None):
@@ -428,7 +428,7 @@ class GriddedVariable(object):
             New gridded variable object with the sampled data.
 
         """
-        sample_range = range(self.data.shape[0])
+        sample_range = list(range(self.data.shape[0]))
         random.seed(seed)
         sample = random.sample(sample_range, nens)
         return self.sample_from_idx(sample)
@@ -456,7 +456,7 @@ class GriddedVariable(object):
                    'equivalent.  No resampling performed...')
             return self
 
-        print ('Random selection of {} ensemble members'.format(nsamples))
+        print(('Random selection of {} ensemble members'.format(nsamples)))
 
         time_sample = self.time[sample_idxs]
         data_sample = np.zeros([nsamples] + list(self.data.shape[1:]))
@@ -546,8 +546,8 @@ class GriddedVariable(object):
             Data object for a LIM that has the same dimensions.
         """
 
-        print ('Converting ForecastVariable to pylim.DataObject: '
-               '{}'.format(self.name))
+        print(('Converting ForecastVariable to pylim.DataObject: '
+               '{}'.format(self.name)))
 
         BDO = DT.BaseDataObject
 
@@ -627,7 +627,7 @@ class GriddedVariable(object):
             pass
 
         datainfo = gridded_config.datainfo_prior
-        if 'rotated_pole' in datainfo.keys():
+        if 'rotated_pole' in list(datainfo.keys()):
             rotated_pole = varname in datainfo['rotated_pole']
         else:
             rotated_pole = False
@@ -696,15 +696,15 @@ class GriddedVariable(object):
                                             seed=seed,
                                             interp_method=interp_method)
         except (IOError, tb.exceptions.NoSuchNodeError):
-            print ('No pre-averaged file found ({}) or '
-                   'ignore specified ... '.format(varname))
+            print(('No pre-averaged file found ({}) or '
+                   'ignore specified ... '.format(varname)))
             var_obj = ftype_loader(file_dir, file_name, varname, save=save,
                                    data_req_frac=data_req_frac,
                                    avg_interval=avg_interval,
                                    avg_interval_kwargs=avg_interval_kwargs,
                                    rotated_pole=rotated_pole,
                                    anomaly=anomaly)
-            print 'Loaded from file: {}/{}'.format(file_dir, file_name)
+            print('Loaded from file: {}/{}'.format(file_dir, file_name))
 
         var_obj.fill_val_to_nan()
 
@@ -782,7 +782,7 @@ class GriddedVariable(object):
             obj_dir = join('/', avg_interval)
             obj = h5f.get_node(obj_dir, name=obj_node_name)[0]
             obj_data = h5f.get_node(obj_dir, name=data_node_name)
-            print ('Found node for avg_interval path: {}'.format(obj_dir))
+            print(('Found node for avg_interval path: {}'.format(obj_dir)))
 
             # Look for pre-regridded data if specified
             do_sample = True
@@ -798,16 +798,16 @@ class GriddedVariable(object):
                                               name=obj_node_name)[0]
                     regrid_obj_data = h5f.get_node(regrid_obj_dir,
                                                    name=data_node_name)
-                    print ('Found node for regridded data under path: '
-                           '{}'.format(regrid_obj_dir))
+                    print(('Found node for regridded data under path: '
+                           '{}'.format(regrid_obj_dir)))
                     obj = regrid_obj
                     obj_data = regrid_obj_data
                 except tb.NoSuchNodeError:
                     # Do not sample, since regrid specified and might save
                     do_sample = False
                     obj_data = obj_data.read()
-                    print('Regridded pre-processed grid object not found for '
-                          'regridding: {}.'.format(regrid_obj_dir))
+                    print(('Regridded pre-processed grid object not found for '
+                          'regridding: {}.'.format(regrid_obj_dir)))
 
             obj.data = obj_data
 
@@ -825,7 +825,7 @@ class GriddedVariable(object):
                 else:
                     obj.data = obj.data.read()
 
-        print 'Loaded pre-averaged file: {}'.format(path)
+        print('Loaded pre-averaged file: {}'.format(path))
         return obj
 
     @classmethod
@@ -895,7 +895,7 @@ class GriddedVariable(object):
             dim_vals[_TIME] = cls._netcdf_datetime_convert(dim_vals[_TIME])
 
             # Extract data for each dimension
-            dim_vals = {k: val[:] for k, val in dim_vals.iteritems()}
+            dim_vals = {k: val[:] for k, val in dim_vals.items()}
 
             # Extract single dimension from irregularly spaced rotated pole
             # grids the netCDF files I've encountered have 2D dimensions
@@ -969,7 +969,7 @@ class GriddedVariable(object):
             # calculate the time delta in years for the updated units
             since_yr_idx = tunits.index('since ') + 6
             year = int(tunits[since_yr_idx:since_yr_idx+4])
-            year_diff = year - 0001
+            year_diff = year - 0o001
 
             # Shift YYYY from 0 -> 1 and account for it in date time creation
             new_units = tunits[:since_yr_idx] + '0001-01-01 00:00:00'
@@ -1111,7 +1111,7 @@ class PriorVariable(GriddedVariable):
         var_names = prior_config.state_variables
 
         prior_dict = OrderedDict()
-        for vname, anomaly in var_names.iteritems():
+        for vname, anomaly in var_names.items():
             if anomaly == 'anom':
                 anomaly = True
             else:
@@ -1143,8 +1143,8 @@ class ForecasterVariable(GriddedVariable):
 
     def forecast_var_to_pylim_dataobj(self):
 
-        print ('Converting ForecastVariable to pylim.DataObject: '
-               '{}'.format(self.name))
+        print(('Converting ForecastVariable to pylim.DataObject: '
+               '{}'.format(self.name)))
 
         BDO = DT.BaseDataObject
 
@@ -1230,7 +1230,7 @@ class State(object):
         self._tmp_state = {}
 
         self.len_state = 0
-        for var, pobj in prior_vars.iteritems():
+        for var, pobj in prior_vars.items():
 
             self.var_space_shp[var] = pobj.space_shp
 
@@ -1265,7 +1265,7 @@ class State(object):
 
     def get_psm_var_key(self, psm_vartype_dict):
 
-        psm_type, psm_varkey = psm_vartype_dict.items()[0]
+        psm_type, psm_varkey = list(psm_vartype_dict.items())[0]
         prior_var_key = self.psm_var_map[psm_type][psm_varkey]
 
         return prior_var_key
@@ -1276,7 +1276,7 @@ class State(object):
         Create a truncated copy of the current state
         """
         trunc_pvars = OrderedDict()
-        for var_name, pvar in self._prior_vars.iteritems():
+        for var_name, pvar in self._prior_vars.items():
             trunc_pvars[var_name] = []
             for pobj in pvar:
                 if pobj.type == 'horizontal':
@@ -1319,7 +1319,7 @@ class State(object):
 
     def update_var_data(self, var_update_dict):
 
-        for var_key, var_data in var_update_dict.iteritems():
+        for var_key, var_data in var_update_dict.items():
             data_view = self.get_var_data(var_key)
             data_view[:] = var_data
 
@@ -1351,12 +1351,12 @@ class State(object):
     def get_old_state_info(self):
 
         state_info = {}
-        for var in self.var_view_range.keys():
+        for var in list(self.var_view_range.keys()):
             var_info = {'pos': self.var_view_range[var],
                         'vartype': self._prior_vars[var].type}
 
             space_dims = [dim for dim in _DEFAULT_DIM_ORDER
-                          if dim in self.var_coords[var].keys()]
+                          if dim in list(self.var_coords[var].keys())]
 
             var_info['spacecoords'] = space_dims
             if not space_dims:
@@ -1418,12 +1418,10 @@ class State(object):
         self.output_backend.close()
 
 
-class _BaseStateStorage(object):
+class _BaseStateStorage(object, metaclass=ABCMeta):
     """
     Class for storing state vector data
     """
-
-    __metaclass__ = ABCMeta
 
     @abstractmethod
     def __init__(self, nyears, state, fdir=None):
@@ -1458,7 +1456,7 @@ class _BaseStateStorage(object):
         chk_size = self._yr_len / nchunks
         ishift = int(shift / self._base_res)
 
-        for i in xrange(nchunks):
+        for i in range(nchunks):
             avg = state.state_list[i]
 
             istart = yr_idx*self._yr_len + i*chk_size + ishift

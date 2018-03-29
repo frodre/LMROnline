@@ -18,7 +18,7 @@ matplotlib.use('Agg')
 # generic imports
 import glob, sys
 from spharm import Spharmt, regrid
-import cPickle
+import pickle
 import warnings
 
 # LMR specific imports
@@ -151,7 +151,7 @@ plt.rc('text', usetex=False)
 var = 'tas_sfc_Amon'
 
 workdir = datadir_output + '/' + nexp
-print('working directory = %s' %workdir)
+print(('working directory = %s' %workdir))
 
 print('\n getting file system information...\n')
 
@@ -169,8 +169,8 @@ else:
 mcdir = [item.split('/')[-1] for item in dirset]
 niters = len(mcdir)
 
-print('mcdir: %s' % str(mcdir))
-print('niters = %s' % str(niters))
+print(('mcdir: %s' % str(mcdir)))
+print(('niters = %s' % str(niters)))
 
 # read ensemble mean data
 print('\n reading LMR ensemble-mean data...\n')
@@ -183,9 +183,9 @@ for dir in mcdir:
     #ensfiln = workdir + '/' + dir + '/ensemble_mean.npz'
     ensfiln = workdir + '/' + dir + '/ensemble_mean_'+var+'.npz'
     npzfile = np.load(ensfiln)
-    print  npzfile.files
+    print(npzfile.files)
     tmp = npzfile['xam']
-    print('shape of tmp: %s' % str(np.shape(tmp)))
+    print(('shape of tmp: %s' % str(np.shape(tmp))))
 
     # load prior data
     file_prior = workdir + '/' + dir + '/Xb_one.npz'
@@ -193,7 +193,7 @@ for dir in mcdir:
     Xb_one = Xprior_statevector['Xb_one']
     # extract variable (sfc temperature) from state vector
     state_info = Xprior_statevector['state_info'].item()
-    print state_info
+    print(state_info)
     posbeg = state_info[var]['pos'][0]
     posend = state_info[var]['pos'][1]
     tas_prior = Xb_one[posbeg:posend+1,:]
@@ -201,7 +201,7 @@ for dir in mcdir:
     if first:
         first = False
         recon_times = npzfile['years']
-        LMR_time = np.array(map(int,recon_times))
+        LMR_time = np.array(list(map(int,recon_times)))
         lat = npzfile['lat']
         lon = npzfile['lon']
         nlat = npzfile['nlat']
@@ -236,22 +236,22 @@ xam_check = xam_all.mean(0)
 #  check..
 max_err = np.max(np.max(np.max(xam_check - xam)))
 if max_err > 1e-4:
-    print 'max error = ' + str(max_err)
+    print('max error = ' + str(max_err))
     raise Exception('sample mean does not match what is in the ensemble files!')
 
 # sample variance
 xam_var = xam_all.var(0)
-print np.shape(xam_var)
+print(np.shape(xam_var))
 
-print '\n shape of the ensemble array: ' + str(np.shape(xam_all)) +'\n'
-print '\n shape of the ensemble-mean array: ' + str(np.shape(xam)) +'\n'
-print '\n shape of the ensemble-mean prior array: ' + str(np.shape(xbm)) +'\n'
+print('\n shape of the ensemble array: ' + str(np.shape(xam_all)) +'\n')
+print('\n shape of the ensemble-mean array: ' + str(np.shape(xam)) +'\n')
+print('\n shape of the ensemble-mean prior array: ' + str(np.shape(xbm)) +'\n')
 
 lmr_lat_range = (lat2[0,0],lat2[-1,0])
 lmr_lon_range = (lon2[0,0],lon2[0,-1])
 print('LMR grid info:')
-print(' lats=%s' % str(lmr_lat_range))
-print(' lons=%s' % str(lmr_lon_range))
+print((' lats=%s' % str(lmr_lat_range)))
+print((' lons=%s' % str(lmr_lon_range)))
 
 
 # ===========================================================================================================
@@ -266,13 +266,13 @@ print('\nloading verification data...\n')
 
 # Define month sequence for the calendar year 
 # (argument needed in upload of reanalysis data)
-annual = range(1,13)
+annual = list(range(1,13))
 
 # load ERA20C reanalysis -------------------------------------------------------
 datadir = datadir_reanl+'/era20c'
 datafile = 'tas_sfc_Amon_ERA20C_190001-201012.nc'
 vardict = {'tas_sfc_Amon': 'anom'}
-vardef = vardict.keys()[0]
+vardef = list(vardict.keys())[0]
 
 dd = read_gridded_data_CMIP5_model(datadir,datafile,vardict,outtimeavg=annual)
 rtime = dd[vardef]['years']
@@ -307,7 +307,7 @@ ERA20C = ERA20C - ref_mean_era
 datadir = datadir_reanl+'/20cr'
 datafile = 'tas_sfc_Amon_20CR_185101-201112.nc'
 vardict = {'tas_sfc_Amon': 'anom'}
-vardef = vardict.keys()[0]
+vardef = list(vardict.keys())[0]
 
 dd = read_gridded_data_CMIP5_model(datadir,datafile,vardict,outtimeavg=annual)
 rtime = dd[vardef]['years']
@@ -357,8 +357,8 @@ lon2d_GIS, lat2d_GIS = np.meshgrid(GIS_lon, GIS_lat)
 gis_lat_range = (lat2d_GIS[0,0],lat2d_GIS[-1,0])
 gis_lon_range = (lon2d_GIS[0,0],lon2d_GIS[0,-1])
 print('GIS grid info:')
-print(' lats=%s' % str(gis_lat_range))
-print(' lons=%s' % str(gis_lon_range))
+print((' lats=%s' % str(gis_lat_range)))
+print((' lons=%s' % str(gis_lon_range)))
 # GIS longitudes are off by 180 degrees
 print(' Shifting longitudes by 180 degrees')
 lat2d_GIS = np.roll(lat2d_GIS,shift=nlon_GIS/2,axis=1)
@@ -377,10 +377,10 @@ lon2d_CRU, lat2d_CRU = np.meshgrid(CRU_lon, CRU_lat)
 cru_lat_range = (lat2d_CRU[0,0],lat2d_CRU[-1,0])
 cru_lon_range = (lon2d_CRU[0,0],lon2d_CRU[0,-1])
 print('CRU grid info:')
-print(' lats=%s' % str(cru_lat_range))
-print(' lons=%s' % str(cru_lon_range))
+print((' lats=%s' % str(cru_lat_range)))
+print((' lons=%s' % str(cru_lon_range)))
 # CRU longitudes are off by 180 degrees
-print ' Shifting longitudes by 180 degrees'
+print(' Shifting longitudes by 180 degrees')
 lat2d_CRU = np.roll(lat2d_CRU,shift=nlon_CRU/2,axis=1)
 lon2d_CRU = np.roll(lon2d_CRU,shift=nlon_CRU/2,axis=1)
 CRU_anomaly = np.roll(CRU_anomaly,shift=nlon_CRU/2,axis=2)
@@ -397,10 +397,10 @@ lon2d_BE, lat2d_BE = np.meshgrid(BE_lon, BE_lat)
 be_lat_range = (lat2d_BE[0,0],lat2d_BE[-1,0])
 be_lon_range = (lon2d_BE[0,0],lon2d_BE[0,-1])
 print('BE grid info:')
-print(' lats=%s' % str(be_lat_range))
-print(' lons=%s' % str(be_lon_range))
+print((' lats=%s' % str(be_lat_range)))
+print((' lons=%s' % str(be_lon_range)))
 # BE longitudes are off by 180 degrees
-print ' Shifting longitudes by 180 degrees'
+print(' Shifting longitudes by 180 degrees')
 lat2d_BE = np.roll(lat2d_BE,shift=nlon_BE/2,axis=1)
 lon2d_BE = np.roll(lon2d_BE,shift=nlon_BE/2,axis=1)
 BE_anomaly = np.roll(BE_anomaly,shift=nlon_BE/2,axis=2)
@@ -417,8 +417,8 @@ lon2d_MLOST, lat2d_MLOST = np.meshgrid(MLOST_lon, MLOST_lat)
 mlost_lat_range = (lat2d_MLOST[0,0],lat2d_MLOST[-1,0])
 mlost_lon_range = (lon2d_MLOST[0,0],lon2d_MLOST[0,-1])
 print('MLOST grid info:')
-print(' lats=%s' % str(mlost_lat_range))
-print(' lons=%s' % str(mlost_lon_range))
+print((' lats=%s' % str(mlost_lat_range)))
+print((' lons=%s' % str(mlost_lon_range)))
 
 
 # ===========================================================================================================
@@ -477,7 +477,7 @@ iw = 0
 if nya > 0:
     iw = (nya-1)/2
 
-cyears = range(trange[0],trange[1])
+cyears = list(range(trange[0],trange[1]))
 
 # time series for combination of data products
 lmr_tcr_csave   = np.zeros([len(cyears)])
@@ -570,8 +570,8 @@ for yr in cyears:
     MLOST_smatch, MLOST_ematch = find_date_indices(MLOST_time,yr-iw,yr+iw+1)
 
     print('------------------------------------------------------------------------')
-    print('working on year... %s' % str(yr))
-    print('working on year... %5s LMR index = %5s : LMR year = %5s' % (str(yr),str(LMR_smatch),str(LMR_time[LMR_smatch])))
+    print(('working on year... %s' % str(yr)))
+    print(('working on year... %5s LMR index = %5s : LMR year = %5s' % (str(yr),str(LMR_smatch),str(LMR_time[LMR_smatch]))))
 
     
     # TCR
@@ -808,7 +808,7 @@ for yr in cyears:
         lmr_tcr_csave[k] = np.corrcoef(lmr_on_tcr_vec[indok],tcr_vec[indok])[0,1]
     else:
         lmr_tcr_csave[k] = np.nan
-    print('  lmr-tcr correlation     : %s' % str(lmr_tcr_csave[k]))
+    print(('  lmr-tcr correlation     : %s' % str(lmr_tcr_csave[k])))
 
     # lmr <-> era
     indok = np.isfinite(era_vec); nbok = np.sum(indok); nball = era_vec.shape[1]
@@ -817,7 +817,7 @@ for yr in cyears:
         lmr_era_csave[k] = np.corrcoef(lmr_on_era_vec[indok],era_vec[indok])[0,1]
     else:
         lmr_era_csave[k] = np.nan
-    print('  lmr-era correlation     : %s' % str(lmr_era_csave[k]))
+    print(('  lmr-era correlation     : %s' % str(lmr_era_csave[k])))
     
     # lmr <-> gis
     indok = np.isfinite(gis_vec); nbok = np.sum(indok); nball = gis_vec.shape[1]
@@ -826,7 +826,7 @@ for yr in cyears:
         lmr_gis_csave[k] = np.corrcoef(lmr_on_gis_vec[indok],gis_vec[indok])[0,1]
     else:
         lmr_gis_csave[k] = np.nan
-    print('  lmr-gis correlation     : %s' % str(lmr_gis_csave[k]))
+    print(('  lmr-gis correlation     : %s' % str(lmr_gis_csave[k])))
     
     # lmr <-> be
     indok = np.isfinite(be_vec); nbok = np.sum(indok); nball = be_vec.shape[1]
@@ -835,7 +835,7 @@ for yr in cyears:
         lmr_be_csave[k] = np.corrcoef(lmr_on_be_vec[indok],be_vec[indok])[0,1]
     else:
         lmr_be_csave[k] = np.nan
-    print('  lmr-be correlation      : %s' % str(lmr_be_csave[k]))
+    print(('  lmr-be correlation      : %s' % str(lmr_be_csave[k])))
     
     # lmr <-> cru
     indok = np.isfinite(cru_vec); nbok = np.sum(indok); nball = cru_vec.shape[1]
@@ -844,7 +844,7 @@ for yr in cyears:
         lmr_cru_csave[k] = np.corrcoef(lmr_on_cru_vec[indok],cru_vec[indok])[0,1]
     else:
         lmr_cru_csave[k] = np.nan
-    print('  lmr-cru correlation     : %s' % str(lmr_cru_csave[k]))
+    print(('  lmr-cru correlation     : %s' % str(lmr_cru_csave[k])))
     
     # lmr <-> mlost
     indok = np.isfinite(mlost_vec); nbok = np.sum(indok); nball = mlost_vec.shape[1]
@@ -853,7 +853,7 @@ for yr in cyears:
         lmr_mlost_csave[k] = np.corrcoef(lmr_on_mlost_vec[indok],mlost_vec[indok])[0,1]
     else:
         lmr_mlost_csave[k] = np.nan
-    print('  lmr-mlost correlation   : %s' % str(lmr_mlost_csave[k]))
+    print(('  lmr-mlost correlation   : %s' % str(lmr_mlost_csave[k])))
     
     # tcr <-> gis
     if ~np.isnan(tcr_on_gis_vec).all():
@@ -865,7 +865,7 @@ for yr in cyears:
             tcr_gis_csave[k] = np.nan
     else:
         tcr_gis_csave[k] = np.nan
-    print('  tcr-gis correlation     : %s' % str(tcr_gis_csave[k]))
+    print(('  tcr-gis correlation     : %s' % str(tcr_gis_csave[k])))
     
     # era <-> gis
     if ~np.isnan(era_on_gis_vec).all():
@@ -877,7 +877,7 @@ for yr in cyears:
             era_gis_csave[k] = np.nan
     else:
         era_gis_csave[k] = np.nan
-    print('  era-gis correlation     : %s' % str(era_gis_csave[k]))
+    print(('  era-gis correlation     : %s' % str(era_gis_csave[k])))
     
 
 # ===================================================================================
@@ -967,7 +967,7 @@ ax.set_ylim(ymin,ymax)
 ypos = ymax-0.15*(ymax-ymin)
 xpos = xmin+0.025*(xmax-xmin)
 ax.text(xpos,ypos,'Mean = %s' %"{:.2f}".format(np.nanmean(lmr_gis_csave)),fontsize=11,fontweight='bold')
-print 'LMR-GIS mean anomaly correlation: ' + str (np.nanmean(lmr_gis_csave))
+print('LMR-GIS mean anomaly correlation: ' + str (np.nanmean(lmr_gis_csave)))
 
 # BE
 ax = fig.add_subplot(6,2,7)
@@ -1464,13 +1464,13 @@ print('')
 lat_TCR = np.squeeze(lat2d_TCR[:,0])
 indlat = np.where((lat_TCR[:] > -60.0) & (lat_TCR[:] < 60.0))
 lmr_tcr_rmedian = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_tcr)) ))
-print('lmr-tcr all-grid median r    : %s' % str(lmr_tcr_rmedian))
+print(('lmr-tcr all-grid median r    : %s' % str(lmr_tcr_rmedian)))
 lmr_tcr_rmedian60 = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_tcr[indlat,:])) ))
-print('lmr-tcr 60S-60N median r     : %s' % str(lmr_tcr_rmedian60))
+print(('lmr-tcr 60S-60N median r     : %s' % str(lmr_tcr_rmedian60)))
 lmr_tcr_cemedian = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_tcr)) ))
-print('lmr-tcr all-grid median ce   : %s' % str(lmr_tcr_cemedian))
+print(('lmr-tcr all-grid median ce   : %s' % str(lmr_tcr_cemedian)))
 lmr_tcr_cemedian60 = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_tcr[indlat,:])) ))
-print('lmr-tcr 60S-60N median ce    : %s' % str(lmr_tcr_cemedian60))
+print(('lmr-tcr 60S-60N median ce    : %s' % str(lmr_tcr_cemedian60)))
 lmr_tcr_biasmedian = str(float('%.2f' % np.nanmedian(bias_lmr_tcr) ))
 # mean
 [rmean_global,rmean_nh,rmean_sh]    = global_hemispheric_means(r_lmr_tcr,lat_TCR)
@@ -1507,13 +1507,13 @@ print('')
 lat_ERA = np.squeeze(lat2d_ERA20C[:,0])
 indlat = np.where((lat_ERA20C[:] > -60.0) & (lat_ERA20C[:] < 60.0))
 lmr_era_rmean = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_era)) ))
-print('lmr-era all-grid median r    : %s' % str(lmr_era_rmean))
+print(('lmr-era all-grid median r    : %s' % str(lmr_era_rmean)))
 lmr_era_rmean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_era[indlat,:])) ))
-print('lmr-era 60S-60N median r     : %s' % str(lmr_era_rmean60))
+print(('lmr-era 60S-60N median r     : %s' % str(lmr_era_rmean60)))
 lmr_era_cemean = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_era)) ))
-print('lmr-era all-grid median ce   : %s' % str(lmr_era_cemean))
+print(('lmr-era all-grid median ce   : %s' % str(lmr_era_cemean)))
 lmr_era_cemean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_era[indlat,:])) ))
-print('lmr-era 60S-60N median ce    : %s' % str(lmr_era_cemean60))
+print(('lmr-era 60S-60N median ce    : %s' % str(lmr_era_cemean60)))
 lmr_era_biasmean = str(float('%.2f' % np.nanmedian(bias_lmr_era) ))
 # mean
 [rmean_global,rmean_nh,rmean_sh]    = global_hemispheric_means(r_lmr_era,lat_ERA20C)
@@ -1550,13 +1550,13 @@ print('')
 lat_GIS = np.squeeze(lat2d_GIS[:,0])
 indlat = np.where((lat_GIS[:] > -60.0) & (lat_GIS[:] < 60.0))
 lmr_gis_rmean = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_gis)) ))
-print('lmr-gis all-grid median r    : %s' % str(lmr_gis_rmean))
+print(('lmr-gis all-grid median r    : %s' % str(lmr_gis_rmean)))
 lmr_gis_rmean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_gis[indlat,:])) ))
-print('lmr-gis 60S-60N median r     : %s' % str(lmr_gis_rmean60))
+print(('lmr-gis 60S-60N median r     : %s' % str(lmr_gis_rmean60)))
 lmr_gis_cemean = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_gis)) ))
-print('lmr-gis all-grid median ce   : %s' % str(lmr_gis_cemean))
+print(('lmr-gis all-grid median ce   : %s' % str(lmr_gis_cemean)))
 lmr_gis_cemean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_gis[indlat,:])) ))
-print('lmr-gis 60S-60N median ce    : %s' % str(lmr_gis_cemean60))
+print(('lmr-gis 60S-60N median ce    : %s' % str(lmr_gis_cemean60)))
 lmr_gis_biasmean = str(float('%.2f' % np.nanmedian(bias_lmr_gis[~np.isnan(bias_lmr_gis)]) ))
 # mean
 [rmean_global,rmean_nh,rmean_sh]    = global_hemispheric_means(r_lmr_gis,lat_GIS)
@@ -1585,7 +1585,7 @@ xbm_gis_biasmean_global = str(float('%.2f' %biasmean_global[0]))
 xbm_gis_biasmean_nh     = str(float('%.2f' %biasmean_nh[0]))
 xbm_gis_biasmean_sh     = str(float('%.2f' %biasmean_sh[0]))
 
-print 'LMR-GIS globa-mean CE:' + str(lmr_gis_cemean_global)
+print('LMR-GIS globa-mean CE:' + str(lmr_gis_cemean_global))
 
 # ------
 # LMR_BE
@@ -1595,13 +1595,13 @@ print('')
 lat_BE = np.squeeze(lat2d_BE[:,0])
 indlat = np.where((lat_BE[:] > -60.0) & (lat_BE[:] < 60.0))
 lmr_be_rmean = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_be)) ))
-print('lmr-be all-grid median r     : %s' % str(lmr_be_rmean))
+print(('lmr-be all-grid median r     : %s' % str(lmr_be_rmean)))
 lmr_be_rmean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_be[indlat,:])) ))
-print('lmr-be 60S-60N median r      : %s' % str(lmr_be_rmean60))
+print(('lmr-be 60S-60N median r      : %s' % str(lmr_be_rmean60)))
 lmr_be_cemean = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_be)) ))
-print('lmr-be all-grid median ce    : %s' % str(lmr_be_cemean))
+print(('lmr-be all-grid median ce    : %s' % str(lmr_be_cemean)))
 lmr_be_cemean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_be[indlat,:])) ))
-print('lmr-be 60S-60N median ce     : %s' % str(lmr_be_cemean60))
+print(('lmr-be 60S-60N median ce     : %s' % str(lmr_be_cemean60)))
 lmr_be_biasmean = str(float('%.2f' % np.nanmedian(bias_lmr_be[~np.isnan(bias_lmr_be)]) ))
 # mean
 [rmean_global,rmean_nh,rmean_sh]    = global_hemispheric_means(r_lmr_be,lat_BE)
@@ -1638,13 +1638,13 @@ print('')
 lat_CRU = np.squeeze(lat2d_CRU[:,0])
 indlat = np.where((lat_CRU[:] > -60.0) & (lat_CRU[:] < 60.0))
 lmr_cru_rmean = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_cru)) ))
-print('lmr-cru all-grid median r    : %s' % str(lmr_cru_rmean))
+print(('lmr-cru all-grid median r    : %s' % str(lmr_cru_rmean)))
 lmr_cru_rmean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_cru[indlat,:])) ))
-print('lmr-cru 60S-60N median r     : %s' % str(lmr_cru_rmean60))
+print(('lmr-cru 60S-60N median r     : %s' % str(lmr_cru_rmean60)))
 lmr_cru_cemean = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_cru)) ))
-print('lmr-cru all-grid median ce   : %s' % str(lmr_cru_cemean))
+print(('lmr-cru all-grid median ce   : %s' % str(lmr_cru_cemean)))
 lmr_cru_cemean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_cru[indlat,:])) ))
-print('lmr-cru 60S-60N median ce    : %s' % str(lmr_cru_cemean60))
+print(('lmr-cru 60S-60N median ce    : %s' % str(lmr_cru_cemean60)))
 lmr_cru_biasmean = str(float('%.2f' % np.nanmedian(bias_lmr_cru[~np.isnan(bias_lmr_cru)]) ))
 # mean
 [rmean_global,rmean_nh,rmean_sh]    = global_hemispheric_means(r_lmr_cru,lat_CRU)
@@ -1681,13 +1681,13 @@ print('')
 lat_MLOST = np.squeeze(lat2d_MLOST[:,0])
 indlat = np.where((lat_MLOST[:] > -60.0) & (lat_MLOST[:] < 60.0))
 lmr_mlost_rmean = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_mlost)) ))
-print('lmr-mlost all-grid median r  : %s' % str(lmr_mlost_rmean))
+print(('lmr-mlost all-grid median r  : %s' % str(lmr_mlost_rmean)))
 lmr_mlost_rmean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(r_lmr_mlost[indlat,:])) ))
-print('lmr-mlost 60S-60N median r   : %s' % str(lmr_mlost_rmean60))
+print(('lmr-mlost 60S-60N median r   : %s' % str(lmr_mlost_rmean60)))
 lmr_mlost_cemean = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_mlost)) ))
-print('lmr-mlost all-grid median ce : %s' % str(lmr_mlost_cemean))
+print(('lmr-mlost all-grid median ce : %s' % str(lmr_mlost_cemean)))
 lmr_mlost_cemean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_lmr_mlost[indlat,:])) ))
-print('lmr-mlost 60S-60N median ce  : %s' % str(lmr_mlost_cemean60))
+print(('lmr-mlost 60S-60N median ce  : %s' % str(lmr_mlost_cemean60)))
 lmr_mlost_biasmean = str(float('%.2f' % np.nanmedian(bias_lmr_mlost[~np.isnan(bias_lmr_mlost)]) ))
 # mean
 [rmean_global,rmean_nh,rmean_sh]    = global_hemispheric_means(r_lmr_mlost,lat_MLOST)
@@ -1724,13 +1724,13 @@ print('')
 lat_GIS = np.squeeze(lat2d_GIS[:,0])
 indlat = np.where((lat_GIS[:] > -60.0) & (lat_GIS[:] < 60.0))
 tcr_gis_rmean = str(float('%.2f' % np.nanmedian(np.nanmedian(r_tcr_gis)) ))
-print('tcr-gis all-grid median r    : %s' % str(tcr_gis_rmean))
+print(('tcr-gis all-grid median r    : %s' % str(tcr_gis_rmean)))
 tcr_gis_rmean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(r_tcr_gis[indlat,:])) ))
-print('tcr-gis 60S-60N median r     : %s' % str(tcr_gis_rmean60))
+print(('tcr-gis 60S-60N median r     : %s' % str(tcr_gis_rmean60)))
 tcr_gis_cemean = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_tcr_gis)) ))
-print('tcr-gis all-grid median ce   : %s' % str(tcr_gis_cemean))
+print(('tcr-gis all-grid median ce   : %s' % str(tcr_gis_cemean)))
 tcr_gis_cemean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_tcr_gis[indlat,:])) ))
-print('tcr-gis 60S-60N median ce    : %s' % str(tcr_gis_cemean60))
+print(('tcr-gis 60S-60N median ce    : %s' % str(tcr_gis_cemean60)))
 tcr_gis_biasmean = str(float('%.2f' % np.nanmedian(bias_tcr_gis[~np.isnan(bias_tcr_gis)]) ))
 # mean
 [rmean_global,rmean_nh,rmean_sh]    = global_hemispheric_means(r_tcr_gis,lat_GIS)
@@ -1754,13 +1754,13 @@ print('')
 lat_GIS = np.squeeze(lat2d_GIS[:,0])
 indlat = np.where((lat_GIS[:] > -60.0) & (lat_GIS[:] < 60.0))
 era_gis_rmean = str(float('%.2f' % np.nanmedian(np.nanmedian(r_era_gis)) ))
-print('era-gis all-grid median r    : %s' % str(era_gis_rmean))
+print(('era-gis all-grid median r    : %s' % str(era_gis_rmean)))
 era_gis_rmean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(r_era_gis[indlat,:])) ))
-print('era-gis 60S-60N median r     : %s' % str(era_gis_rmean60))
+print(('era-gis 60S-60N median r     : %s' % str(era_gis_rmean60)))
 era_gis_cemean = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_era_gis)) ))
-print('era-gis all-grid median ce   : %s' % str(era_gis_cemean))
+print(('era-gis all-grid median ce   : %s' % str(era_gis_cemean)))
 era_gis_cemean60 = str(float('%.2f' % np.nanmedian(np.nanmedian(ce_era_gis[indlat,:])) ))
-print('era-gis 60S-60N median ce    : %s' % str(era_gis_cemean60))
+print(('era-gis 60S-60N median ce    : %s' % str(era_gis_cemean60)))
 era_gis_biasmean = str(float('%.2f' % np.nanmedian(bias_era_gis[~np.isnan(bias_era_gis)]) ))
 
 print('')
@@ -2484,12 +2484,12 @@ for yr in cyears:
     lmr_err_vs_tcr[k,:,:] =  pdata_lmr - tcr_on_lmr[k,:,:]
 
 
-print(np.shape(lmr_err_vs_tcr))
-print(np.shape(xam_var))
+print((np.shape(lmr_err_vs_tcr)))
+print((np.shape(xam_var)))
 LMR_smatch, LMR_ematch = find_date_indices(LMR_time,trange[0],trange[1])
 svar = xam_var[LMR_smatch:LMR_ematch,:,:]
 calib_tcr = lmr_err_vs_tcr.var(0)/svar.mean(0)
-print(calib_tcr[0:-1,:].mean())
+print((calib_tcr[0:-1,:].mean()))
 
 
 # create the plot
@@ -2629,6 +2629,6 @@ if stat_save:
 
     # dump the dictionary to a pickle file
     spfile = nexp+'_'+str(niters)+'_iters_grid_verification.pckl'
-    print 'writing statistics to pickle file: ' + spfile
+    print('writing statistics to pickle file: ' + spfile)
     outfile = open(spfile,'w')
-    cPickle.dump(grid_verification_stats,outfile)
+    pickle.dump(grid_verification_stats,outfile)

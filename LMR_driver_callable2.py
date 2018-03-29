@@ -68,12 +68,12 @@ import numpy as np
 from os.path import join
 from time import time
 
-import LMR_proxy2
-import LMR_gridded
-from LMR_utils2 import global_mean2
-import LMR_config as BaseCfg
-import LMR_forecaster
-from LMR_DA import enkf_update_array_xb_blend, cov_localization
+from . import LMR_proxy2
+from . import LMR_gridded
+from .LMR_utils2 import global_mean2
+from . import LMR_config as BaseCfg
+from . import LMR_forecaster
+from .LMR_DA import enkf_update_array_xb_blend, cov_localization
 
 
 # *** Helper Methods
@@ -118,13 +118,13 @@ def LMR_driver_callable(cfg=None):
     # ==========================================================================
     # TODO: AP Logging instead of print statements
     if verbose > 0:
-        print ''
-        print '====================================================='
-        print 'Running LMR reconstruction...'
-        print '====================================================='
-        print 'Name of experiment: ', nexp
-        print ' Monte Carlo iter : ', core_cfg.curr_iter
-        print ''
+        print('')
+        print('=====================================================')
+        print('Running LMR reconstruction...')
+        print('=====================================================')
+        print('Name of experiment: ', nexp)
+        print(' Monte Carlo iter : ', core_cfg.curr_iter)
+        print('')
         
     begin_time = time()
 
@@ -137,23 +137,23 @@ def LMR_driver_callable(cfg=None):
     # Load prior data ----------------------------------------------------------
     # ==========================================================================
     if verbose > 0:
-        print '-------------------------------------------'
-        print 'Uploading gridded (model) data as prior ...'
-        print '-------------------------------------------'
-        print 'Source for prior: ', prior_cfg.prior_source
+        print('-------------------------------------------')
+        print('Uploading gridded (model) data as prior ...')
+        print('-------------------------------------------')
+        print('Source for prior: ', prior_cfg.prior_source)
 
     # Create initial state vector of desired variables at smallest time res
     Xb_one = LMR_gridded.State.from_config(prior_cfg)
 
     load_time = time() - begin_time
     if verbose > 2:
-        print '-----------------------------------------------------'
-        print 'Loading completed in ' + str(load_time)+' seconds'
-        print '-----------------------------------------------------'
+        print('-----------------------------------------------------')
+        print('Loading completed in ' + str(load_time)+' seconds')
+        print('-----------------------------------------------------')
 
     # check covariance inflation from config
     if inflation_fact is not None and verbose > 2:
-        print('\nUsing covariance inflation factor: %8.2f' %inflate)
+        print(('\nUsing covariance inflation factor: %8.2f' %inflate))
 
     # ==========================================================================
     # Calculate regridded state from prior, if option chosen -------------------
@@ -174,10 +174,10 @@ def LMR_driver_callable(cfg=None):
 
     begin_time_proxy_load = time()
     if verbose > 0:
-        print ''
-        print '-----------------------------------'
-        print 'Uploading proxy data & PSM info ...'
-        print '-----------------------------------'
+        print('')
+        print('-----------------------------------')
+        print('Uploading proxy data & PSM info ...')
+        print('-----------------------------------')
 
     # Build dictionaries of proxy sites to assimilate and those set aside for
     # verification
@@ -188,19 +188,19 @@ def LMR_driver_callable(cfg=None):
     assim_proxy_count = len(prox_manager.ind_assim)
 
     if verbose > 0:
-        print 'Assimilating proxy types/sites:', type_site_assim
-        print '--------------------------------------------------------------------'
-        print 'Proxy counts for experiment:'
-        for pkey, plist in sorted(type_site_assim.iteritems()):
-            print('%45s : %5d' % (pkey, len(plist)))
-        print('%45s : %5d' % ('TOTAL', assim_proxy_count))
-        print '--------------------------------------------------------------------'
+        print('Assimilating proxy types/sites:', type_site_assim)
+        print('--------------------------------------------------------------------')
+        print('Proxy counts for experiment:')
+        for pkey, plist in sorted(type_site_assim.items()):
+            print(('%45s : %5d' % (pkey, len(plist))))
+        print(('%45s : %5d' % ('TOTAL', assim_proxy_count)))
+        print('--------------------------------------------------------------------')
 
     if verbose > 2:
         proxy_load_time = time() - begin_time_proxy_load
-        print '-----------------------------------------------------'
-        print 'Loading completed in ' + str(proxy_load_time) + ' seconds'
-        print '-----------------------------------------------------'
+        print('-----------------------------------------------------')
+        print('Loading completed in ' + str(proxy_load_time) + ' seconds')
+        print('-----------------------------------------------------')
 
     # ----------------------------------
     # Augment state vector with the Ye's
@@ -233,7 +233,7 @@ def LMR_driver_callable(cfg=None):
 
     # Initialize forecaster for online reconstructions
     if online:
-        print '\n Initializing LMR forecasting for online reconstruction'
+        print('\n Initializing LMR forecasting for online reconstruction')
         key = cfg.forecaster.use_forecaster
         fcastr_class = LMR_forecaster.get_forecaster_class(key)
         forecaster = fcastr_class(cfg.forecaster)
@@ -274,7 +274,7 @@ def LMR_driver_callable(cfg=None):
     for iyr, t in enumerate(assim_times):
 
         if verbose > 0:
-            print 'working on year: ' + str(t)
+            print('working on year: ' + str(t))
             # Store original annual for hybrid update
         if hybrid_update:
             if iyr == 0:
@@ -323,15 +323,15 @@ def LMR_driver_callable(cfg=None):
                 continue
 
             if verbose > 1:
-                print '--------------- Processing proxy: ' + Y.id
+                print('--------------- Processing proxy: ' + Y.id)
             if verbose > 2:
-                print 'Site:', Y.id, ':', Y.type
-                print ' latitude, longitude: ' + str(Y.lat), str(Y.lon)
+                print('Site:', Y.id, ':', Y.type)
+                print(' latitude, longitude: ' + str(Y.lat), str(Y.lon))
 
             loc = None
             if loc_rad is not None:
                 if verbose > 2:
-                    print '...computing localization...'
+                    print('...computing localization...')
                     raise NotImplementedError('Covariance localization'
                                               ' not properly implemented'
                                               ' yet.')
@@ -356,9 +356,9 @@ def LMR_driver_callable(cfg=None):
             # Do the update (assimilation) ---------------------------------
             # --------------------------------------------------------------
             if verbose > 2:
-                print ('updating time: ' + str(t) + ' proxy value : ' +
+                print(('updating time: ' + str(t) + ' proxy value : ' +
                        str(Y.values[t]) + ' | mean prior proxy estimate: ' +
-                       str(Ye.mean()))
+                       str(Ye.mean())))
 
             # Get static Ye for hybrid update
             if hybrid_update:
@@ -435,10 +435,10 @@ def LMR_driver_callable(cfg=None):
 
     # End of loop on proxy types
     if verbose > 0:
-        print ''
-        print '====================================================='
-        print 'Reconstruction completed in ' + str(end_time/60.0)+' mins'
-        print '====================================================='
+        print('')
+        print('=====================================================')
+        print('Reconstruction completed in ' + str(end_time/60.0)+' mins')
+        print('=====================================================')
 
     if online:
         # Save prior ensemble variance
@@ -469,8 +469,8 @@ def LMR_driver_callable(cfg=None):
              shmt_ensemble=shmt_ensemble, recon_times=recon_times)
 
     # save global mean temperature history and the proxies assimilated
-    print ('saving global mean temperature update history and ',
-           'assimilated proxies...')
+    print(('saving global mean temperature update history and ',
+           'assimilated proxies...'))
     filen = join(workdir, 'gmt')
     np.savez(filen, gmt_save=gmt_save, nhmt_save=nhmt_save, shmt_save=shmt_save,
              recon_times=recon_times,
@@ -494,10 +494,10 @@ def LMR_driver_callable(cfg=None):
 
     exp_end_time = time() - begin_time
     if verbose > 0:
-        print ''
-        print '====================================================='
-        print 'Experiment completed in ' + str(exp_end_time/60.0) + ' mins'
-        print '====================================================='
+        print('')
+        print('=====================================================')
+        print('Experiment completed in ' + str(exp_end_time/60.0) + ' mins')
+        print('=====================================================')
 
     # TODO: best method for Ye saving?
     return (prox_manager.sites_assim_proxy_objs(),

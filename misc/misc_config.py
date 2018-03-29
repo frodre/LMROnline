@@ -108,7 +108,7 @@ class core:
     # If shifting on smaller time scales than smallest time chunk it becomes
     # the base resolution
     sub_base_res = assimilation_time_res[0]
-    for res, shift in res_yr_shift.iteritems():
+    for res, shift in res_yr_shift.items():
         if (res in assimilation_time_res and
            shift < sub_base_res and
            shift != 0.0):
@@ -233,7 +233,7 @@ class proxies:
 
         # Create mapping for Proxy Type/Measurement Type to type names above
         proxy_type_mapping = {}
-        for type, measurements in proxy_assim2.iteritems():
+        for type, measurements in proxy_assim2.items():
             # Fetch proxy type name that occurs before underscore
             type_name = type.split('_', 1)[0]
             for measure in measurements:

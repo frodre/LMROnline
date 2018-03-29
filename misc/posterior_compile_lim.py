@@ -3,7 +3,7 @@ import glob
 import numpy as np
 import netCDF4 as ncf
 
-from itertools import izip
+
 
 
 def compile_posterior_for_lim(dir, varnames):
@@ -26,7 +26,7 @@ def compile_posterior_for_lim(dir, varnames):
             tmp = np.load(ens_file)
             time = tmp['years']
 
-            if 'lat' in tmp.keys() and 'lon' in tmp.keys():
+            if 'lat' in list(tmp.keys()) and 'lon' in list(tmp.keys()):
                 lat = tmp['lat']
                 lon = tmp['lon']
                 sptl_len += lat.size
@@ -40,9 +40,9 @@ def compile_posterior_for_lim(dir, varnames):
 
     ens_out = np.zeros((len(iter_fldrs), len(time), sptl_len))
 
-    for k, (fldr, ens_itr_out) in enumerate(izip(iter_fldrs, ens_out)):
+    for k, (fldr, ens_itr_out) in enumerate(zip(iter_fldrs, ens_out)):
 
-        print 'Processing iteration {:d}/{:d}'.format(k+1, len(iter_fldrs))
+        print('Processing iteration {:d}/{:d}'.format(k+1, len(iter_fldrs)))
 
         ens_file = opth.join(fldr, ens_filename)
         var_start = 0

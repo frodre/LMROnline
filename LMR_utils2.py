@@ -22,7 +22,7 @@ import glob
 import os
 import numpy as np
 import re
-import cPickle
+import pickle
 import collections
 import copy
 import tables as tb
@@ -58,7 +58,7 @@ def haversine(lon1, lat1, lon2, lat2):
     """
 
     # convert decimal degrees to radians 
-    lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
+    lon1, lat1, lon2, lat2 = list(map(np.radians, [lon1, lat1, lon2, lat2]))
     # haversine formula 
     dlon = lon2 - lon1 
     dlat = lat2 - lat1 
@@ -87,7 +87,7 @@ def get_distance(lon_pt, lat_pt, lon_ref, lat_ref):
     """
 
     # Convert decimal degrees to radians
-    lon_pt, lat_pt, lon_ref, lat_ref = map(np.radians, [lon_pt, lat_pt, lon_ref, lat_ref])
+    lon_pt, lat_pt, lon_ref, lat_ref = list(map(np.radians, [lon_pt, lat_pt, lon_ref, lat_ref]))
 
     # check dimension of lon_ref and lat_ref
     dims_ref = len(lon_ref.shape)
@@ -105,7 +105,7 @@ def get_distance(lon_pt, lat_pt, lon_ref, lat_ref):
         lats = lat_ref
         lons = lon_ref
     else:
-        print 'ERROR in get_distance!'
+        print('ERROR in get_distance!')
         raise SystemExit()
 
     # Haversine formula using arrays as input
@@ -189,7 +189,7 @@ def get_data_closest_gridpt(data,lon_data,lat_data,lon_pt,lat_pt,getvalid=None):
                 #test_valid = np.isfinite(data[:,inds])
                 test_valid = np.isfinite(data[inds,:])
             else:
-                print 'ERROR in distance calc in get_data_closest_gridpt!'
+                print('ERROR in distance calc in get_data_closest_gridpt!')
                 raise SystemExit(1)
             if np.all(test_valid): valid = True
             i +=1
@@ -425,9 +425,9 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
     nyears = len(sfiles)
 
     # loop on state variables 
-    for var in state_info.keys():
+    for var in list(state_info.keys()):
 
-        print 'State variable:', var
+        print('State variable:', var)
 
         ibeg = state_info[var]['pos'][0]
         iend = state_info[var]['pos'][1]
@@ -601,29 +601,29 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
 
             # (full) ensemble to file for this variable type
             filen = workdir + '/ensemble_full_' + var
-            print 'writing the new ensemble file' + filen
+            print('writing the new ensemble file' + filen)
             np.savez(filen, **vars_to_save_ens)
 
 
         else:
-            print 'ERROR in ensemble_stats: Variable of unrecognized (space) dimensions! Skipping variable:', var
+            print('ERROR in ensemble_stats: Variable of unrecognized (space) dimensions! Skipping variable:', var)
             continue
 
 
         if (state_info[var]['vartype'] != '0D:time series') and save_full_field:
             filen = workdir + '/ensemble_full_' + var
-            print 'writing the new ensemble file' + filen
+            print('writing the new ensemble file' + filen)
             np.savez(filen, **vars_to_save_ens)
 
         # --- Write data to files ---
         # ens. mean to file
         filen = workdir + '/ensemble_mean_' + var
-        print 'writing the new ensemble mean file...' + filen
+        print('writing the new ensemble mean file...' + filen)
         np.savez(filen, **vars_to_save_mean)
 
         # ens. variance to file
         filen = workdir + '/ensemble_variance_' + var
-        print 'writing the new ensemble variance file...' + filen
+        print('writing the new ensemble variance file...' + filen)
         np.savez(filen, **vars_to_save_var)
 
     # --------------------------------------------------------
@@ -716,7 +716,7 @@ def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, sav
         # Dump dictionary to pickle file
         # using protocol 2 for more efficient storing
         outfile = open('{}/analysis_Ye.pckl'.format(workdir), 'w')
-        cPickle.dump(YeDict, outfile, protocol=2)
+        pickle.dump(YeDict, outfile, protocol=2)
         outfile.close()
 
     return
@@ -787,12 +787,12 @@ def regrid_simple(Nens, X, X_coords, ind_lat, ind_lon, ntrunc):
     xs, ys, zs = lon_lat_to_cartesian(lons, lats)
 
     # cKDtree object of source grid
-    tree = cKDTree(zip(xs, ys, zs))
+    tree = cKDTree(list(zip(xs, ys, zs)))
 
     # inverse distance weighting (N pts)
     N = 20
     fracvalid = 0.7
-    d, inds = tree.query(zip(xt, yt, zt), k=N)
+    d, inds = tree.query(list(zip(xt, yt, zt)), k=N)
     L = 200.
     w = np.exp(-np.square(d) / np.square(L))
 
@@ -917,7 +917,7 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
         do_reshape = False
 
     if masked_regrid:
-        print 'Mask detected.  Adding mask to src ESMF grid'
+        print('Mask detected.  Adding mask to src ESMF grid')
         grid_mask = grid.add_item(ESMF.GridItem.MASK)
         X_mask = X[0].mask.astype(np.int16)
 
@@ -976,7 +976,7 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
                             unmapped_action=ESMF.UnmappedAction.IGNORE)
 
     # Regrid each ensemble member
-    for k in xrange(X_nens):
+    for k in range(X_nens):
         grid_data = X[k]
         if lon_shift:
             grid_data = np.roll(grid_data, lon_shift, axis=1)
@@ -1041,9 +1041,9 @@ def regrid_esmpy_grid_object(target_nlat, target_nlon,
     """
 
     print ('Regridding using ESMPy....')
-    print ('    interpolation method: {}'.format(interp_method))
-    print ('    target grid: nlat={}, nlon={}'.format(target_nlat,
-                                                      target_nlon))
+    print(('    interpolation method: {}'.format(interp_method)))
+    print(('    target grid: nlat={}, nlon={}'.format(target_nlat,
+                                                      target_nlon)))
 
     if grid_obj.lat_grid is None or grid_obj.lon_grid is None:
         lon_grid, lat_grid = np.meshgrid(grid_obj.lon, grid_obj.lat)
@@ -1186,8 +1186,8 @@ def regrid_sphere_gridded_object(grid_obj, ntrunc):
     specob_new = Spharmt(nlon_new, nlat_new, gridtype='regular',
                          legfunc='computed')
 
-    print ('Regridding using spherical harmonics to target grid: nlat={}, '
-           'nlon={}'.format(nlat_new, nlon_new))
+    print(('Regridding using spherical harmonics to target grid: nlat={}, '
+           'nlon={}'.format(nlat_new, nlon_new)))
 
     # transform each ensemble member, one at a time
     gridded_new = np.zeros((len(grid_obj.time), nlat_new, nlon_new))
@@ -1335,7 +1335,7 @@ def assimilated_proxies(workdir):
 
     ptypes = {}
     for rec in range(nrecords):
-        key = assimilated_proxies[rec].keys()[0]
+        key = list(assimilated_proxies[rec].keys())[0]
         if key in ptypes:
             pc = ptypes[key]
             ptypes[key] = pc + 1
@@ -1400,7 +1400,7 @@ def coefficient_efficiency(ref,test,valid=None):
     elif len(dims_ref) == 1: # 1D: time series
         dims = 1
     else:
-        print 'Problem with input array dimension! Exiting...'
+        print('Problem with input array dimension! Exiting...')
         exit(1)
 
     #print 'dims CE: ', dims
@@ -1574,7 +1574,7 @@ def global_hemispheric_means(field, lat):
     indok    = np.isfinite(field)
     indok_nh = np.isfinite(field_NH)
     indok_sh = np.isfinite(field_SH)
-    for t in xrange(ntime):
+    for t in range(ntime):
         if lati == 0:
             # Global
             gm[t]  = np.average(field[indok],weights=W[indok])
@@ -1692,8 +1692,8 @@ def PAGES2K_regional_means(field,lat,lon):
         field = field[None,:] # add time dim of size 1 for consistent array dims
 
     if debug:
-        print 'field dimensions...'
-        print np.shape(field)
+        print('field dimensions...')
+        print(np.shape(field))
 
     # define regions as in PAGES paper
 
@@ -1733,14 +1733,14 @@ def PAGES2K_regional_means(field,lat,lon):
     for region in range(nregions):
 
         if debug:
-            print 'region='+str(region)
-            print rlat[region,0],rlat[region,1],rlon[region,0],rlon[region,1]
+            print('region='+str(region))
+            print(rlat[region,0],rlat[region,1],rlon[region,0],rlon[region,1])
 
         # regional weighting (ones in region; zeros outside)
         mask = regional_mask(lat,lon,rlat[region,0],rlat[region,1],rlon[region,0],rlon[region,1])
         if debug:
-            print 'mask='
-            print mask
+            print('mask=')
+            print(mask)
 
         # this is the weight mask for the regional domain
         Wmask = np.multiply(mask,W)
@@ -1753,7 +1753,7 @@ def PAGES2K_regional_means(field,lat,lon):
         # Check for valid (non-NAN) values & use numpy average function (includes weighted avg calculation)
         # Get arrays indices of valid values
         indok    = np.isfinite(field)
-        for t in xrange(ntime):
+        for t in range(ntime):
             indok_2d = indok[t,:,:]
             field_2d = np.squeeze(field[t,:,:])
             if np.max(Wmask) >0.:
@@ -1770,7 +1770,7 @@ def class_docs_fixer(cls):
             if parent.__doc__:
                 cls.__doc__ = parent.__doc__
 
-    for name, func in vars(cls).items():
+    for name, func in list(vars(cls).items()):
         if not func.__doc__ or '%%aug%%' in func.__doc__:
             for parent in cls.__bases__:
                 if hasattr(parent, name):
@@ -1788,7 +1788,7 @@ def class_docs_fixer(cls):
 
 def augment_docstr(func):
     """ Decorator to mark augmented function docstrings. """
-    func.func_doc = '%%aug%%' + func.func_doc
+    func.__doc__ = '%%aug%%' + func.__doc__
     return func
 
 
@@ -1948,11 +1948,11 @@ def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set,
 
         pkind = None
         if psm_key == 'linear':
-            pkind = config.psm.linear.psm_required_variables.values()[0]
+            pkind = list(config.psm.linear.psm_required_variables.values())[0]
         elif psm_key == 'linear_TorP':
-            pkind = config.psm.linear_TorP.psm_required_variables.values()[0]
+            pkind = list(config.psm.linear_TorP.psm_required_variables.values())[0]
         elif psm_key == 'bilinear':
-            pkind = config.psm.bilinear.psm_required_variables.values()[0]
+            pkind = list(config.psm.bilinear.psm_required_variables.values())[0]
         elif psm_key == 'h_interp':
             if config.proxies.proxy_timeseries_kind == 'asis':
                 pkind = 'full'
@@ -1967,7 +1967,7 @@ def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set,
             raise ValueError('Unrecognized PSM key.')
 
         load_fname = create_precalc_ye_filename(config, psm_key, pkind)
-        print '  Loading file:', load_fname
+        print('  Loading file:', load_fname)
         # check if file exists
         if not os.path.isfile(os.path.join(load_dir, load_fname)):
             print ('  ERROR: File does not exist!'
@@ -1977,7 +1977,7 @@ def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set,
             raise SystemExit()
         precalc_files[psm_key] = np.load(os.path.join(load_dir, load_fname))
 
-    print '  Now extracting proxy type-dependent Ye values...'
+    print('  Now extracting proxy type-dependent Ye values...')
     if proxy_set == 'assim':
         for i, pobj in enumerate(proxy_manager.sites_assim_proxy_objs()):
             psm_key = pobj.psm_obj.psm_key
@@ -2001,7 +2001,7 @@ def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set,
             ye_all_coords[i, :] = np.asarray([pobj.lat, pobj.lon],
                                              dtype=np.float64)
 
-    print '  Completed in ', time() - begin_load, 'secs'
+    print('  Completed in ', time() - begin_load, 'secs')
 
     return ye_all, ye_all_coords
 
@@ -2043,11 +2043,11 @@ def load_precalculated_ye_vals_psm_per_proxy_onlyobjs(config, proxy_objs,
 
         pkind = None
         if psm_key == 'linear':
-            pkind = config.psm.linear.psm_required_variables.values()[0]
+            pkind = list(config.psm.linear.psm_required_variables.values())[0]
         elif psm_key == 'linear_TorP':
-            pkind = config.psm.linear_TorP.psm_required_variables.values()[0]
+            pkind = list(config.psm.linear_TorP.psm_required_variables.values())[0]
         elif psm_key == 'bilinear':
-            pkind = config.psm.bilinear.psm_required_variables.values()[0]
+            pkind = list(config.psm.bilinear.psm_required_variables.values())[0]
         elif psm_key == 'h_interp':
             if config.proxies.proxy_timeseries_kind == 'asis':
                 pkind = 'full'
@@ -2062,7 +2062,7 @@ def load_precalculated_ye_vals_psm_per_proxy_onlyobjs(config, proxy_objs,
             raise ValueError('Unrecognized PSM key.')
 
         load_fname = create_precalc_ye_filename(config, psm_key, pkind)
-        print '  Loading file:', load_fname
+        print('  Loading file:', load_fname)
         # check if file exists
         if not os.path.isfile(os.path.join(load_dir, load_fname)):
             print ('  ERROR: File does not exist!'
@@ -2072,7 +2072,7 @@ def load_precalculated_ye_vals_psm_per_proxy_onlyobjs(config, proxy_objs,
             raise SystemExit()
         precalc_files[psm_key] = np.load(os.path.join(load_dir, load_fname))
 
-    print '  Now extracting proxy type-dependent Ye values...'
+    print('  Now extracting proxy type-dependent Ye values...')
     # for i, pobj in enumerate(proxy_manager.sites_assim_proxy_objs()):
     for i, pobj in enumerate(proxy_objs):
         psm_key = pobj.psm_obj.psm_key
@@ -2084,7 +2084,7 @@ def load_precalculated_ye_vals_psm_per_proxy_onlyobjs(config, proxy_objs,
 
         ye_all_coords[i, :] = np.asarray([pobj.lat, pobj.lon], dtype=np.float64)
 
-    print '  Completed in ', time() - begin_load, 'secs'
+    print('  Completed in ', time() - begin_load, 'secs')
 
     return ye_all, ye_all_coords
 
@@ -2172,7 +2172,7 @@ def validate_config(config):
 
     # Forming list of required state variables
     psmclasses = dict(
-        [(name, cls) for name, cls in config.psm.__dict__.items()])
+        [(name, cls) for name, cls in list(config.psm.__dict__.items())])
     psm_required_variables = []
     for psm_type in psm_keys:
         # print psm_type, ':', psmclasses[psm_type].psm_required_variables
@@ -2184,7 +2184,7 @@ def validate_config(config):
     proceed_ok = True
 
     # Begin checking configuration
-    print 'Checking configuration ... '
+    print('Checking configuration ... ')
 
     # Conditions when use_precalc_ye = False
     if not config.core.use_precalc_ye:
@@ -2192,8 +2192,8 @@ def validate_config(config):
         # 1) Check whether all variables needed by PSMs are in prior.state_variables
 
         for psm_required_var in psm_required_variables:
-            if psm_required_var not in config.prior.state_variables.keys():
-                print ' ERROR: Missing state variable:', psm_required_var
+            if psm_required_var not in list(config.prior.state_variables.keys()):
+                print(' ERROR: Missing state variable:', psm_required_var)
                 print (' Could not calculate required ye_values from prior.'
                        ' Add the required variable to the state variable'
                        ' list -- OR -- run the precalc file builder:'
@@ -2232,17 +2232,17 @@ def validate_config(config):
     # For every PSM class to be used
     for psm_type in psm_keys:
 
-        required_variables = psmclasses[psm_type].psm_required_variables.keys()
+        required_variables = list(psmclasses[psm_type].psm_required_variables.keys())
         for var in required_variables:
-            if var in config.prior.state_variables.keys():
+            if var in list(config.prior.state_variables.keys()):
                 if psmclasses[psm_type].psm_required_variables[var] != \
                         config.prior.state_variables[var]:
-                    print (' ERROR: Conflict detected in configuration :'
+                    print((' ERROR: Conflict detected in configuration :'
                            ' Selected variable kind for var=' + var + ' (' +
                            config.prior.state_variables[var] + ')'
                                                                ' is incompatible with requirements of ' + psm_type + ' PSM ('
                            + psmclasses[psm_type].psm_required_variables[
-                               var] + ') using this variable as input')
+                               var] + ') using this variable as input'))
                     proceed_ok = False
 
     return proceed_ok
@@ -2265,7 +2265,7 @@ def _param_str_to_update_dict(param_str, value):
 
 
 def nested_dict_update(orig_dict, update_dict):
-    for key, val in update_dict.iteritems():
+    for key, val in update_dict.items():
         if isinstance(val, collections.Mapping):
             res = nested_dict_update(orig_dict.get(key, {}), val)
             orig_dict[key] = res
@@ -2366,8 +2366,8 @@ def PAGES2K_regional_means(field, lat, lon):
                 :]  # add time dim of size 1 for consistent array dims
 
     if debug:
-        print 'field dimensions...'
-        print np.shape(field)
+        print('field dimensions...')
+        print(np.shape(field))
 
     # define regions as in PAGES paper
 
@@ -2422,16 +2422,16 @@ def PAGES2K_regional_means(field, lat, lon):
     for region in range(nregions):
 
         if debug:
-            print 'region=' + str(region)
-            print rlat[region, 0], rlat[region, 1], rlon[region, 0], rlon[
-                region, 1]
+            print('region=' + str(region))
+            print(rlat[region, 0], rlat[region, 1], rlon[region, 0], rlon[
+                region, 1])
 
         # regional weighting (ones in region; zeros outside)
         mask = regional_mask(lat, lon, rlat[region, 0], rlat[region, 1],
                              rlon[region, 0], rlon[region, 1])
         if debug:
-            print 'mask='
-            print mask
+            print('mask=')
+            print(mask)
 
         # this is the weight mask for the regional domain
         Wmask = np.multiply(mask, W)
@@ -2444,7 +2444,7 @@ def PAGES2K_regional_means(field, lat, lon):
         # Check for valid (non-NAN) values & use numpy average function (includes weighted avg calculation)
         # Get arrays indices of valid values
         indok = np.isfinite(field)
-        for t in xrange(ntime):
+        for t in range(ntime):
             indok_2d = indok[t, :, :]
             field_2d = np.squeeze(field[t, :, :])
             if np.max(Wmask) > 0.:

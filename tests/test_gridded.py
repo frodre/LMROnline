@@ -10,7 +10,7 @@ import numpy as np
 import netCDF4 as ncf
 import os
 import random
-from itertools import izip
+
 
 
 
@@ -53,7 +53,7 @@ def test_gridded_data_no_abstract_instance():
     Test abstract variable instantiation fails
     """
     lmrgrid.GriddedVariable('tas', ['time', 'lat', 'lon'], np.zeros((3, 3, 3)),
-                            [1.0], time=range(3), lat=range(3), lon=range(3))
+                            [1.0], time=list(range(3)), lat=list(range(3)), lon=list(range(3)))
 
 
 def test_priorvar_init(ncf_data):
@@ -196,10 +196,10 @@ def test_priorvar_flattened(ncf_data):
     longrd, latgrd = np.meshgrid(lon[:], lat[:])
     flat = data[:].reshape(data.shape[0], np.product(data.shape[1:]))
 
-    assert 'lat' in flat_coords.keys()
-    assert 'lon' in flat_coords.keys()
-    assert 'time' not in flat_coords.keys()
-    assert 'lev' not in flat_coords.keys()
+    assert 'lat' in list(flat_coords.keys())
+    assert 'lon' in list(flat_coords.keys())
+    assert 'time' not in list(flat_coords.keys())
+    assert 'lev' not in list(flat_coords.keys())
     assert data.shape[0] == flat_dat.shape[0]
     np.testing.assert_array_equal(flat, flat_dat)
     np.testing.assert_array_equal(longrd.flatten(), flat_coords['lon'])
@@ -207,7 +207,7 @@ def test_priorvar_flattened(ncf_data):
 
 
 def test_gridded_var_sample_gen():
-    sample = random.sample(range(4), 2)
+    sample = random.sample(list(range(4)), 2)
     samplefunc = lmrgrid.GriddedVariable._sample_gen
 
     # Test sample exists already, should return same sample
@@ -222,7 +222,7 @@ def test_gridded_var_sample_gen():
 
     # Test seed
     random.seed(0)
-    sample1 = random.sample(range(10), 3)
+    sample1 = random.sample(list(range(10)), 3)
     sample2 = samplefunc(None, 10, 3, 0)
     assert sample1 == sample2
 
@@ -250,7 +250,7 @@ def test_priorvar_sample(ncf_data):
     seed = 15
     nens = 5
     random.seed(seed)
-    smp_idx = random.sample(range(len(time)), nens)
+    smp_idx = random.sample(list(range(len(time))), nens)
     dat_sample = np.zeros([nens] + list(data.shape[1:]))
     for k, idx in enumerate(smp_idx):
         dat_sample[k] = data[idx]
@@ -322,7 +322,7 @@ def test_griddedvar_timeavg_variable_resolution(resolution, ncf_dates, ncf_temps
     assert len(avg_data) == n_units
 
     start_year = ncf_dates[0].year
-    yrs = np.array([start_year + i*resolution for i in xrange(n_units)])
+    yrs = np.array([start_year + i*resolution for i in range(n_units)])
     np.testing.assert_array_equal(yrs, time_yrs)
 
     dat_shp = ncf_temps.shape
@@ -413,7 +413,7 @@ def test_priorvar_subannual_res_separation(ncf_data):
                                                   prior_var.time,
                                                   resolution)
 
-    for i, (dat, time) in enumerate(izip(new_dat, new_time)):
+    for i, (dat, time) in enumerate(zip(new_dat, new_time)):
         np.testing.assert_array_equal(time_yrs[i::2], time)
         np.testing.assert_array_equal(anom_avg_data[i::2], dat)
 
@@ -658,7 +658,7 @@ def test_priorvar_load_preavg_not_exist():
 
 @pytest.mark.parametrize('res', [0.5, 1.])
 def test_state(res):
-    import test_config
+    from . import test_config
 
     test_config.core.assimilation_time_res = [res]
     dirname = test_config.prior.datadir_prior
@@ -743,7 +743,7 @@ def test_state_backend_insert_npy_past_bounds():
     back = state.output_backend
     yrlen = len(state.state_list)
 
-    for i, k in enumerate(xrange(3, 6)):
+    for i, k in enumerate(range(3, 6)):
         tmp_state = state.state_list + k
         back.insert(tmp_state, k)
         start = i*yrlen
@@ -813,7 +813,7 @@ def test_state_backend_getxb_npy_past_bounds():
 
     tmp = [slist[2], slist[0], slist[1]]
     tmp = np.array(tmp).reshape(len(tmp)*yrlen, *tmp[0].shape[1:])
-    for i, j in enumerate(xrange(2, 4)):
+    for i, j in enumerate(range(2, 4)):
         shift = 1
         start = i * yrlen + shift
         end = start + yrlen
@@ -851,7 +851,7 @@ def test_state_backend_propagate_avg(btype):
     if btype == 'NPY':
         nyears *= 2
 
-    for i in xrange(nyears):
+    for i in range(nyears):
         state.state_list = fullyr_state
         state.propagate_avg_to_backend(i, 0)
         state.xb_from_backend(i, 1.0, 0)

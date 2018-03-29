@@ -161,12 +161,12 @@ archive_types = np.unique(metadata['Archive type'])
 for ptype in archive_types:
     archive_counts[ptype] = np.unique(metadata['Proxy measurement'][metadata['Archive type'] == ptype],return_counts=True)
 
-print "================="
-print " Archive counts:"
-print "================="
+print("=================")
+print(" Archive counts:")
+print("=================")
 for ptype in archive_types:
     for units in range(0,len(archive_counts[ptype][0])):
-        print('%25s - %23s : %3d' % (ptype, archive_counts[ptype][0][units], archive_counts[ptype][1][units]))
+        print(('%25s - %23s : %3d' % (ptype, archive_counts[ptype][0][units], archive_counts[ptype][1][units])))
 
 
 
@@ -177,7 +177,7 @@ for ptype in archive_types:
 sumnbproxies = 0
 print(' ')
 print('Proxy types for data assimilation -------------------')
-proxy_types =  proxy_def.keys()
+proxy_types =  list(proxy_def.keys())
 for ptype in sorted(proxy_types):
     latslons = []    
     latslons.append([(metadata['Lat (N)'][i],metadata['Lon (E)'][i]) for i in range(0,len(metadata['Proxy ID'])) \
@@ -194,7 +194,7 @@ for ptype in sorted(proxy_types):
 
         nbunique = len(list(set(plotlist)))
         nbsamelocations = nbproxies - nbunique        
-        print('%35s : %4d (same lats/lons: %3d)' %(ptype,nbproxies,nbsamelocations))
+        print(('%35s : %4d (same lats/lons: %3d)' %(ptype,nbproxies,nbsamelocations)))
 
         lats = np.asarray([item[0] for item in plotlist])
         lons = np.asarray([item[1] for item in plotlist])
@@ -221,7 +221,7 @@ for ptype in sorted(proxy_types):
         plt.savefig('%smap_proxies_%s_%s.png' %(output_directory,proxy_db,ptype.replace(' ','_')),bbox_inches='tight')
         #plt.show()
 
-print('%35s : %4d' %('Total',sumnbproxies))
+print(('%35s : %4d' %('Total',sumnbproxies)))
 
 
 ### ----------------------------------------------------------------------------
@@ -231,14 +231,14 @@ print('%35s : %4d' %('Total',sumnbproxies))
 # Save a list of all records with PSMs.
 records_with_psms = []
 for i in range(0,len(psms)):
-    records_with_psms.append(psms.keys()[i][1])
+    records_with_psms.append(list(psms.keys())[i][1])
 
 
 plt.style.use('ggplot')
 
 #for i in range(0,3):  # To make sample figures, use this line instead of the next line.
 for i in range(0,len(metadata['Proxy ID'])):
-    print "Proxy: ",i+1,"/",len(metadata['Proxy ID']), metadata['Proxy ID'][i]
+    print("Proxy: ",i+1,"/",len(metadata['Proxy ID']), metadata['Proxy ID'][i])
     if metadata['Proxy ID'][i] in records_with_psms: has_psm = "YES"
     else: has_psm = "NO"
     

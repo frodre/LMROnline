@@ -41,9 +41,9 @@ Revisions:
 """
 import numpy as np
 import logging
-import LMR_gridded
-import cPickle
-from LMR_utils import haversine, get_distance, smooth2D, get_data_closest_gridpt, class_docs_fixer
+from . import LMR_gridded
+import pickle
+from .LMR_utils import haversine, get_distance, smooth2D, get_data_closest_gridpt, class_docs_fixer
 
 import pandas as pd
 from scipy.stats import linregress
@@ -62,7 +62,7 @@ import scipy.interpolate as interpolate
 # Logging output utility, configuration controlled by driver
 logger = logging.getLogger(__name__)
 
-class BasePSM:
+class BasePSM(metaclass=ABCMeta):
     """
     Proxy system model.
 
@@ -75,7 +75,6 @@ class BasePSM:
     psm_kwargs: dict (unpacked)
         Specfic arguments for the target PSM
     """
-    __metaclass__ = ABCMeta
 
     def __init__(self, config, proxy_obj, **psm_kwargs):
         self.lat = None
@@ -241,7 +240,7 @@ class LinearPSM(BasePSM):
 
         self.datainfo_calib = linear_psm_cfg.datainfo_calib
         self.psm_vartype = self.datainfo_calib['psm_vartype']
-        self.sensitivity = self.psm_vartype.keys()[0]
+        self.sensitivity = list(self.psm_vartype.keys())[0]
 
         try:
             # Try using pre-calibrated psm_data
@@ -256,7 +255,7 @@ class LinearPSM(BasePSM):
 
             # check if seasonality defined in the psm data
             # if it is, return as an attribute
-            if 'Seasonality' in psm_site_data.keys():
+            if 'Seasonality' in list(psm_site_data.keys()):
                 self.seasonality = psm_site_data['Seasonality']
 
         except KeyError as e:
@@ -272,7 +271,7 @@ class LinearPSM(BasePSM):
             # The Proxy2 loadall function will see that this is set
             # and hold the object there (reseting _calib_object to None) until
             # all proxies are loaded
-            print 'No pre-calibration found for {}'.format(proxy_obj.id)
+            print('No pre-calibration found for {}'.format(proxy_obj.id))
             if not on_the_fly_calib:
                 raise e
             else:
@@ -404,7 +403,7 @@ class LinearPSM(BasePSM):
             # Consider the seasonality of the proxy record
             avgMonths =  proxy.seasonality
         else:
-            print 'ERROR: Unrecognized value for avgPeriod! Exiting!'
+            print('ERROR: Unrecognized value for avgPeriod! Exiting!')
             exit(1)
 
         nbmonths = len(avgMonths)
@@ -477,8 +476,7 @@ class LinearPSM(BasePSM):
 
 
         if nobs < 25:  # skip rest if insufficient overlapping data
-            raise(ValueError('Insufficent observation/calibration overlap'
-                             ' to calibrate psm.'))
+            raise ValueError
 
 
         # START NEW (GH) 21 June 2015... RT edit June 2016
@@ -509,7 +507,7 @@ class LinearPSM(BasePSM):
 
             if detrend_proxy:
                 # proxy detrend: (1) linear regression, (2) fit, (3) detrend
-                xvar = range(len(reg_ya))
+                xvar = list(range(len(reg_ya)))
                 proxy_slope, proxy_intercept, r_value, p_value, std_err = \
                             linregress(xvar, reg_ya)
                 proxy_fit = proxy_slope*np.squeeze(xvar) + proxy_intercept
@@ -517,22 +515,22 @@ class LinearPSM(BasePSM):
 
             if detrend_calib:
                 # calibration detrend: (1) linear regression, (2) fit, (3) detrend
-                xvar = range(len(reg_xa))
+                xvar = list(range(len(reg_xa)))
                 calib_slope, calib_intercept, r_value, p_value, std_err = \
                             linregress(xvar, reg_xa)
                 calib_fit = calib_slope*np.squeeze(xvar) + calib_intercept
                 reg_xa = reg_xa - calib_fit
 
             if standardize_proxy:
-                print 'Calib stats (x)              [min, max, mean, std]:', np.nanmin(
-                    reg_xa), np.nanmax(reg_xa), np.nanmean(reg_xa), np.nanstd(reg_xa)
-                print 'Proxy stats (y:original)     [min, max, mean, std]:', np.nanmin(
-                    reg_ya), np.nanmax(reg_ya), np.nanmean(reg_ya), np.nanstd(reg_ya)
+                print('Calib stats (x)              [min, max, mean, std]:', np.nanmin(
+                    reg_xa), np.nanmax(reg_xa), np.nanmean(reg_xa), np.nanstd(reg_xa))
+                print('Proxy stats (y:original)     [min, max, mean, std]:', np.nanmin(
+                    reg_ya), np.nanmax(reg_ya), np.nanmean(reg_ya), np.nanstd(reg_ya))
 
                 # standardize proxy values over period of overlap with calibration data
                 reg_ya = (reg_ya - np.nanmean(reg_ya))/np.nanstd(reg_ya)
-                print 'Proxy stats (y:standardized) [min, max, mean, std]:', np.nanmin(
-                    reg_ya), np.nanmax(reg_ya), np.nanmean(reg_ya), np.nanstd(reg_ya)
+                print('Proxy stats (y:standardized) [min, max, mean, std]:', np.nanmin(
+                    reg_ya), np.nanmax(reg_ya), np.nanmean(reg_ya), np.nanstd(reg_ya))
                 # GH: note that std_err pertains to the slope, not the residuals!!!
 
 
@@ -588,8 +586,8 @@ class LinearPSM(BasePSM):
 
         if diag_output:
             # Diagnostic output
-            print "***PSM stats:"
-            print regress.summary()
+            print("***PSM stats:")
+            print(regress.summary())
 
             if diag_output_figs:
                 # Figure (scatter plot w/ summary statistics)
@@ -634,7 +632,7 @@ class LinearPSM(BasePSM):
             psm_data = LinearPSM._load_psm_data(config)
             return {'psm_data': psm_data}
         except IOError as e:
-            print e
+            print(e)
             return {}
 
     @staticmethod
@@ -646,7 +644,7 @@ class LinearPSM(BasePSM):
             raise IOError('No pre-calibration file specified.')
 
         with open(pre_calib_file, mode='r') as f:
-            data = cPickle.load(f)
+            data = pickle.load(f)
 
         return data
 
@@ -723,9 +721,9 @@ class LinearPSM_TorP(BasePSM):
                                   psm_data=psm_data_T)
         except (KeyError, IOError) as e:
             psm_obj_T = None
-            print e
-            print ('PSM (temperature) not calibrated for:' +
-                   str((proxy, site)))
+            print(e)
+            print(('PSM (temperature) not calibrated for:' +
+                   str((proxy, site))))
 
         # Try loading pre-calibrated PSM for moisture
         try:
@@ -733,9 +731,9 @@ class LinearPSM_TorP(BasePSM):
                                   psm_data=psm_data_P)
         except (KeyError, IOError) as e:
             psm_obj_P = None
-            print e
-            print ('PSM (moisture) not calibrated for:' +
-                   str((proxy, site)))
+            print(e)
+            print(('PSM (moisture) not calibrated for:' +
+                   str((proxy, site))))
 
         if psm_obj_T is not None and psm_obj_P is not None:
             if metric == 'corr':
@@ -790,7 +788,7 @@ class LinearPSM_TorP(BasePSM):
             Diagnostic output flags for calibration method
         """
 
-        print 'Calibration not performed in this psm class!'
+        print('Calibration not performed in this psm class!')
         pass
 
     @staticmethod
@@ -801,7 +799,7 @@ class LinearPSM_TorP(BasePSM):
 
             return {'psm_data_T': psm_data_T, 'psm_data_P': psm_data_P}
         except IOError as e:
-            print e
+            print(e)
             return {}
 
     @staticmethod
@@ -812,11 +810,10 @@ class LinearPSM_TorP(BasePSM):
         elif calib_var == 'moisture':
             pre_calib_file = psm_config.psm.linear_TorP.pre_calib_datafile_P
         else:
-            raise(ValueError('Unrecognized calibration variable'
-                             ' to calibrate psm.'))
+            raise ValueError
 
         with open(pre_calib_file, mode='r') as f:
-            data = cPickle.load(f)
+            data = pickle.load(f)
 
         return data
 
@@ -896,7 +893,7 @@ class BilinearPSM(BasePSM):
 
             # check if seasonality defined in the psm data
             # if it is, return as an attribute of psm object
-            if 'Seasonality' in psm_site_data.keys():
+            if 'Seasonality' in list(psm_site_data.keys()):
                 self.seasonality = psm_site_data['Seasonality']
 
         except KeyError as e:
@@ -904,8 +901,8 @@ class BilinearPSM(BasePSM):
                              'Skipping: {}'.format(proxy_obj.id))
         except IOError as e:
             # No precalibration found, have to do it for this proxy
-            print 'No pre-calibration found for {}:{}'.format(proxy_obj.id,
-                                                              proxy_obj.type)
+            print('No pre-calibration found for {}:{}'.format(proxy_obj.id,
+                                                              proxy_obj.type))
             if not on_the_fly_calib:
                 raise e
             else:
@@ -1050,7 +1047,7 @@ class BilinearPSM(BasePSM):
                 avgMonths_P =  proxy.seasonality
 
         else:
-            print 'ERROR: Unrecognized value for avgPeriod! Exiting!'
+            print('ERROR: Unrecognized value for avgPeriod! Exiting!')
             exit(1)
 
         nbmonths_T = len(avgMonths_T)
@@ -1160,8 +1157,7 @@ class BilinearPSM(BasePSM):
             nobs = 0
 
         if nobs < 25:  # skip rest if insufficient overlapping data
-            raise(ValueError('Insufficent observation/calibration overlap'
-                             ' to calibrate psm.'))
+            raise ValueError
 
 
         # extract the needed regression parameters
@@ -1210,14 +1206,14 @@ class BilinearPSM(BasePSM):
 
         if diag_output:
             # Diagnostic output
-            print "***PSM stats:"
-            print regress.summary()
-            print ' '
-            print 'Pairwise correlations:'
-            print '----------------------'
-            print df.corr()
-            print ' '
-            print ' '
+            print("***PSM stats:")
+            print(regress.summary())
+            print(' ')
+            print('Pairwise correlations:')
+            print('----------------------')
+            print(df.corr())
+            print(' ')
+            print(' ')
 
             if diag_output_figs:
                 # Figure (scatter plot w/ summary statistics)
@@ -1268,7 +1264,7 @@ class BilinearPSM(BasePSM):
             psm_data = BilinearPSM._load_psm_data(config)
             return {'psm_data': psm_data}
         except IOError as e:
-            print e
+            print(e)
             return {}
 
     @staticmethod
@@ -1281,7 +1277,7 @@ class BilinearPSM(BasePSM):
             raise IOError('No pre-calibration file specified.')
 
         with open(pre_calib_file, mode='r') as f:
-            data = cPickle.load(f)
+            data = pickle.load(f)
 
         return data
 
@@ -1346,9 +1342,9 @@ class h_interpPSM(BasePSM):
             self.R = R_data[(self.proxy, self.site)]
         except (KeyError, IOError) as e:
             # No obs. error variance file found
-            print e
-            print ('Cannot find obs. error variance data for:' + str((
-                   self.proxy, self.site)))
+            print(e)
+            print(('Cannot find obs. error variance data for:' + str((
+                   self.proxy, self.site))))
 
 
     # TODO: Ideally prior state info and coordinates should all be in single obj
@@ -1380,7 +1376,7 @@ class h_interpPSM(BasePSM):
         # (TODO: more comprehensive & flexible way to do this...)
         state_var = 'd18O_sfc_Amon'
 
-        if state_var not in X_state_info.keys():
+        if state_var not in list(X_state_info.keys()):
             raise KeyError('Needed variable not in state vector for Ye'
                            ' calculation.')
 
@@ -1433,8 +1429,8 @@ class h_interpPSM(BasePSM):
             R_data = h_interpPSM._load_psm_data(config)
             return {'R_data': R_data}
         except IOError as e:
-            print e
-            raise (SystemExit('In "h_interpPSM" class: Cannot find PSM calibration file: %s. Exiting!' % pre_calib_file))
+            print(e)
+            raise SystemExit
 
     @staticmethod
     def _load_psm_data(config):
@@ -1445,7 +1441,7 @@ class h_interpPSM(BasePSM):
         if R_data_file:
             # check if file exists
             if not os.path.isfile(R_data_file):
-                raise(SystemExit('In "h_interpPSM" class: Cannot find file containing obs. error info.: %s. Exiting!' % R_data_file))
+                raise SystemExit
 
             else:
                 # this returns an array of tuples (proxy type of type string, proxy site name of type string, R value of type float)
@@ -1549,9 +1545,9 @@ class BayesRegUK37PSM(BasePSM):
 
         # Defining state variables to consider in the calculation of Ye's
 
-        state_var = self.psm_required_variables.keys()[0]
+        state_var = list(self.psm_required_variables.keys())[0]
 
-        if state_var not in X_state_info.keys():
+        if state_var not in list(X_state_info.keys()):
             raise KeyError('Needed variable not in state vector for Ye'
                            ' calculation.')
 
@@ -1612,7 +1608,7 @@ class BayesRegUK37PSM(BasePSM):
         if data_file:
             # check if file exists
             if not os.path.isfile(data_file):
-                raise(SystemExit('In "BayesRegUK37PSM" class: Cannot find file containing obs. error info.: %s. Exiting!' % data_file))
+                raise SystemExit
             else:
                 # Load in the data
                 regression_data = loadmat(data_file)
