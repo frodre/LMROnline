@@ -40,12 +40,7 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
-# Config Update
-config.yml
-LMR_config.py
-
-#Ignore figures
-*.jpg
+# Images
 *.pdf
 *.png
 

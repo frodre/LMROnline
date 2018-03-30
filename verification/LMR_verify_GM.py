@@ -13,25 +13,33 @@ Revisions:
                          to do: make functions to do the repetetive actions
 """
 
-import pickle
+
 import csv
 import glob
 import sys
-import warnings
+import numpy as np
 
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
+from matplotlib import ticker
+from mpl_toolkits.axes_grid1 import make_axes_locatable, axes_size
+from scipy import stats
+from netCDF4 import Dataset
+from datetime import datetime, timedelta
+import pickle
+import warnings
+
 import pandas as pd
 from scipy import stats
 
 # LMR specific imports
 sys.path.append('../')
-from LMR_utils import global_hemispheric_means, assimilated_proxies, coefficient_efficiency
+from LMR_utils import global_hemispheric_means, assimilated_proxies, coefficient_efficiency, rank_histogram
 from load_gridded_data import read_gridded_data_GISTEMP
 from load_gridded_data import read_gridded_data_HadCRUT
 from load_gridded_data import read_gridded_data_BerkeleyEarth
 from load_gridded_data import read_gridded_data_CMIP5_model
-from verification.LMR_plot_support import *
+from LMR_plot_support import find_date_indices, moving_average
 
 # =============================================================================
 def truncate_colormap(cmap, minval=0.0,maxval=1.0,n=100):
@@ -69,6 +77,7 @@ else:
     # need to do this when running remotely, and to suppress figures
     matplotlib.use('agg')
     matplotlib.pyplot.switch_backend('agg')
+
 # option to save figures to a file
 fsave = True
 #fsave = False
@@ -87,32 +96,8 @@ stat_save = True
 #nexp = 'production_mlost_era20c_pagesall_0.75'
 #nexp = 'production_mlost_era20cm_pagesall_0.75'
 # ---
-#nexp = 'test'
-#nexp = 'pages2_noloc'
-#nexp = 'pages2_loc10000'
-#nexp = 'pages2_loc1000'
-#nexp = 'pages2_loc5000'
-#nexp = 'pages2_loc12000'
-#nexp = 'pages2_loc15000'
-#nexp = 'pages2_loc20000'
-#nexp = 'pages2_loc12000_breit_seasonal_MetaTandP'
-#nexp = 'pages2_loc12000_breit_seasonal_TorP'
-#nexp = 'pages2_loc12000_pages2k2_seasonal_TorP'
-#nexp = 'pages2_loc12000_pages2k2_seasonal_TorP_nens200'
-#nexp = 'pages2_loc12000_pages2k2_seasonal_TorP_nens500'
-#nexp = 'pages2_loc15000_pages2k2_seasonal_TorP_nens200'
-#nexp = 'pages2_loc15000_pages2k2_seasonal_TorP_nens200_inflate1.25'
-#nexp = 'pages2_loc15000_pages2k2_seasonal_TorP_nens200_inflate1.5'
-#nexp = 'pages2_noloc_nens200'
-#nexp = 'pages2_loc20000_pages2k2_seasonal_TorP_nens200'
-#nexp = 'pages2_loc25000_pages2k2_seasonal_TorP_nens200'
-#nexp = 'pages2_loc20000_seasonal_bilinear_nens200'
-#nexp = 'pages2_loc25000_seasonal_bilinear_nens200'
-#nexp = 'pages2_loc25000_seasonal_bilinear_nens200_75pct'
-#nexp = 'pages2_loc25000_seasonal_bilinear_nens200_meta'
-#nexp = 'pages2_noloc_seasonal_bilinear_nens1000'
-#nexp = 'pages2_loc25000_seasonal_bilinear_nens1000'
-nexp = 'pages2_loc25000_seasonal_bilinear_nens50_75pct'
+nexp = 'test'
+# ---
 
 # perform verification using all recon. MC realizations ( MCset = None )
 # or over a custom selection ( MCset = (begin,end) )
@@ -120,15 +105,13 @@ nexp = 'pages2_loc25000_seasonal_bilinear_nens50_75pct'
 #     MCset = (0,10)   -> the first 11 MC runs (from 0 to 10 inclusively)
 #     MCset = (80,100) -> the 80th to 100th MC runs (21 realizations)
 MCset = None
-#MCset = (0,0)
+#MCset = (0,10)
 
 # specify directories for LMR data
 #datadir_output = './data/'
 #datadir_output = '/home/disk/kalman3/hakim/LMR'
-#datadir_output = '/home/disk/kalman3/rtardif/LMR/output'
-datadir_output = '/home/disk/kalman3/hakim/LMR'
-#datadir_output = '/home/disk/kalman2/wperkins/LMR_output/archive'
-#datadir_output = '/home/disk/kalman3/rtardif/LMR/output'
+datadir_output = '/home/disk/kalman3/rtardif/LMR/output'
+#datadir_output = '/home/disk/katabatic3/wperkins/LMR_output/testing'
 
 
 # Directory where historical griddded data products can be found
@@ -163,7 +146,6 @@ print('--------------------------------------------------')
 workdir = datadir_output + '/' + nexp
 
 # get directory and information for later use
-
 print('--------------------------------------------------')
 print(('working directory: %s' % workdir))
 print('--------------------------------------------------')
@@ -172,13 +154,11 @@ print('--------------------------------------------------')
 dirs = glob.glob(workdir+"/r*")
 
 # query file for assimilated proxy information (for now, ONLY IN THE r0 directory!)
-
 ptypes,nrecords = assimilated_proxies(workdir+'/r0/')
-
 print('--------------------------------------------------')
 print('Assimilated proxies by type:')
 for pt in sorted(ptypes.keys()):
-    print(('%40s : %s' % (pt, str(ptypes[pt]))))                
+    print(('%40s : %s' % (pt, str(ptypes[pt])))                )
 print(('%40s : %s' % ('Total',str(nrecords))))
 print('--------------------------------------------------')
 
@@ -189,7 +169,8 @@ print('--------------------------------------------------')
 # load GISTEMP
 datafile_calib   = 'gistemp1200_ERSSTv4.nc'
 calib_vars = ['Tsfc']
-[gtime,GIS_lat,GIS_lon,GIS_anomaly] = read_gridded_data_GISTEMP(datadir_calib,datafile_calib,calib_vars,outfreq='annual')
+[gtime,GIS_lat,GIS_lon,GIS_anomaly] = read_gridded_data_GISTEMP(datadir_calib,datafile_calib,calib_vars,
+                                                                outfreq='annual',ref_period=[1951,1980])
 GIS_time = np.array([d.year for d in gtime])
 nlat_GIS = len(GIS_lat)
 nlon_GIS = len(GIS_lon)
@@ -198,7 +179,8 @@ nlon_GIS = len(GIS_lon)
 # load HadCRUT
 datafile_calib   = 'HadCRUT.4.3.0.0.median.nc'
 calib_vars = ['Tsfc']
-[ctime,CRU_lat,CRU_lon,CRU_anomaly] = read_gridded_data_HadCRUT(datadir_calib,datafile_calib,calib_vars,outfreq='annual')
+[ctime,CRU_lat,CRU_lon,CRU_anomaly] = read_gridded_data_HadCRUT(datadir_calib,datafile_calib,calib_vars,
+                                                                outfreq='annual',ref_period=[1951,1980])
 CRU_time = np.array([d.year for d in ctime])
 
 ## use GMT time series computed by Hadley Centre instead !!!!!!!!!!!!
@@ -210,7 +192,8 @@ CRU_time = np.array([d.year for d in ctime])
 # load BerkeleyEarth
 datafile_calib   = 'Land_and_Ocean_LatLong1.nc'
 calib_vars = ['Tsfc']
-[btime,BE_lat,BE_lon,BE_anomaly] = read_gridded_data_BerkeleyEarth(datadir_calib,datafile_calib,calib_vars,outfreq='annual')
+[btime,BE_lat,BE_lon,BE_anomaly] = read_gridded_data_BerkeleyEarth(datadir_calib,datafile_calib,calib_vars,
+                                                                   outfreq='annual',ref_period=[1951,1980])
 BE_time = np.array([d.year for d in btime])
 
 # load NOAA MLOST
@@ -266,7 +249,7 @@ era_gm = np.zeros([len(ERA20C_time)])
 era_nhm = np.zeros([len(ERA20C_time)])
 era_shm = np.zeros([len(ERA20C_time)])
 # Loop over years in dataset
-for i in range(0,len(ERA20C_time)): 
+for i in range(0,len(ERA20C_time)):
     # compute the global & hemispheric mean temperature
     [era_gm[i],
      era_nhm[i],
@@ -298,7 +281,7 @@ tcr_gm = np.zeros([len(TCR_time)])
 tcr_nhm = np.zeros([len(TCR_time)])
 tcr_shm = np.zeros([len(TCR_time)])
 # Loop over years in dataset
-for i in range(0,len(TCR_time)): 
+for i in range(0,len(TCR_time)):
     # compute the global & hemispheric mean temperature
     [tcr_gm[i],tcr_nhm[i],tcr_shm[i]] = global_hemispheric_means(TCR[i,:,:],
                                                                  lat_TCR)
@@ -1349,7 +1332,7 @@ if stat_save:
                  'ltc','lec','lgc','lcc','lbc','lmc','loc',
                  'ltce','lece','lgce','lcce','lbce','lmce','loce',
                  'lgrd','lgcd', 'lconcd','lconrd','lcrd','lccd','lbrd','lbcd','lmrd','lmcd','ltrd','ltcd','lerd','lecd',
-                 'lmrs','gs','crus','bes','mlosts','tcrs','eras']
+                 'lmrs','gs','crus','bes','mlosts','tcrs','eras','cons',]
 
     stat_metadata = {'stime':"starting year of verification time period",
                      'etime':"ending year of verification time period",
@@ -1388,6 +1371,7 @@ if stat_save:
                      'mlosts':'MLOST trend (K/100 years)',
                      'tcrs':'TCR trend (K/100 years)',
                      'eras':'ERA trend (K/100 years)',
+                     'cons':'Consensus trend (K/100 years)',
                      'stat_metadata':'metdata'
                      }
 
@@ -1398,7 +1382,7 @@ if stat_save:
     # dump the dictionary to a pickle file
     spfile = nexp + '_' + str(niters) + '_iters_gmt_verification.pckl'
     print('writing statistics to pickle file: ' + spfile)
-    outfile = open(spfile, 'w')
+    outfile = open(spfile, 'wb')
     pickle.dump(gmt_verification_stats, outfile)
 
 if interactive:

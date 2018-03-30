@@ -41,7 +41,7 @@ from os.path import join, isfile
 sys.path.append('../')
 import LMR_config
 import LMR_proxy_pandas_rework
-from LMR_utils import coefficient_efficiency, rmsef
+from LMR_utils import coefficient_efficiency, rmsef, natural_sort
 
 # ------------------------------------------------------------ #
 # -------------- Begin: user-defined parameters -------------- #
@@ -68,8 +68,8 @@ MCset = None
 # period of reconstruction over which to perform the evaluation
 # (inclusive)
 #verif_period = (0, 1879)
-verif_period = (1880, 2000)
-#verif_period = (1985, 2000)
+#verif_period = (1880, 2000)
+verif_period = (1900, 2000)
 
 # Output directory, where the verification results & figs will be dumped.
 datadir_output = datadir_input # if want to keep things tidy
@@ -311,7 +311,7 @@ for dir in dirset:
             print('================================================')
             print('Site:', p)
             print('status:', pstatus)
-            print('Number of verification points    :', obcount)            
+            print('Number of verification points    :', obcount)
             print('Mean of proxy values             :', np.mean(df['y'][indok]))
             print('Mean ensemble-mean               :', np.mean(df['Ye_recon_ensMean'][indok]))
             print('Mean ensemble-mean error         :', np.mean(df_error['Ye_recon_ensMean_error'][indok]))
@@ -421,7 +421,7 @@ nb_tot_assim = sum([len(assim_listdict[k]) for k in range(len(assim_listdict))])
 if nb_tot_verif > 0:
     if write_full_verif_dict:
         # Dump dictionary to pickle files
-        outfile = open('%s/reconstruction_eval_withheld_proxy_full.pckl' % (outdir),'w')
+        outfile = open('%s/reconstruction_eval_withheld_proxy_full.pckl' % (outdir),'wb')
         pickle.dump(verif_listdict,outfile,protocol=2)
         outfile.close()
 
@@ -493,12 +493,12 @@ if nb_tot_verif > 0:
         summary_stats_verif[list_sites[k]]['ts_MeanRecon']   = np.mean(ts_recon,axis=0)
         summary_stats_verif[list_sites[k]]['ts_SpreadRecon'] = np.std(ts_recon,axis=0)
         ts_prior = [verif_listdict[j][list_sites[k]]['ts_PriorEnsMean'] for j in inds]
-        summary_stats_verif[list_sites[k]]['ts_MeanPrior']   = np.mean(ts_recon,axis=0)
-        summary_stats_verif[list_sites[k]]['ts_SpreadPrior'] = np.std(ts_recon,axis=0)
+        summary_stats_verif[list_sites[k]]['ts_MeanPrior']   = np.mean(ts_prior,axis=0)
+        summary_stats_verif[list_sites[k]]['ts_SpreadPrior'] = np.std(ts_prior,axis=0)
 
         
     # Dump data to pickle file
-    outfile = open('%s/reconstruction_eval_withheld_proxy_summary.pckl' % (outdir),'w')
+    outfile = open('%s/reconstruction_eval_withheld_proxy_summary.pckl' % (outdir),'wb')
     pickle.dump(summary_stats_verif,outfile,protocol=2)
     outfile.close()
 
@@ -510,7 +510,7 @@ if nb_tot_verif > 0:
 if nb_tot_assim > 0:
     if write_full_verif_dict:
         # Dump dictionary to pickle files
-        outfile = open('%s/reconstruction_eval_assimilated_proxy_full.pckl' % (outdir),'w')
+        outfile = open('%s/reconstruction_eval_assimilated_proxy_full.pckl' % (outdir),'wb')
         pickle.dump(assim_listdict,outfile,protocol=2)
         outfile.close()
 
@@ -582,12 +582,12 @@ if nb_tot_assim > 0:
         summary_stats_assim[list_sites[k]]['ts_MeanRecon']   = np.mean(ts_recon,axis=0)
         summary_stats_assim[list_sites[k]]['ts_SpreadRecon'] = np.std(ts_recon,axis=0)
         ts_prior = [assim_listdict[j][list_sites[k]]['ts_PriorEnsMean'] for j in inds]
-        summary_stats_assim[list_sites[k]]['ts_MeanPrior']   = np.mean(ts_recon,axis=0)
-        summary_stats_assim[list_sites[k]]['ts_SpreadPrior'] = np.std(ts_recon,axis=0)
+        summary_stats_assim[list_sites[k]]['ts_MeanPrior']   = np.mean(ts_prior,axis=0)
+        summary_stats_assim[list_sites[k]]['ts_SpreadPrior'] = np.std(ts_prior,axis=0)
 
         
     # Dump data to pickle file
-    outfile = open('%s/reconstruction_eval_assimilated_proxy_summary.pckl' % (outdir),'w')
+    outfile = open('%s/reconstruction_eval_assimilated_proxy_summary.pckl' % (outdir),'wb')
     pickle.dump(summary_stats_assim,outfile,protocol=2)
     outfile.close()
 

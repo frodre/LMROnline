@@ -49,7 +49,7 @@
 """
 import os
 import numpy as np
-import pickle    
+import pickle
 import datetime
 from time import time
 from os.path import join
@@ -110,8 +110,9 @@ class v_core(object):
     ##** BEGIN User Parameters **##
     
     # lmr_path: where all the data is located ... model (prior), analyses (GISTEMP, HadCRUT...) and proxies.
-    #lmr_path = '/home/katabatic/wperkins/data/LMR'
-    lmr_path = '/home/disk/kalman3/rtardif/LMR'
+    # lmr_path = '/home/katabatic/wperkins/data/LMR'
+    # lmr_path = '/home/disk/kalman3/rtardif/LMR'
+    lmr_path = '/home/disk/kalman3/rtardif/LMRpy3'
 
     calib_period = (1850, 2015)
 
@@ -150,7 +151,7 @@ class v_proxies(object):
     ##** BEGIN User Parameters **##
 
     # Which proxy database to use ?
-    #use_from = ['PAGES2kv1']
+    # use_from = ['PAGES2kv1']
     use_from = ['LMRdb']
 
     ##** END User Parameters **##
@@ -391,9 +392,13 @@ class v_proxies(object):
         #  v0.2.0: merge of v0.1.0 NCDC proxies (w/o the NCDC-templated PAGES2k phase2) with
         #          published version (2.0.0) of the PAGES2k2017 proxies contained in a pickle
         #          file exported directly from the LiPD database. 
+        #  v0.3.0: second version of merged proxy db: published version (2.0.0) of the
+        #          PAGES2k2017 proxies and additional records collected as part of LMR project.
+        #          Lingering duplicate records in v0.2.0 were eliminated.
         #dbversion = 'v0.0.0'
         #dbversion = 'v0.1.0'
-        dbversion = 'v0.2.0' 
+        #dbversion = 'v0.2.0'
+        dbversion = 'v0.3.0'
         
         datadir_proxy = None
         datafile_proxy = 'LMRdb_%s_Proxies.df.pckl' %(dbversion)
@@ -625,7 +630,7 @@ class v_psm(object):
     
     # PSM calibrated on annual or seasonal data: allowed tags are 'annual' or 'season'
     avgPeriod = 'annual'
-    #avgPeriod = 'season'
+    # avgPeriod = 'season'
 
     # Boolean flag indicating whether PSMs are to be calibrated using objectively-derived
     # proxy seasonality instead of using the "seasonality" metadata included in the data
@@ -664,10 +669,12 @@ class v_psm(object):
         psm_r_crit: float
             Usage threshold for correlation of linear PSM
         """
-        datadir_calib = None
 
         ##** BEGIN User Parameters **##
-        
+
+        datadir_calib = None
+        pre_calib_datafile = None
+
         # Choice between:
         #datatag_calib = 'MLOST'
         #datafile_calib = 'MLOST_air.mon.anom_V3.5.4.nc'
@@ -689,9 +696,7 @@ class v_psm(object):
         # or
         #datatag_calib = 'SPEI'
         #datafile_calib = 'spei_monthly_v2.4_190001-201412.nc'
-                
-        pre_calib_datafile = None
-        
+
         psm_r_crit = 0.0
 
         ##** END User Parameters **##
@@ -763,6 +768,7 @@ class v_psm(object):
         ##** BEGIN User Parameters **##
         
         datadir_calib = None
+        pre_calib_datafile = None
 
         # calibration w.r.t. temperature
         # -----------------------------
@@ -791,7 +797,6 @@ class v_psm(object):
         #datatag_calib_P = 'SPEI'
         #datafile_calib_P = 'spei_monthly_v2.4_190001-201412.nc'
 
-        pre_calib_datafile = None
         psm_r_crit = 0.0
 
         
@@ -931,9 +936,9 @@ def main():
     # count the total number of proxies
     total_proxy_count = len(prox_manager.ind_assim)
     for pkey, plist in sorted(type_site_calib.items()):
-        print(('%45s : %5d' % (pkey, len(plist))))
+        print('%45s : %5d' % (pkey, len(plist)))
     print('--------------------------------------------------------------------')
-    print(('%45s : %5d' % ('TOTAL', total_proxy_count)))
+    print('%45s : %5d' % ('TOTAL', total_proxy_count))
     print('--------------------------------------------------------------------')
 
     
@@ -979,9 +984,9 @@ def main():
                     seasons_T = proxy_psm_seasonality[Y.type]['seasons_T'][:]
                     seasons_M = proxy_psm_seasonality[Y.type]['seasons_M'][:]
 
-                    # insert entry from metadata at beginning of list
-                    seasons_T.insert(0, Y.seasonality)
-                    seasons_M.insert(0, Y.seasonality)
+                    # insert entry from metadata at beginning of list, if not part of list already
+                    if Y.seasonality not in seasons_T: seasons_T.insert(0, Y.seasonality)
+                    if Y.seasonality not in seasons_M: seasons_M.insert(0, Y.seasonality)
                     
             else:
                 # revert back to proxy metadata
@@ -1018,10 +1023,16 @@ def main():
                 try:
                     # Calibrate the statistical forward model (psm)
                     test_psm_obj = psm_obj(Cfg, Y, calib_obj=C)
-                
-                    print('=>', "{:2d}".format(i), "{:45s}".format(s), "{:12.4f}".format(test_psm_obj.slope), "{:12.4f}".format(test_psm_obj.intercept), \
-                        "{:12.4f}".format(test_psm_obj.corr), "{:12.4f}".format(test_psm_obj.R), '(', "{:10.5f}".format(test_psm_obj.R2adj), ')')
-                
+
+                    print('=>', "{:2d}".format(i),
+                           "{:45s}".format(str(s)),
+                           "{:12.4f}".format(test_psm_obj.slope),
+                           "{:12.4f}".format(test_psm_obj.intercept),
+                           "{:12.4f}".format(test_psm_obj.corr),
+                           "{:12.4f}".format(test_psm_obj.R),
+                           '(', "{:10.5f}".format(test_psm_obj.R2adj), ')')
+
+
                     # BIC used as the selection criterion
                     #metric[i] = test_psm_obj.BIC
                     # Adjusted R-squared used as the selection criterion
@@ -1029,8 +1040,10 @@ def main():
                     
                     test_psm_obj_dict[str(s)] =  test_psm_obj
                 
-                except:
-                    print(('Test on seasonnality %s could not be completed.' %str(s)))
+                except ValueError as e:
+                    print(e)
+                    print('Test on seasonnality %s could not be completed.' %
+                          str(s))
 
 
                 i += 1
@@ -1060,9 +1073,14 @@ def main():
                         # Calibrate the statistical forward model (psm)
                         test_psm_obj = psm_obj(Cfg, Y, calib_obj_T=C_T, calib_obj_P=C_P)
 
-                        print('=>', "{:2d}".format(i), "{:40s}".format(sT), "{:40s}".format(sM), \
-                            "{:12.4f}".format(test_psm_obj.slope_temperature), "{:12.4f}".format(test_psm_obj.slope_moisture), \
-                            "{:12.4f}".format(test_psm_obj.intercept), "{:12.4f}".format(test_psm_obj.corr), "{:12.4f}".format(test_psm_obj.R))
+                        print('=>', "{:2d}".format(i),
+                              "{:40s}".format(str(sT)),
+                              "{:40s}".format(str(sM)),
+                              "{:12.4f}".format(test_psm_obj.slope_temperature),
+                              "{:12.4f}".format(test_psm_obj.slope_moisture),
+                              "{:12.4f}".format(test_psm_obj.intercept),
+                              "{:12.4f}".format(test_psm_obj.corr),
+                              "{:12.4f}".format(test_psm_obj.R))
                 
                         # BIC used as the selection criterion
                         #metric[i] = test_psm_obj.BIC
@@ -1175,20 +1193,20 @@ def main():
 
     for ptype in sorted(calibrated_types):
         plist= [item[1] for item in calibrated_sites if item[0] == ptype]
-        print(('%45s : %5d' % (ptype, len(plist))))
+        print('%45s : %5d' % (ptype, len(plist)))
     print('--------------------------------------------------------------------')
-    print(('%45s : %5d' % ('TOTAL', total_proxy_count)))
+    print('%45s : %5d' % ('TOTAL', total_proxy_count))
     print('--------------------------------------------------------------------')
 
     
     # Dump dictionaries to pickle files
-    outfile = open('%s' % (psm_file),'w')
+    outfile = open('%s' % (psm_file),'wb')
     # using protocol 2 for more efficient storing
     pickle.dump(psm_dict,outfile,protocol=2)
     pickle.dump(psm_info,outfile,protocol=2)
     outfile.close()
 
-    outfile_diag = open('%s' % (psm_file_diag),'w')
+    outfile_diag = open('%s' % (psm_file_diag),'wb')
     # using protocol 2 for more efficient storing
     pickle.dump(psm_dict_diag,outfile_diag,protocol=2)
     pickle.dump(psm_info,outfile_diag,protocol=2)

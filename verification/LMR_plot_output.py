@@ -15,17 +15,15 @@ Revisions:
 
 """
 import glob
-import os
-import sys
-
-import matplotlib.pyplot as plt
+import re
+import pickle
 import numpy as np
 from mpl_toolkits.basemap import Basemap
 from scipy.interpolate import griddata
 
 sys.path.append('../')
-from verification.LMR_plot_support import truncate_colormap
-from LMR_utils import global_hemispheric_means
+from LMR_plot_support import truncate_colormap
+from LMR_utils import global_hemispheric_means, natural_sort
 
 mapcolor = truncate_colormap(plt.cm.jet,0.15,1.0)
 
@@ -33,39 +31,40 @@ mapcolor = truncate_colormap(plt.cm.jet,0.15,1.0)
 # ------------------------------------------------
 # --- Begin section of user-defined parameters ---
 
-datadir = '/Users/hakim/data/LMR/archive'
+#datadir = '/Users/hakim/data/LMR/archive'
 #datadir = '/home/disk/kalman2/wperkins/LMR_output/archive'
-#datadir = '/home/disk/kalman3/rtardif/LMR/output'
+datadir = '/home/disk/kalman3/rtardif/LMR/output'
 #datadir = '/home/disk/ekman4/rtardif/LMR/output'
 
-exp = 'dadt_test'
-#exp = 'testDADT100yrs'
-#exp = 'testDADT250yrs'
-#exp = 'testDADT500yrs3'
-#exp = 'testDADT250yrsAnom'
 #exp = 'production_mlost_ccsm4_pagesall_0.75'
 #exp = 'production_mlost_era20c_pagesall_0.75'
 #exp = 'production_mlost_era20cm_pagesall_0.75'
 #exp = 'production_gis_ccsm4_pagesall_0.75'
-#exp = 'test'
+# --
+exp = 'test'
 
-
-year_range = [1800,2000]
-#year_range = [0,2000]
+year_range = [0,2000]
 #year_range = [-25000,2000]
 #year_range = [-115000,2000]
 
 # --
-iter_range = [0,1]
-#iter_range = [0,100]
+# MC realizations to consider.
+#  All available : MCset = None
+#  or over a custom selection ( MCset = (begin,end) )
+#  ex. MCset = (0,0)    -> only the first MC run
+#      MCset = (0,10)   -> the first 11 MC runs (from 0 to 10 inclusively)
+#      MCset = (80,100) -> the 80th to 100th MC runs (21 realizations)
+MCset = None
+#MCset = (0,10)
+# --
 
 # options of which figures to produce
 make_gmt_plot  = True
-make_map_plots = True
+make_map_plots = False
 
-# for maps:
-show_assimilated_proxies = True
-make_movie = True
+# for maps (if make_map_plots is set to True):
+show_assimilated_proxies = False
+make_movie = False
 
 
 # ==== for GMT timeseries plot:
@@ -106,9 +105,6 @@ mapmin = -2.; mapmax = +2.; mapint = 0.5; cmap = plt.cm.bwr; cbarfmt = '%4.1f'  
 #mapmin = 20.; mapmax = 40.; mapint = 5.; cmap = mapcolor; cbarfmt = '%4.0f'           # S full field
 #mapmin = 98000.; mapmax = 103000.; mapint = 1000.; cmap = mapcolor; cbarfmt = '%4.0f' # MSLP full field
 
-#make_movie = True
-make_movie = False
-show_assimilated_proxies = True
 
 # ---- End section of user-defined parameters ----
 # ------------------------------------------------
@@ -123,12 +119,32 @@ if not os.path.isdir(expdir):
            ' your settings in this verification module.')
     raise SystemExit()
 
-
+# Check if directory where figures will be generated exists
 figdir = expdir+'/VerifFigs'
 if not os.path.isdir(figdir):
     os.chdir(expdir)
     os.system('mkdir VerifFigs')
 
+# get a listing of all available MC iteration directories
+dirs = glob.glob(expdir+"/r*")
+mcdir = [item.split('/')[-1] for item in dirs]
+
+# Make sure list is properly sorted
+mcdir = natural_sort(mcdir)
+
+# Keep those specified through MCset
+if MCset:
+    targetlist = ['r'+str(item) for item in range(MCset[0],MCset[1]+1)]
+    dirset = [item for item in mcdir if item in targetlist]
+    if len(dirset) != len(targetlist):
+        print('*** Problem with MCset: Not all specified iterations are available. Exiting!')
+        raise SystemExit()
+else:
+    dirset = mcdir
+
+niters = len(dirset)
+print('dirset:', dirset)
+print('niters = ', niters)
 
 if make_gmt_plot:
     
@@ -139,9 +155,8 @@ if make_gmt_plot:
     list_iters = []
     count = 0
     gmt_present = False
-    iters = np.arange(iter_range[0], iter_range[1]+1)
-    for iter in iters:
-        dirname = expdir+'/r'+str(iter)
+    for iter in dirset:
+        dirname = expdir+'/'+iter
         print(iter, dirname)
         list_iters.append(dirname)
         # check presence of gmt file 
@@ -449,15 +464,6 @@ if make_map_plots:
     # Plots of reconstructed spatial fields
     # ======================================================
 
-    # get a listing of the iteration directories
-    dirs = glob.glob(expdir+"/r*")
-
-    mcdir = [item.split('/')[-1] for item in dirs]
-    niters = len(mcdir)
-
-    print('mcdir:' + str(mcdir))
-    print('niters = ' + str(niters))
-
     # for info on assimilated proxies
     assimprox = {}
 
@@ -466,7 +472,7 @@ if make_map_plots:
 
     first = True
     k = -1
-    for dir in mcdir:
+    for dir in dirset:
         k = k + 1
         # Posterior (reconstruction)
         ensfiln = expdir + '/' + dir + '/ensemble_mean_'+var_to_plot+'.npz'
@@ -551,14 +557,14 @@ if make_map_plots:
 
     # Posterior
     #  this is the sample mean computed with low-memory accumulation
-    xam = xam/len(mcdir)
+    xam = xam/niters
     #  this is the sample mean computed with numpy on all data
     xam_check = xam_all.mean(0)
     #  check..
     max_err = np.max(np.max(np.max(xam_check - xam)))
     if max_err > 1e-4:
         print('max error = ' + str(max_err))
-        raise Exception('sample mean does not match what is in the ensemble files!')
+        raise Exception('WARNING: sample mean does not match what is in the ensemble files!')
 
     # sample variance
     xam_var = xam_all.var(0)

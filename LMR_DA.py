@@ -230,9 +230,8 @@ def cov_localization(locRad, Y, X, X_coords):
     # Mask to identify elements of state vector that are "localizeable"
     # i.e. fields with (lat,lon)
     localizeable = covLoc == 1. # Initialize as True
-
-    state_vars = list(X.trunc_state_info.keys())
-    for var in state_vars:
+    
+    for var in X.trunc_state_info.keys():
         [var_state_pos_begin,var_state_pos_end] =  X.trunc_state_info[var]['pos']
         # if variable is not a field with lats & lons, tag localizeable as False
         if X.trunc_state_info[var]['spacecoords'] != ('lat', 'lon'):

@@ -119,7 +119,8 @@ ccsm4_last_millenium:
     template: '[vardef_template]'
     available_vars: [tas_sfc_Amon, psl_sfc_Amon, zg_500hPa_Amon,
                      wap_500hPa_Amon, wap_700hPa_Amon, wap_850hPa_Amon,
-                     pr_sfc_Amon, scpdsi_sfc_Amon,
+                     pr_sfc_Amon, prw_int_Amon, scpdsi_sfc_Amon,
+                     ai_sfc_Aann, pet_sfc_Amon,
                      tos_sfc_Omon, sos_sfc_Omon, ohc_0-700m_Omon,
                      zos_Omon,
                      ohcArctic_0-700m_Omon, ohcAtlanticNH_0-700m_Omon,
@@ -293,8 +294,12 @@ ccsm3_trace21ka:
   info:
     multiple_vars: True
     template: '[vardef_template]'
-    available_vars: ['tas_sfc_Amon', 'tas_sfc_Adec', 'psl_sfc_Adec',
-                     'ts_sfc_Adec', 'tos_sfc_Odec', 'sos_sfc_Odec']
+    available_vars: ['tas_sfc_Amon', 'psl_sfc_Adec', 'sfcheight_sfc_Adec',
+                     'tas_sfc_Adec', 'ts_sfc_Adec', 'tsl_sfc_Adec',
+                     'prw_int_Adec', 'pr_sfc_Adec',
+                     'zg_500hPa_Adec', 'zg_850hPa_Adec', 'wap_700hPa_Adec',
+                     'ta_1000hPa_Adec', 'ta_850hPa_Adec', 'ta_700hPa_Adec', 'ta_600hPa_Adec', 'ta_500hPa_Adec', 
+                     'tos_sfc_Odec', 'sos_sfc_Odec']
 
   datadir: null
   datafile: '[vardef_template]_CCSM3_TraCE21ka.nc'

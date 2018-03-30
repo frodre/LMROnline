@@ -263,8 +263,9 @@ class LinearPSM(BasePSM):
                              'Skipping: {}'.format(proxy_obj.id))
         except IOError as e:
             # No precalibration found, have to do it for this proxy
-            # logger.error(e)
-            # logger.info('PSM not calibrated for:' + str((proxy, site)))
+            print('No pre-calibration file found for'
+                   ' {} ({}) ... calibrating ...'.format(proxy_obj.id,
+                                                         proxy_obj.type))
 
             # If calibration load required need to pass on to other proxies
             # so the class attr _calib_obj is set
@@ -720,20 +721,21 @@ class LinearPSM_TorP(BasePSM):
             psm_obj_T = LinearPSM(linearTorP_cfg.tempearature, proxy_obj,
                                   psm_data=psm_data_T)
         except (KeyError, IOError) as e:
-            psm_obj_T = None
+            # No precalibration found, have to do it for this proxy
+            # print 'PSM (temperature) not calibrated for:' + str((proxy, site))
             print(e)
-            print(('PSM (temperature) not calibrated for:' +
-                   str((proxy, site))))
+            print('PSM (temperature) not calibrated for:' +
+                   str((proxy, site)))
 
         # Try loading pre-calibrated PSM for moisture
         try:
             psm_obj_P = LinearPSM(linearTorP_cfg.moisture, proxy_obj,
                                   psm_data=psm_data_P)
         except (KeyError, IOError) as e:
-            psm_obj_P = None
+            # No precalibration found, have to do it for this proxy
             print(e)
-            print(('PSM (moisture) not calibrated for:' +
-                   str((proxy, site))))
+            print('PSM (moisture) not calibrated for:' +
+                  str((proxy, site)))
 
         if psm_obj_T is not None and psm_obj_P is not None:
             if metric == 'corr':
@@ -810,7 +812,8 @@ class LinearPSM_TorP(BasePSM):
         elif calib_var == 'moisture':
             pre_calib_file = psm_config.psm.linear_TorP.pre_calib_datafile_P
         else:
-            raise ValueError
+            raise ValueError('Unrecognized calibration variable'
+                             ' to calibrate psm.')
 
         with open(pre_calib_file, mode='r') as f:
             data = pickle.load(f)
@@ -1047,7 +1050,7 @@ class BilinearPSM(BasePSM):
                 avgMonths_P =  proxy.seasonality
 
         else:
-            print('ERROR: Unrecognized value for avgPeriod! Exiting!')
+            print ('ERROR: Unrecognized value for avgPeriod! Exiting!' )
             exit(1)
 
         nbmonths_T = len(avgMonths_T)
@@ -1157,7 +1160,8 @@ class BilinearPSM(BasePSM):
             nobs = 0
 
         if nobs < 25:  # skip rest if insufficient overlapping data
-            raise ValueError
+            raise ValueError('Insufficent observation/calibration overlap'
+                             ' to calibrate psm.')
 
 
         # extract the needed regression parameters
@@ -1214,7 +1218,6 @@ class BilinearPSM(BasePSM):
             print(df.corr())
             print(' ')
             print(' ')
-
             if diag_output_figs:
                 # Figure (scatter plot w/ summary statistics)
 
@@ -1430,8 +1433,9 @@ class h_interpPSM(BasePSM):
             return {'R_data': R_data}
         except IOError as e:
             print(e)
+            print('In "h_interpPSM" class: Cannot find PSM calibration file: %s. Exiting!' % pre_calib_file)
             raise SystemExit
-
+    
     @staticmethod
     def _load_psm_data(config):
         """Helper method for loading from dataframe"""
@@ -1441,15 +1445,28 @@ class h_interpPSM(BasePSM):
         if R_data_file:
             # check if file exists
             if not os.path.isfile(R_data_file):
-                raise SystemExit
+                print('In "h_interpPSM" class: Cannot find PSM calibration file: %s. Exiting!' % pre_calib_file)
+                raise SystemExit(1)
 
             else:
-                # this returns an array of tuples (proxy type of type string, proxy site name of type string, R value of type float)
-                # transformed into a list
-                Rdata_list = np.genfromtxt(R_data_file,delimiter=',',dtype=None).tolist()
+                # This returns a python dictionary with entries as: {(proxy type, proxy name): Rvalue}
+                Rdata_dict={}
+                with open(R_data_file,'r') as f:
+                    linenb = 0
+                    for line in f:
+                        try:
+                            ptype,pname,Rval = line.split(',') # expects commas as field separator
+                            Rval = Rval.strip('\n') # remove end-or-line chars
+                            # removes quotes (single or double) around the R value if present
+                            if (Rval.startswith('"') and Rval.endswith('"')) or \
+                               (Rval.startswith("'") and Rval.endswith("'")):
+                                Rval = Rval[1:-1]
+                            # populate dictionary entry, make sure R value is a float
+                            Rdata_dict[(ptype,pname)] = float(Rval)
+                        except:
+                            print('WARNING: In "h_interpPSM", load_psm_data: Error reading/parsing data on line', linenb, ':', line)
 
-                # transform into a dictionary with (proxy type, proxy site) tuples as keys and R as the paired values
-                Rdata_dict = dict([((item[0],item[1]),item[2]) for item in Rdata_list])
+                linenb +=1
 
         else:
             Rdata_dict = {}
@@ -1608,7 +1625,8 @@ class BayesRegUK37PSM(BasePSM):
         if data_file:
             # check if file exists
             if not os.path.isfile(data_file):
-                raise SystemExit
+                print('In "BayesRegUK37PSM" class: Cannot find file containing obs. error info.: %s. Exiting!' % data_file)
+                raise SystemExit(1)
             else:
                 # Load in the data
                 regression_data = loadmat(data_file)
@@ -1619,6 +1637,10 @@ class BayesRegUK37PSM(BasePSM):
             BayesData_dict = {}
 
         return BayesData_dict
+
+    @staticmethod
+    def get_kwargs(config):
+        pass
 
 
 # Mapping dict to PSM object type, this is where proxy_type/psm relations

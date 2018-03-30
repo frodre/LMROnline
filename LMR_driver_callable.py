@@ -68,13 +68,13 @@ import numpy as np
 from os.path import join
 from time import time
 
-from . import LMR_proxy_pandas_rework
-from . import LMR_prior
-from . import LMR_utils
-from . import LMR_psms
-from . import LMR_config as BaseCfg
-from .LMR_DA import enkf_update_array, cov_localization
-from .LMR_utils import FlagError
+import LMR_proxy_pandas_rework
+import LMR_prior
+import LMR_utils
+import LMR_psms
+import LMR_config as BaseCfg
+from LMR_DA import enkf_update_array, cov_localization
+from LMR_utils import FlagError
 
 
 def LMR_driver_callable(cfg=None):
@@ -211,6 +211,7 @@ def LMR_driver_callable(cfg=None):
         print('-----------------------------------------------------')
 
 
+
     # ==========================================================================
     # Calculate truncated state from prior, if option chosen -------------------
     # ==========================================================================
@@ -270,7 +271,7 @@ def LMR_driver_callable(cfg=None):
                                                        nlon,
                                                        method=prior.esmpy_interp_method)
                 else:
-                    raise SystemExit
+                    raise (SystemExit('Exiting! Unrecognized regridding method.'))
                 
                 nlat_new = np.shape(lat_new)[0]
                 nlon_new = np.shape(lat_new)[1]
@@ -499,8 +500,8 @@ def LMR_driver_callable(cfg=None):
     lasttime = time()
     for yr_idx, t in enumerate(range(recon_period[0], recon_period[1]+1, recon_timescale)):
         
-        start_yr = int(t-recon_timescale/2)
-        end_yr = int(t+recon_timescale/2)
+        start_yr = int(t-recon_timescale//2)
+        end_yr = int(t+recon_timescale//2)
         
         if verbose > 0:
             if start_yr == end_yr:
@@ -591,12 +592,20 @@ def LMR_driver_callable(cfg=None):
                 nhmt_save[proxy_idx+1, yr_idx] = nhmt
                 shmt_save[proxy_idx+1, yr_idx] = shmt
 
+            # add check to detect whether recon has blown-up (and stop it if it has)
+            xbvar = Xb.var(axis=1, ddof=1)
+            xavar = Xa.var(ddof=1, axis=1)
+            vardiff = xavar - xbvar
+            if (not np.isfinite(np.min(vardiff))) or (not np.isfinite(np.max(vardiff))):
+                print('ERROR: Reconstruction has blown-up. Exiting!')
+                raise SystemExit(1)
+
             # check the variance change for sign
             thistime = time()
             if verbose > 2:
-                xbvar = Xb.var(axis=1, ddof=1)
-                xavar = Xa.var(ddof=1, axis=1)
-                vardiff = xavar - xbvar
+                #xbvar = Xb.var(axis=1, ddof=1)
+                #xavar = Xa.var(ddof=1, axis=1)
+                #vardiff = xavar - xbvar
                 print('min/max change in variance: ('+str(np.min(vardiff))+','+str(np.max(vardiff))+')')
                 print('update took ' + str(thistime-lasttime) + 'seconds')
             lasttime = thistime

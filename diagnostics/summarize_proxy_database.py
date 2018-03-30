@@ -29,9 +29,10 @@ Module: summarize_proxy_database.py
 
 """
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
-from os.path import join
+from os.path import join, exists
 from mpl_toolkits.basemap import Basemap
 
 
@@ -40,7 +41,8 @@ from mpl_toolkits.basemap import Basemap
 
 # directory where data from reconstruction experiments are located 
 #data_directory = "/home/scec-00/lmr/erbm/LMR/"
-data_directory = "/home/disk/kalman3/rtardif/LMR/"
+#data_directory = "/home/disk/kalman3/rtardif/LMR/"
+data_directory = "/home/disk/kalman3/rtardif/LMRpy3/"
 
 # which proxy database? PAGES2kv2 or LMRdb
 #proxy_db = 'PAGES2kv1'
@@ -57,7 +59,8 @@ temporal_resolution_range = (1,1); resolution_tag = 'annual'
 # ----------------------------------------------------------
 #output_directory = "/home/scec-00/lmr/erbm/analysis/results/LMR/pages2kv2/figures/"
 #output_directory = "/home/disk/kalman3/rtardif/LMR/data/proxies/PAGES2kv1/Figs/"
-output_directory = "/home/disk/kalman3/rtardif/LMR/data/proxies/LMRdb/Figs/summary_v0.2.0/"
+#output_directory = "/home/disk/kalman3/rtardif/LMR/data/proxies/LMRdb/Figs/summary_v0.2.0/"
+output_directory = "/home/disk/kalman3/rtardif/LMRpy3/data/proxies/LMRdb/Figs/summary_v0.2.0/"
 
 # Swith to indicate whether you want the figure to the produced on-screen (False)
 # or save in .png files (True)
@@ -67,15 +70,16 @@ save_instead_of_plot = True
 # --------------  End: user-defined parameters  -------------- #
 # ------------------------------------------------------------ #
 
-
+if not exists(output_directory):
+    print('Output directory does not exist. Creating it now.')
+    os.makedirs(output_directory)
 
 ### ----------------------------------------------------------------------------
 ### Proxy type definitions
 ### ----------------------------------------------------------------------------
 
 if proxy_db == 'PAGES2kv1':
-    proxy_def = \
-                {
+    proxy_def = {
                 'Tree ring_Width': ['Ring width',
                                     'Tree ring width',
                                     'Total ring width',
@@ -101,28 +105,27 @@ if proxy_db == 'PAGES2kv1':
                 }
 
 elif proxy_db == 'LMRdb':
-    proxy_def = \
-                {
-                'Tree Rings_WidthPages2'               : ['trsgi'],\
-                'Tree Rings_WidthBreit'                : ['trsgi_breit'],\
-                'Tree Rings_WoodDensity'               : ['max_d','min_d','early_d','earl_d','late_d','MXD','density'],\
-                'Tree Rings_Isotopes'                  : ['d18O'],\
-                'Corals and Sclerosponges_d18O'        : ['d18O','delta18O','d18o','d18O_stk','d18O_int','d18O_norm','d18o_avg','d18o_ave','dO18','d18O_4'],\
-                'Corals and Sclerosponges_SrCa'        : ['Sr/Ca','Sr_Ca','Sr/Ca_norm','Sr/Ca_anom','Sr/Ca_int'],\
-                'Corals and Sclerosponges_Rates'       : ['ext','calc','calcification','calcification rate', 'composite'],\
-                'Ice Cores_d18O'                       : ['d18O','delta18O','delta18o','d18o','d18o_int','d18O_int','d18O_norm','d18o_norm','dO18','d18O_anom'],\
-                'Ice Cores_dD'                         : ['deltaD','delD','dD'],\
-                'Ice Cores_Accumulation'               : ['accum','accumu'],\
-                'Ice Cores_MeltFeature'                : ['MFP','melt'],\
-                'Lake Cores_Varve'                     : ['varve', 'varve_thickness', 'varve thickness', 'thickness'],\
-                'Lake Cores_BioMarkers'                : ['Uk37', 'TEX86', 'tex86'],\
-                'Lake Cores_GeoChem'                   : ['Sr/Ca', 'Mg/Ca','Cl_cont'],\
-                'Lake Cores_Misc'                      : ['RABD660_670','X_radiograph_dark_layer','massacum'],\
-                'Marine Cores_d18O'                    : ['d18O'],\
-                'Marine Cores_tex86'                   : ['tex86'],\
-                'Marine Cores_uk37'                    : ['uk37','UK37'],\
-                'Speleothems_d18O'                     : ['d18O'],\
-                'Bivalve_d18O'                         : ['d18O'],\
+    proxy_def = {
+                'Tree Rings_WidthPages2'               : ['trsgi'],
+                'Tree Rings_WidthBreit'                : ['trsgi_breit'],
+                'Tree Rings_WoodDensity'               : ['max_d','min_d','early_d','earl_d','late_d','MXD','density'],
+                'Tree Rings_Isotopes'                  : ['d18O'],
+                'Corals and Sclerosponges_d18O'        : ['d18O','delta18O','d18o','d18O_stk','d18O_int','d18O_norm','d18o_avg','d18o_ave','dO18','d18O_4'],
+                'Corals and Sclerosponges_SrCa'        : ['Sr/Ca','Sr_Ca','Sr/Ca_norm','Sr/Ca_anom','Sr/Ca_int'],
+                'Corals and Sclerosponges_Rates'       : ['ext','calc','calcification','calcification rate', 'composite'],
+                'Ice Cores_d18O'                       : ['d18O','delta18O','delta18o','d18o','d18o_int','d18O_int','d18O_norm','d18o_norm','dO18','d18O_anom'],
+                'Ice Cores_dD'                         : ['deltaD','delD','dD'],
+                'Ice Cores_Accumulation'               : ['accum','accumu'],
+                'Ice Cores_MeltFeature'                : ['MFP','melt'],
+                'Lake Cores_Varve'                     : ['varve', 'varve_thickness', 'varve thickness', 'thickness'],
+                'Lake Cores_BioMarkers'                : ['Uk37', 'TEX86', 'tex86'],
+                'Lake Cores_GeoChem'                   : ['Sr/Ca', 'Mg/Ca','Cl_cont'],
+                'Lake Cores_Misc'                      : ['RABD660_670','X_radiograph_dark_layer','massacum'],
+                'Marine Cores_d18O'                    : ['d18O'],
+                'Marine Cores_tex86'                   : ['tex86'],
+                'Marine Cores_uk37'                    : ['uk37','UK37'],
+                'Speleothems_d18O'                     : ['d18O'],
+                'Bivalve_d18O'                         : ['d18O'],
                 }
 
 
@@ -203,10 +206,14 @@ for ptype in sorted(proxy_types):
         #ax  = fig.add_axes([0.1,0.1,0.8,0.8])
         m = Basemap(projection='robin', lat_0=0, lon_0=0,resolution='l', area_thresh=700.0); latres = 20.; lonres=40.  # GLOBAL
 
-        water = '#9DD4F0'
-        continents = '#888888'
+        #water = '#9DD4F0'
+        #continents = '#888888'
+        water = '#D3ECF8'
+        continents = '#F2F2F2'
+        
         m.drawmapboundary(fill_color=water)
-        m.drawcoastlines(); m.drawcountries()
+        m.drawcoastlines(linewidth=0.5)
+        m.drawcountries()
         m.fillcontinents(color=continents,lake_color=water)
         m.drawparallels(np.arange(-80.,81.,latres))
         m.drawmeridians(np.arange(-180.,181.,lonres))
@@ -279,8 +286,11 @@ for i in range(0,len(metadata['Proxy ID'])):
                     except UnicodeDecodeError:
                         metadata_entry = metadata_entry.decode('iso-8859-1')
                         trc = 3
-                metadata_entry.encode('ascii', 'ignore')
 
+                if isinstance(metadata_entry, bytes):
+                    metadata_entry = metadata_entry.decode()
+                metadata_entry.encode('ascii', 'ignore')
+                
             plt.text(.23,-.3-offsetscale*offset,metadata_entry,transform=ax.transAxes,fontsize=fntsize)
             
     plt.text(0,-.4-offsetscale*offset,"Proxy is in given PSM file:",transform=ax.transAxes,fontsize=fntsize)

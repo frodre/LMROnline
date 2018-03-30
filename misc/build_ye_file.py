@@ -86,7 +86,7 @@ if proxy_database == 'PAGES2kv1':
 elif proxy_database == 'LMRdb':
     proxy_cfg = cfg.proxies.LMRdb
 elif proxy_database == 'NCDCdtda':
-    proxy_cfg = cfg.proxies.ncdcdtda
+    proxy_cfg = cfg.proxies.NCDCdtda
 else:
     print('ERROR in specification of proxy database.')
     raise SystemExit()
@@ -100,45 +100,45 @@ if 'linear_TorP' in unique_psm_keys:
     psm_ok = True
     # check existence of required pre-calibrated PSM files
     if not os.path.exists(cfg.psm.linear_TorP.pre_calib_datafile_T):
-        print(('*** linear_TorP PSM: Cannot find file of pre-calibrated PSMs for temperature:'
-               ' \n %s' %cfg.psm.linear_TorP.pre_calib_datafile_T))
+        print ('*** linear_TorP PSM: Cannot find file of pre-calibrated PSMs for temperature:'
+               ' \n {}'.format(cfg.psm.linear_TorP.pre_calib_datafile_T))
         psm_ok = False
     if not os.path.exists(cfg.psm.linear_TorP.pre_calib_datafile_P):
-        print(('*** linear_TorP PSM: Cannot find file of pre-calibrated PSMs for moisture:'
-               ' \n %s' %cfg.psm.linear_TorP.pre_calib_datafile_P))
+        print ('*** linear_TorP PSM: Cannot find file of pre-calibrated PSMs for moisture:'
+               ' \n {}'.format(cfg.psm.linear_TorP.pre_calib_datafile_P))
         psm_ok = False
     if not psm_ok:
-        raise SystemExit
+        raise IOError('Exiting! You must use the PSMbuild facility to generate the appropriate calibrated PSMs')
   
 if 'linear' in unique_psm_keys:
     if not os.path.exists(cfg.psm.linear.pre_calib_datafile):
-        print(('*** linear PSM: Cannot find file of pre-calibrated PSMs:'
-               ' \n %s' %cfg.psm.linear.pre_calib_datafile))
+        print ('*** linear PSM: Cannot find file of pre-calibrated PSMs:'
+               ' \n {}'.format(cfg.psm.linear.pre_calib_datafile))
         print ('Perform calibration "on-the-fly" and calculate Ye values?'
                ' \nThis will take longer and PSM calibration parameters will not be stored in a file...')
         userinput = input('Continue (y/n)? ')
         if userinput == 'y' or userinput == 'yes':
             print('ok...continuing...')
         else:
-            raise SystemExit
+            raise (SystemExit('Exiting! Use the PSMbuild facility to generate the appropriate calibrated PSMs'))
         
 if 'bilinear' in unique_psm_keys:
     if not os.path.exists(cfg.psm.bilinear.pre_calib_datafile):
-        print(('*** bilinear PSM: Cannot find file of pre-calibrated PSMs:'
-               ' \n %s' %cfg.psm.bilinear.pre_calib_datafile))
+        print ('*** bilinear PSM: Cannot find file of pre-calibrated PSMs:'
+               ' \n {}'.format(cfg.psm.bilinear.pre_calib_datafile))
         print ('Perform calibration "on-the-fly" and calculate Ye values?'
                ' \nThis will take longer and PSM calibration parameters will not be stored in a file...')
         userinput = input('Continue (y/n)? ')
         if userinput == 'y' or userinput == 'yes':
             print('ok...continuing...')
         else:
-            raise SystemExit
+            raise (SystemExit('Exiting! Use the PSMbuild facility to generate the appropriate calibrated PSMs'))
 # Finished checking ...
 
 # Loop over all psm types found in the configuration
 for psm_key in unique_psm_keys:
 
-    print('Loading psm information for psm type:', psm_key, ' ...')
+    print('Loading psm information for psm type: {} ...'.format(psm_key))
     
     # re-assign current psm type to all proxy records
     # TODO: Could think of implementing filter to restrict to relevant proxy records only
@@ -150,17 +150,21 @@ for psm_key in unique_psm_keys:
     num_proxy = len(proxy_objects)
     print('Calculating ye values for {:d} proxies'.format(num_proxy))
     
-        
+    pre_calib_file = None
     # Define the psm-dependent required state variables
     if psm_key == 'linear':
         statevars = cfg.psm.linear.psm_required_variables
         psm_avg = cfg.psm.avgPeriod
+        pre_calib_file =  cfg.psm.linear.pre_calib_datafile
     elif psm_key == 'linear_TorP':
         statevars = cfg.psm.linear_TorP.psm_required_variables
         psm_avg = cfg.psm.avgPeriod
+        # two files required for this psm type
+        pre_calib_file =  [cfg.psm.linear_TorP.pre_calib_datafile_T,cfg.psm.linear_TorP.pre_calib_datafile_P]
     elif psm_key == 'bilinear':
         statevars = cfg.psm.bilinear.psm_required_variables
         psm_avg = cfg.psm.avgPeriod
+        pre_calib_file =  cfg.psm.bilinear.pre_calib_datafile
     elif psm_key == 'h_interp':
         # h_interp psm class (interpolation of prior isotope data)
         psm_avg = 'annual' # annual only for this psm
@@ -186,7 +190,23 @@ for psm_key in unique_psm_keys:
         # for now ... statevars = cfg.psm.bayesreg_tex86.psm_required_variables
         psm_avg = 'multiyear'
     else:
-        raise SystemExit
+        raise (SystemExit('Exiting! You must use the PSMbuild facility to generate the appropriate calibrated PSMs'))
+
+    if pre_calib_file:
+        if isinstance(pre_calib_file, (list,tuple)):
+            print('  from files: {}\n'
+                  '         and: {}'.format(pre_calib_file[0],pre_calib_file[1]))
+        else:
+            print('  from file: {}'.format(pre_calib_file))
+
+
+    # loading all available proxy objects
+    proxy_objects = proxy_class.load_all_annual_no_filtering(cfg)
+
+    # Number of proxy objects (will be a dim of ye_out array)
+    num_proxy = len(proxy_objects)
+    print('Calculating ye values for {:d} proxies'.format(num_proxy))
+
 
     # Define required temporal averaging
     if psm_avg == 'annual':
@@ -227,8 +247,7 @@ for psm_key in unique_psm_keys:
         
         season_unique = []
         for item in season_vects:
-            if item not in season_unique:season_unique.append(item)        
-
+            if item not in season_unique:season_unique.append(item)
         base_time_interval = 'annual'
 
     elif  psm_avg == 'multiyear':
@@ -244,7 +263,13 @@ for psm_key in unique_psm_keys:
     firstloop = True
     for season in season_unique:
 
-        print('Calculating estimates for proxies with seasonality:', season)
+        if base_time_interval == 'annual':
+            print('Calculating estimates for proxies with seasonality: '
+                  '{}'.format(season))
+        elif base_time_interval == 'multiyear':
+            print('Calculating estimates for proxies with multiyear averaging: '
+                  '{}'.format(season))
+
 
         # Create prior source object
         X = LMR_prior.prior_assignment(cfg.prior.prior_source)
@@ -306,6 +331,7 @@ for psm_key in unique_psm_keys:
     # Create filename for current experiment
     out_dir = os.path.join(cfg.core.lmr_path, 'ye_precalc_files')
 
+    # TODO: fix key usage
     vkind = X.statevars[list(X.statevars.keys())[0]]
     out_fname = create_precalc_ye_filename(cfg,psm_key,vkind)
     

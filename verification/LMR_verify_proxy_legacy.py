@@ -953,7 +953,7 @@ def main():
     proxy_class = LMR_proxy_pandas_rework.get_proxy_class(proxy_database)
     # load proxy data
     beginload = timeit.default_timer()
-    print('Loading proxy & associated psm objects ...') 
+    print('Loading proxy & associated psm objects ...')
     proxy_ids_by_grp, proxy_objects = proxy_class.load_all(Cfg,
                                                            verif_period,
                                                            None)
@@ -1246,7 +1246,7 @@ def main():
                     print('================================================')
                     print('Site:', sitetag)
                     print('status:', pstatus)
-                    print('Number of verification points  :', obcount)            
+                    print('Number of verification points  :', obcount)
                     print('Mean of proxy values           :', np.mean(df['y'][indok]))
                     print('Mean ensemble-mean             :', np.mean(df['Ye_recon'][indok]))
                     print('Mean ensemble-mean error       :', np.mean(df['Ye_recon_error'][indok]))
@@ -1260,7 +1260,7 @@ def main():
                     if not np.isfinite(corr): corr = 0.0
                     print('Correlation (prior)            :', corr)
                     print('CE (prior)                     :', coefficient_efficiency(df['y'][indok],df['Ye_prior'][indok]))
-                    print('================================================')            
+                    print('================================================')
 
                 
                 # Fill "verif" and "assim" dictionaries with data generated above
