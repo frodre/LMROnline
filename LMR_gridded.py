@@ -16,10 +16,10 @@ from os.path import join
 import random
 import tables as tb
 
-from . import LMR_config
-from .LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
+import LMR_config
+from LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
     empty_hdf5_carray, regrid_esmpy_grid_object
-from .LMR_utils2 import fix_lon, regular_cov_infl
+from LMR_utils2 import fix_lon, regular_cov_infl
 # import pylim.DataTools as DT
 
 # Constant definitions
@@ -59,7 +59,7 @@ class GriddedVariable(object):
                  lev=None, lat=None, lon=None, fill_val=None,
                  sampled=None, avg_interval=None, regrid_method=None,
                  regrid_grid=None, esmpy_interp=None, lat_grid=None,
-                 lon_grid=None, climo=None, rotated_pole=False):
+                 lon_grid=None, climo=None, rotated_pole=False, cell_area=None):
         """
 
         Parameters
@@ -106,6 +106,8 @@ class GriddedVariable(object):
             Climatology used to center the data
         rotated_pole: bool, optional
             Indication of whether or not the data is on a rotated pole grid
+        cell_area: ndarray, optional
+            Grid array describing the area of each grid cell.
 
         Attributes
         ----------
@@ -136,6 +138,7 @@ class GriddedVariable(object):
         self.lat_grid = _cnvt_to_float64(lat_grid)
         self.lon_grid = _cnvt_to_float64(lon_grid)
         self.rotated_pole = rotated_pole
+        self.cell_area = cell_area
 
         self._fill_val = fill_val
         self._idx_used_for_sample = sampled
@@ -320,8 +323,8 @@ class GriddedVariable(object):
              new_lat,
              new_lon,
              climo] = regrid_esmpy_grid_object(target_nlat, target_nlon,
-                                                 self,
-                                                 interp_method=interp_method)
+                                               self,
+                                               interp_method=interp_method)
         else:
             raise ValueError('Unrecognized regridding method: {}'.format(regrid_method))
 
@@ -512,7 +515,7 @@ class GriddedVariable(object):
         -------
         None
         """
-        print ('Removing temporal mean for every gridpoint...')
+        print('Removing temporal mean for every gridpoint...')
         if climo is None:
             self.climo = self.data[:].mean(axis=0, keepdims=True)
         else:
@@ -528,7 +531,7 @@ class GriddedVariable(object):
         -------
         None
         """
-        print ('Adding temporal mean to every gridpoint...')
+        print('Adding temporal mean to every gridpoint...')
         if self.climo is None:
             raise ValueError('Cannot convert to standard state data is not an '
                              'anomaly to start.')
@@ -616,29 +619,37 @@ class GriddedVariable(object):
         esmpy_kwargs = {'grid_def': gridded_config.esmpy_grid_def,
                         'interp_method': gridded_config.esmpy_interp_method}
 
-        unique_cfg_kwargs = _load_unique_kwargs(gridded_config)
+        unique_cfg_kwargs = cls._load_unique_cfg_kwargs(gridded_config)
 
-        # Prior specific config
-        try:
-            nens = gridded_config.nens
-            seed = gridded_config.seed
-            detrend = gridded_config.detrend
-        except AttributeError:
-            pass
-
-        datainfo = gridded_config.datainfo_prior
+        datainfo = gridded_config.datainfo
         if 'rotated_pole' in list(datainfo.keys()):
             rotated_pole = varname in datainfo['rotated_pole']
         else:
             rotated_pole = False
+
+        if datainfo['cell_area'] is not None:
+            for realm_key, realm_val in datainfo['var_realm_def'].items():
+                if realm_key in varname:
+                    realm = realm_val
+                    break
+            else:
+                raise ValueError('Realm specification in datasets.yml could '
+                                 'not be found in variable name.')
+
+            cella_template = datainfo['cell_area_template']
+            cella_realm_def = datainfo['cell_area_realmvar_def'][realm]
+
+            cell_area_file = datainfo['cell_area']
+            cell_area_file = cell_area_file.replace(cella_template,
+                                                    cella_realm_def)
+        else:
+            cell_area_file = None
 
         if datainfo['template'] is not None:
             file_name = file_name.replace(datainfo['template'], varname)
             varname = varname.split('_')[0]
 
         return cls._main_load_helper(file_dir, file_name, varname, file_type,
-                                     nens=nens,
-                                     seed=seed,
                                      sample=sample,
                                      save=save,
                                      ignore_pre_avg=ignore_pre_avg,
@@ -650,7 +661,8 @@ class GriddedVariable(object):
                                      esmpy_kwargs=esmpy_kwargs,
                                      rotated_pole=rotated_pole,
                                      anomaly=anomaly,
-                                     detrend=detrend)
+                                     cell_area_file=cell_area_file,
+                                     **unique_cfg_kwargs)
 
     @staticmethod
     def _load_unique_cfg_kwargs(config):
@@ -664,7 +676,8 @@ class GriddedVariable(object):
                           esmpy_kwargs=None,
                           data_req_frac=0.0, save=True,
                           ignore_pre_avg=False, rotated_pole=False,
-                          anomaly=True, detrend=False):
+                          anomaly=True, detrend=False,
+                          cell_area_file=None):
 
         """
         Main helper for deciding which loading function to use based on the
@@ -704,7 +717,8 @@ class GriddedVariable(object):
                                    avg_interval_kwargs=avg_interval_kwargs,
                                    rotated_pole=rotated_pole,
                                    anomaly=anomaly,
-                                   detrend=detrend)
+                                   detrend=detrend,
+                                   cell_area_file=cell_area_file)
             print('Loaded from file: {}/{}'.format(file_dir, file_name))
 
         var_obj.fill_val_to_nan()
@@ -833,7 +847,7 @@ class GriddedVariable(object):
     def _load_from_netcdf(cls, dir_name, filename, varname, avg_interval=None,
                           avg_interval_kwargs=None, save=False,
                           data_req_frac=None, rotated_pole=False,
-                          anomaly=False, detrend=False):
+                          anomaly=False, detrend=False, cell_area_file=None):
         """
         General structure for from netCDF:
         1. Load data and information about dimensions
@@ -911,6 +925,23 @@ class GriddedVariable(object):
                 lat_grid = None
                 lon_grid = None
 
+            # Load the cell area for regridding purposes
+            if cell_area_file is not None:
+                try:
+                    cell_area_path = join(dir_name, cell_area_file)
+                    cell_f = Dataset(cell_area_path, 'r')
+                    cell_area_varname = cell_area_file.split('_')[0]
+                    cell_area = cell_f.variables[cell_area_varname][:]
+                except IOError:
+                    if rotated_pole:
+                        raise IOError('Cell area file could not be loaded. '
+                                      'Cell area is required for regridding '
+                                      'procedures when using rotated pole '
+                                      'grids.')
+                    cell_area = None
+            else:
+                cell_area = None
+
             var_dat = np.squeeze(var[:])
 
             # Average to correct time interval
@@ -924,7 +955,7 @@ class GriddedVariable(object):
             grid_obj = cls(varname, dims, avg_data, fill_val=fill_val,
                            avg_interval=avg_interval, rotated_pole=rotated_pole,
                            lat_grid=lat_grid, lon_grid=lon_grid,
-                           **dim_vals)
+                           cell_area=cell_area, **dim_vals)
 
             if anomaly:
                 grid_obj.convert_to_anomaly()
