@@ -703,7 +703,8 @@ class GriddedVariable(object):
                                    avg_interval=avg_interval,
                                    avg_interval_kwargs=avg_interval_kwargs,
                                    rotated_pole=rotated_pole,
-                                   anomaly=anomaly)
+                                   anomaly=anomaly,
+                                   detrend=detrend)
             print('Loaded from file: {}/{}'.format(file_dir, file_name))
 
         var_obj.fill_val_to_nan()
@@ -832,7 +833,7 @@ class GriddedVariable(object):
     def _load_from_netcdf(cls, dir_name, filename, varname, avg_interval=None,
                           avg_interval_kwargs=None, save=False,
                           data_req_frac=None, rotated_pole=False,
-                          anomaly=False):
+                          anomaly=False, detrend=False):
         """
         General structure for from netCDF:
         1. Load data and information about dimensions
@@ -856,6 +857,7 @@ class GriddedVariable(object):
                 fill_val = 2**15 - 1
 
             # Convert to dimension key names defined in _DEFAULT_DIM_ORDER
+            # TODO: Handle member dimensions for ensembles
             dims = []
             dim_keys = []
             dim_exclude = []
@@ -874,7 +876,7 @@ class GriddedVariable(object):
                     dim_keys.append(dim)
                 else:
                     raise KeyError('Dimension, {}, not found in '
-                                   'definitions.'.format(dim))
+                                   'definitions of LMR_gridded.'.format(dim))
 
             # Make sure it has time dimension
             if _TIME not in dims:
@@ -927,6 +929,10 @@ class GriddedVariable(object):
             if anomaly:
                 grid_obj.convert_to_anomaly()
 
+            if detrend:
+                # TODO Detrend
+                pass
+
             if save:
                 new_dir = join(dir_name, pre_proc_filedir)
                 if not os.path.exists(new_dir):
@@ -947,7 +953,7 @@ class GriddedVariable(object):
         :return:
         """
         if not hasattr(time_var, 'calendar'):
-            cal = 'standard'
+            cal = 'ISO8601'  # Default CDM calendar
         else:
             cal = time_var.calendar
 
@@ -969,7 +975,7 @@ class GriddedVariable(object):
             # calculate the time delta in years for the updated units
             since_yr_idx = tunits.index('since ') + 6
             year = int(tunits[since_yr_idx:since_yr_idx+4])
-            year_diff = year - 0o001
+            year_diff = year - 1
 
             # Shift YYYY from 0 -> 1 and account for it in date time creation
             new_units = tunits[:since_yr_idx] + '0001-01-01 00:00:00'
@@ -1054,7 +1060,7 @@ class GriddedVariable(object):
                             *spatial_shape)
 
         # Average the data
-        new_times = time_vals[:, 0, 0]
+        new_times = time_vals[:, 0, 0]  # Definition is start of time period
         data = data[:, :, 0:len_of_sample]
 
         # Average over multi-annual and annual (with sub-annual specification)
