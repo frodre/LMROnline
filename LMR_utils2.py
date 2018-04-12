@@ -1286,15 +1286,13 @@ def calculate_latlon_bnds(lats, lons):
         len(lons)+1.
 
     """
-    if lats.ndim != 1 or lons.ndim != 1:
-        raise ValueError('Expected 1D-array for input lats and lons.')
-    if np.any(np.diff(lats) < 0) or np.any(np.diff(lons) < 0):
-        raise ValueError('Expected monotonic value increase with index for '
-                         'input latitudes and longitudes')
-
-    # Note: assumes lats are monotonic increase with index
-    dlat = abs(lats[1] - lats[0]) / 2.
-    dlon = abs(lons[1] - lons[0]) / 2.
+    if lats.ndim == 2:
+        lat_dim = int(not lon_dim)
+    elif lats.ndim != lons.ndim:
+        raise ValueError('Input lats and lons must have same number of '
+                         'dimensions.')
+    elif lats.ndim > 2 or lons.ndim > 2:
+        raise ValueError('Expected 1D or 2D array for input lats and lons.')
 
     # Check that inputs are regularly spaced
     lat_space = np.diff(lats)
