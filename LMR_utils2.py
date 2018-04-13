@@ -1292,8 +1292,10 @@ def calculate_latlon_bnds(lats, lons, lat_ax=0):
     """
     if not 1 <= lats.ndim <= 2 or not 1 <= lons.ndim <= 2:
         raise ValueError('Input lats and lons must be 1D or 2D')
-    if lats.ndim != lons.ndim or lats.shape != lons.shape:
+    if lats.ndim != lons.ndim:
         raise ValueError('Input lats and lons must have the same dimensions')
+    if lats.ndim > 1 and lats.shape != lons.shape:
+        raise ValueError('2D lats and lons must have same array shape.')
 
     if lats.ndim == 2:
         lon_ax = int(np.logical_not(lat_ax))
@@ -1310,10 +1312,11 @@ def calculate_latlon_bnds(lats, lons, lat_ax=0):
     nlat = lats.shape[lat_ax]
     nlon = lons.shape[lon_ax]
 
-    bnd_shp = [dim_len + 1 for dim_len in lats.shape]
+    lat_bnd_shp = [dim_len + 1 for dim_len in lats.shape]
+    lon_bnd_shp = [dim_len + 1 for dim_len in lons.shape]
 
-    lat_bnds = np.zeros(bnd_shp)
-    lon_bnds = np.zeros_like(lat_bnds)
+    lat_bnds = np.zeros(lat_bnd_shp)
+    lon_bnds = np.zeros(lon_bnd_shp)
 
     # Handle cyclic point if necessary
     if bnd_2d:
@@ -1340,7 +1343,7 @@ def calculate_latlon_bnds(lats, lons, lat_ax=0):
     lon_sl = slice(0, nlon-1)
     lat_sl = slice(0, nlat-1)
     all_but_last = slice(0, -1)
-    last_two = slice(-2)
+    last_two = slice(-2, None)
     all_vals = slice(None)
 
     # TODO: Not an elegant solution for variable dimension order but I think it
