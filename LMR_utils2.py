@@ -870,31 +870,8 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
 
     """
 
-    # Create grid for the input state data
-    grid = ESMF.Grid(max_index=np.array((X_nlon, X_nlat)),
-                     num_peri_dims=0,
-                     pole_dim=1,
-                     coord_sys=ESMF.CoordSys.SPH_DEG,
-                     coord_typekind=ESMF.TypeKind.R8,
-                     staggerloc=ESMF.StaggerLoc.CENTER)
-
-    # Add grid cell center coordinates
-    [x, y] = (0, 1)
-    grid_x_center = grid.get_coords(x)
-    grid_x_center[:] = X_lon2D.T
-    grid_y_center = grid.get_coords(y)
-    grid_y_center[:] = X_lat2D.T
-
-    # Add grid cell corner boundaries
+    # determine grid cell boundaries
     lat_bnds, lon_bnds = calculate_latlon_bnds(X_lat2D, X_lon2D, lat_ax=0)
-    grid.add_coords(staggerloc=ESMF.StaggerLoc.CORNER)
-    grid_x_corner = grid.get_coords(x, staggerloc=ESMF.StaggerLoc.CORNER)
-    grid_x_corner[:] = lon_bnds.T
-    grid_y_corner = grid.get_coords(y, staggerloc=ESMF.StaggerLoc.CORNER)
-    grid_y_corner[:] = lat_bnds.T
-
-    # check for masked values
-    masked_regrid = hasattr(X, 'mask')
 
     if X[0].shape != (X_nlat, X_nlon):
         do_reshape = True
@@ -902,42 +879,29 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
     else:
         do_reshape = False
 
+    # check for masked values
+    masked_regrid = hasattr(X, 'mask')
+
     if masked_regrid:
         print('Mask detected.  Adding mask to src ESMF grid')
-        grid_mask = grid.add_item(ESMF.GridItem.MASK)
         X_mask = X[0].mask.astype(np.int16)
-
-        # if lon_shift:
-        #     X_mask = np.roll(X_mask, lon_shift, axis=1)
-
-        grid_mask[:] = X_mask.T
         mask_values = np.array([1])
     else:
+        X_mask = None
         mask_values = None
 
-    # Create new grid
-    new_grid = ESMF.Grid(max_index=np.array((target_nlon, target_nlat)),
-                         num_peri_dims=0,
-                         pole_dim=1,
-                         coord_sys=ESMF.CoordSys.SPH_DEG,
-                         coord_typekind=ESMF.TypeKind.R8,
-                         staggerloc=ESMF.StaggerLoc.CENTER)
+    grid = _create_grid_ESMF(X_nlat, X_nlon,
+                             mask=X_mask,
+                             lat_centers=X_lat2D, lon_centers=X_lon2D,
+                             lat_corners=lat_bnds, lon_corners=lon_bnds)
 
     [new_lat, new_lon,
-     new_lat_bnds, new_lon_bnds] = generate_latlon(target_nlat, target_nlon)
-    new_grid_x_cen = new_grid.get_coords(x)
-    new_grid_x_cen[:] = new_lon.T
-    new_grid_y_cen = new_grid.get_coords(y)
-    new_grid_y_cen[:] = new_lat.T
-    new_grid.add_coords(staggerloc=ESMF.StaggerLoc.CORNER)
-    new_grid_x_cor = new_grid.get_coords(x, staggerloc=ESMF.StaggerLoc.CORNER)
-    new_grid_x_cor[:] = new_lon_bnds[:, None]
-    new_grid_y_cor = new_grid.get_coords(y, staggerloc=ESMF.StaggerLoc.CORNER)
-    new_grid_y_cor[:] = new_lat_bnds[None, :]
+     new_lat_corners,
+     new_lon_corners] = generate_latlon(target_nlat, target_nlon)
 
-    if masked_regrid:
-        new_grid_mask = new_grid.add_item(ESMF.GridItem.MASK)
-        new_grid_mask[:] = 0
+    new_grid = _create_grid_ESMF(target_nlat, target_nlon, new_lat, new_lon,
+                                 new_lat_corners, new_lon_corners,
+                                 add_mask=masked_regrid)
 
     if method == 'bilinear':
         use_method = ESMF.RegridMethod.BILINEAR
@@ -949,6 +913,30 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
         raise ValueError('Regridding method \'{}\''
                          ' in regrid_esmpy does not exist.'.format(method))
 
+    if masked_regrid and method == 'conserve':
+        # Determine output mask
+        tmp_src_field = ESMF.Field(grid, name='src',
+                                   staggerloc=ESMF.StaggerLoc.CENTER)
+        tmp_dst_field = ESMF.Field(new_grid, name='dst',
+                                   staggerloc=ESMF.StaggerLoc.CENTER)
+        tmp_regridder = ESMF.Regrid(tmp_src_field, tmp_dst_field,
+                                    regrid_method=ESMF.RegridMethod.BILINEAR,
+                                    dst_mask_values=mask_values,
+                                    src_mask_values=mask_values,
+                                    unmapped_action=ESMF.UnmappedAction.IGNORE)
+        tmp = np.ones_like(tmp_src_field.data)
+        tmp_src_field.data[:] = tmp
+        tmp_regridder(tmp_src_field, tmp_dst_field)
+        out_data = tmp_dst_field.data[:]
+        out_mask = out_data == 0.0
+
+        tmp_src_field.destroy()
+        tmp_dst_field.destroy()
+        tmp_regridder.destroy()
+
+        new_grid_mask = new_grid.get_item(ESMF.GridItem.MASK)
+        new_grid_mask[:] = out_mask
+
     # create src and dst fields
     src_field = ESMF.Field(grid, name='src', staggerloc=ESMF.StaggerLoc.CENTER)
     dst_field = ESMF.Field(new_grid, name='dst',
@@ -959,16 +947,6 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
                             dst_mask_values=mask_values,
                             src_mask_values=mask_values,
                             unmapped_action=ESMF.UnmappedAction.IGNORE)
-
-    if masked_regrid and method == 'conserve':
-        # Create new regridder with proper destination mask for conservative
-        tmp = np.ones_like(src_field.data)
-        src_field.data[:] = tmp
-        regridder(src_field, dst_field)
-        out_data = dst_field.data[:]
-        mask = out_data == 0.0
-        # TODO: create new function so i can try new grid w/ masks
-
 
     # Regrid each ensemble member
     for k in range(X_nens):
@@ -1000,6 +978,41 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
     regridder.destroy()
 
     return regrid_output, new_lat, new_lon
+
+
+def _create_grid_ESMF(nlat, nlon, lat_centers, lon_centers, lat_corners,
+                      lon_corners, mask=None, add_mask=False):
+
+    # Create grid for the input state data
+    grid = ESMF.Grid(max_index=np.array((nlon, nlat)),
+                     num_peri_dims=0,
+                     pole_dim=1,
+                     coord_sys=ESMF.CoordSys.SPH_DEG,
+                     coord_typekind=ESMF.TypeKind.R8,
+                     staggerloc=ESMF.StaggerLoc.CENTER)
+
+    # Add grid cell center coordinates
+    [x, y] = (0, 1)
+    grid_x_center = grid.get_coords(x)
+    grid_x_center[:] = lon_centers.T
+    grid_y_center = grid.get_coords(y)
+    grid_y_center[:] = lat_centers.T
+
+    # Add grid cell corner boundaries
+    grid.add_coords(staggerloc=ESMF.StaggerLoc.CORNER)
+    grid_x_corner = grid.get_coords(x, staggerloc=ESMF.StaggerLoc.CORNER)
+    grid_x_corner[:] = lon_corners.T
+    grid_y_corner = grid.get_coords(y, staggerloc=ESMF.StaggerLoc.CORNER)
+    grid_y_corner[:] = lat_corners.T
+
+    if mask is not None:
+        grid_mask = grid.add_item(ESMF.GridItem.MASK)
+        grid_mask[:] = mask.T
+    elif add_mask:
+        grid_mask = grid.add_item(ESMF.GridItem.MASK)
+        grid_mask[:] = 0
+
+    return grid
 
 
 def regrid_esmpy_grid_object(target_nlat, target_nlon,
@@ -1223,11 +1236,10 @@ def generate_latlon(nlats, nlons, lat_bnd=(-90, 90), lon_bnd=(0, 360),
         Array of central latitide points (nlat x nlon)
     lon_center_2d:
         Array of central longitude points (nlat x nlon)
-    lat_corner:
-        Array of latitude boundaries for all grid cells (nlat+1)
-    lon_corner:
-        Array of longitude boundaries for all grid cells (nlon+1)   
-
+    lat_corner_2d:
+        Array of latitude boundaries for all grid cells (nlat+1 x nlon+1)
+    lon_corner_2d:
+        Array of longitude boundaries for all grid cells (nlon+1 x nlon+1)
     """
     if len(lat_bnd) != 2 or len(lon_bnd) != 2:
         raise ValueError('Bound tuples must be of length 2')
@@ -1250,8 +1262,9 @@ def generate_latlon(nlats, nlons, lat_bnd=(-90, 90), lon_bnd=(0, 360),
 
     lon_center_2d, lat_center_2d = np.meshgrid(lon_center, lat_center)
     lat_corner, lon_corner = calculate_latlon_bnds(lat_center, lon_center)
+    lon_corner_2d, lat_corner_2d = np.meshgrid(lon_corner, lat_corner)
 
-    return lat_center_2d, lon_center_2d, lat_corner, lon_corner
+    return lat_center_2d, lon_center_2d, lat_corner_2d, lon_corner_2d
 
 
 def calculate_latlon_bnds(lats, lons, lat_ax=0):
