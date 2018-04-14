@@ -16,10 +16,10 @@ from os.path import join
 import random
 import tables as tb
 
-from . import LMR_config
-from .LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
+import LMR_config
+from LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
     empty_hdf5_carray, regrid_esmpy_grid_object
-from .LMR_utils2 import fix_lon, regular_cov_infl
+from LMR_utils2 import fix_lon, regular_cov_infl
 # import pylim.DataTools as DT
 
 # Constant definitions
@@ -320,8 +320,8 @@ class GriddedVariable(object):
              new_lat,
              new_lon,
              climo] = regrid_esmpy_grid_object(target_nlat, target_nlon,
-                                                 self,
-                                                 interp_method=interp_method)
+                                               self,
+                                               interp_method=interp_method)
         else:
             raise ValueError('Unrecognized regridding method: {}'.format(regrid_method))
 
@@ -528,7 +528,7 @@ class GriddedVariable(object):
         -------
         None
         """
-        print ('Adding temporal mean to every gridpoint...')
+        print('Adding temporal mean to every gridpoint...')
         if self.climo is None:
             raise ValueError('Cannot convert to standard state data is not an '
                              'anomaly to start.')
@@ -616,17 +616,9 @@ class GriddedVariable(object):
         esmpy_kwargs = {'grid_def': gridded_config.esmpy_grid_def,
                         'interp_method': gridded_config.esmpy_interp_method}
 
-        unique_cfg_kwargs = _load_unique_kwargs(gridded_config)
+        unique_cfg_kwargs = cls._load_unique_cfg_kwargs(gridded_config)
 
-        # Prior specific config
-        try:
-            nens = gridded_config.nens
-            seed = gridded_config.seed
-            detrend = gridded_config.detrend
-        except AttributeError:
-            pass
-
-        datainfo = gridded_config.datainfo_prior
+        datainfo = gridded_config.datainfo
         if 'rotated_pole' in list(datainfo.keys()):
             rotated_pole = varname in datainfo['rotated_pole']
         else:
@@ -637,8 +629,6 @@ class GriddedVariable(object):
             varname = varname.split('_')[0]
 
         return cls._main_load_helper(file_dir, file_name, varname, file_type,
-                                     nens=nens,
-                                     seed=seed,
                                      sample=sample,
                                      save=save,
                                      ignore_pre_avg=ignore_pre_avg,
@@ -650,7 +640,7 @@ class GriddedVariable(object):
                                      esmpy_kwargs=esmpy_kwargs,
                                      rotated_pole=rotated_pole,
                                      anomaly=anomaly,
-                                     detrend=detrend)
+                                     **unique_cfg_kwargs)
 
     @staticmethod
     def _load_unique_cfg_kwargs(config):
