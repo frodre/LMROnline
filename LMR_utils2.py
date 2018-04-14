@@ -870,23 +870,9 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
 
     """
 
-    lons_1D = X_lon2D[0]
-    lon_diff_negative = np.diff(lons_1D) < 0
-    if lon_diff_negative.sum() > 1:
-        raise ValueError('Expected monotonic value increase with index '
-                         '(excluding cyclic point) for input longitudes.')
-    # adjust cyclinc longitude point to boundaries if necessary
-    elif lon_diff_negative.sum() == 1:
-        cyclic_idx_start, = np.where(lon_diff_negative)
-        lon_shift = -(cyclic_idx_start + 1)
-        X_lon2D = np.roll(X_lon2D, lon_shift, axis=1)
-        X_lat2D = np.roll(X_lat2D, lon_shift, axis=1)
-    else:
-        lon_shift = None
-
     # Create grid for the input state data
     grid = ESMF.Grid(max_index=np.array((X_nlon, X_nlat)),
-                     num_peri_dims=1,
+                     num_peri_dims=0,
                      pole_dim=1,
                      coord_sys=ESMF.CoordSys.SPH_DEG,
                      coord_typekind=ESMF.TypeKind.R8,
@@ -900,14 +886,12 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
     grid_y_center[:] = X_lat2D.T
 
     # Add grid cell corner boundaries
-    lat_bnds, lon_bnds = calculate_latlon_bnds(X_lat2D[:, 0], X_lon2D[0])
+    lat_bnds, lon_bnds = calculate_latlon_bnds(X_lat2D, X_lon2D, lat_ax=0)
     grid.add_coords(staggerloc=ESMF.StaggerLoc.CORNER)
     grid_x_corner = grid.get_coords(x, staggerloc=ESMF.StaggerLoc.CORNER)
-    # Cutoff last element because grid assumed periodic, this might be
-    # erroneous if we aren't using full global grids.
-    grid_x_corner[:] = lon_bnds[:-1, None]
+    grid_x_corner[:] = lon_bnds.T
     grid_y_corner = grid.get_coords(y, staggerloc=ESMF.StaggerLoc.CORNER)
-    grid_y_corner[:] = lat_bnds[None, :]
+    grid_y_corner[:] = lat_bnds.T
 
     # check for masked values
     masked_regrid = hasattr(X, 'mask')
@@ -923,8 +907,8 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
         grid_mask = grid.add_item(ESMF.GridItem.MASK)
         X_mask = X[0].mask.astype(np.int16)
 
-        if lon_shift:
-            X_mask = np.roll(X_mask, lon_shift, axis=1)
+        # if lon_shift:
+        #     X_mask = np.roll(X_mask, lon_shift, axis=1)
 
         grid_mask[:] = X_mask.T
         mask_values = np.array([1])
@@ -933,7 +917,7 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
 
     # Create new grid
     new_grid = ESMF.Grid(max_index=np.array((target_nlon, target_nlat)),
-                         num_peri_dims=1,
+                         num_peri_dims=0,
                          pole_dim=1,
                          coord_sys=ESMF.CoordSys.SPH_DEG,
                          coord_typekind=ESMF.TypeKind.R8,
@@ -947,20 +931,18 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
     new_grid_y_cen[:] = new_lat.T
     new_grid.add_coords(staggerloc=ESMF.StaggerLoc.CORNER)
     new_grid_x_cor = new_grid.get_coords(x, staggerloc=ESMF.StaggerLoc.CORNER)
-    # Cut off last element of lon_bnds because grid assumed periodic
-    new_grid_x_cor[:] = new_lon_bnds[:-1, None]
+    new_grid_x_cor[:] = new_lon_bnds[:, None]
     new_grid_y_cor = new_grid.get_coords(y, staggerloc=ESMF.StaggerLoc.CORNER)
     new_grid_y_cor[:] = new_lat_bnds[None, :]
 
-    new_grid_mask = new_grid.add_item(ESMF.GridItem.MASK)
-    new_grid_mask[:] = 0
+    if masked_regrid:
+        new_grid_mask = new_grid.add_item(ESMF.GridItem.MASK)
+        new_grid_mask[:] = 0
 
     if method == 'bilinear':
         use_method = ESMF.RegridMethod.BILINEAR
-    # Note: Removed because conservative regridding does not work for irreg
-    # grids currently (discovered with rotated pole ocean grids)
-    # elif method == 'conserve':
-    #     use_method = ESMF. RegridMethod.CONSERVE
+    elif method == 'conserve':
+        use_method = ESMF. RegridMethod.CONSERVE
     elif method == 'patch':
         use_method = ESMF.RegridMethod.PATCH
     else:
@@ -974,15 +956,23 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
 
     regrid_output = np.empty((X_nens, target_nlat, target_nlon))
     regridder = ESMF.Regrid(src_field, dst_field, regrid_method=use_method,
+                            dst_mask_values=mask_values,
                             src_mask_values=mask_values,
                             unmapped_action=ESMF.UnmappedAction.IGNORE)
+
+    if masked_regrid and method == 'conserve':
+        # Create new regridder with proper destination mask for conservative
+        tmp = np.ones_like(src_field.data)
+        src_field.data[:] = tmp
+        regridder(src_field, dst_field)
+        out_data = dst_field.data[:]
+        mask = out_data == 0.0
+        # TODO: create new function so i can try new grid w/ masks
+
 
     # Regrid each ensemble member
     for k in range(X_nens):
         grid_data = X[k]
-        if lon_shift:
-            grid_data = np.roll(grid_data, lon_shift, axis=1)
-
         src_field.data[:] = grid_data.T
 
         regridder(src_field, dst_field)
