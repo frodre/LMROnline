@@ -23,11 +23,11 @@ import sys
 import yaml
 import itertools
 import datetime
-from . import LMR_driver_callable2 as LMR
-from . import LMR_config
+import LMR_driver_callable2 as LMR
+import LMR_config
 
-from . import LMR_utils2 as Util2
-from .LMR_utils2 import ensemble_stats, validate_config
+import LMR_utils2 as Util2
+from LMR_utils2 import ensemble_stats, validate_config
 
 print('\n' + str(datetime.datetime.now()) + '\n')
 

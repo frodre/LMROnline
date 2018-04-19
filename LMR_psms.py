@@ -41,9 +41,9 @@ Revisions:
 """
 import numpy as np
 import logging
-from . import LMR_gridded
+import LMR_gridded
 import pickle
-from .LMR_utils import haversine, get_distance, smooth2D, get_data_closest_gridpt, class_docs_fixer
+from LMR_utils import haversine, get_distance, smooth2D, get_data_closest_gridpt, class_docs_fixer
 
 import pandas as pd
 from scipy.stats import linregress
@@ -235,11 +235,11 @@ class LinearPSM(BasePSM):
         self._calib_object = None
         self.nobs = None
 
-        self.datatag_calib = linear_psm_cfg.datatag_calib
+        self.datatag = linear_psm_cfg.datatag
         self.avg_interval = linear_psm_cfg.avg_interval
 
-        self.datainfo_calib = linear_psm_cfg.datainfo_calib
-        self.psm_vartype = self.datainfo_calib['psm_vartype']
+        self.datainfo = linear_psm_cfg.datainfo
+        self.psm_vartype = self.datainfo['psm_vartype']
         self.sensitivity = list(self.psm_vartype.keys())[0]
 
         try:
@@ -280,7 +280,7 @@ class LinearPSM(BasePSM):
 
             # TODO: Fix call and Calib Module
             if calib_obj is None:
-                source = linear_psm_cfg.datatag_calib
+                source = linear_psm_cfg.datatag
                 calib_class = LMR_gridded.get_analysis_var_class(source)
                 calib_obj = calib_class.load(linear_psm_cfg)
 
@@ -644,7 +644,7 @@ class LinearPSM(BasePSM):
         if pre_calib_file is None:
             raise IOError('No pre-calibration file specified.')
 
-        with open(pre_calib_file, mode='r') as f:
+        with open(pre_calib_file, mode='rb') as f:
             data = pickle.load(f)
 
         return data
@@ -711,8 +711,8 @@ class LinearPSM_TorP(BasePSM):
         self.lon  = proxy_obj.lon
         self.elev = proxy_obj.elev
 
-        self.datatag_calib_T = linearTorP_cfg.datatag_calib_T
-        self.datatag_calib_P = linearTorP_cfg.datatag_calib_P
+        self.datatag_T = linearTorP_cfg.datatag_T
+        self.datatag_P = linearTorP_cfg.datatag_P
 
         self.avg_interval = linearTorP_cfg.avg_interval
 
@@ -873,8 +873,8 @@ class BilinearPSM(BasePSM):
         self.elev = proxy_obj.elev
 
         self.avg_interval = bilinear_cfg.avg_interval
-        self.psm_vartype_T = bilinear_cfg.temperature.datainfo_calib['psm_vartype']
-        self.psm_vartype_P = bilinear_cfg.moisture.datainfo_calib['psm_vartype']
+        self.psm_vartype_T = bilinear_cfg.temperature.datainfo['psm_vartype']
+        self.psm_vartype_P = bilinear_cfg.moisture.datainfo['psm_vartype']
 
         # Assign sensitivity as temperature_moisture
         self.sensitivity = 'temperature_moisture'

@@ -68,12 +68,12 @@ import numpy as np
 from os.path import join
 from time import time
 
-from . import LMR_proxy2
-from . import LMR_gridded
-from .LMR_utils2 import global_mean2
-from . import LMR_config as BaseCfg
-from . import LMR_forecaster
-from .LMR_DA import enkf_update_array_xb_blend, cov_localization
+import LMR_proxy2
+import LMR_gridded
+from LMR_utils2 import global_mean2
+import LMR_config as BaseCfg
+import LMR_forecaster
+from LMR_DA import enkf_update_array_xb_blend, cov_localization
 
 
 # *** Helper Methods

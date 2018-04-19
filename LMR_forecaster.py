@@ -6,8 +6,8 @@ import logging
 
 import pylim.LIM as LIM
 import pylim.DataTools as DT
-from .LMR_utils2 import class_docs_fixer, augment_docstr, regrid_sphere
-from . import LMR_gridded
+from LMR_utils2 import class_docs_fixer, augment_docstr, regrid_sphere
+import LMR_gridded
 
 logger = logging.getLogger(__name__)
 

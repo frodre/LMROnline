@@ -32,8 +32,8 @@ Revisions:
            [ R. Tardif, Univ. of Washington, Sept 2017 ]
 """
 
-from . import LMR_psms
-from .LMR_utils2 import augment_docstr, class_docs_fixer, fix_lon
+import LMR_psms
+from LMR_utils2 import augment_docstr, class_docs_fixer, fix_lon
 
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
@@ -433,7 +433,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
         # Filtering proxy records on conditions of availability during
         # the reconstruction period (recon_period in configuration, or
         # data_range here).
-        if availability_filter is not None:
+        if availability_filter:
             start, finish = data_range
             # Checking proxy metadata's period of availability against
             # reconstruction period.
