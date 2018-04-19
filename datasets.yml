@@ -7,6 +7,7 @@ GISTEMP:
     multiple_vars: False
     template: null
     available_vars: [tempanomaly]
+    cell_area: null
     psm_vartype:
       temperature: tas
 
@@ -19,6 +20,7 @@ MLOST:
     multiple_vars: False
     template: null
     available_vars: [air]
+    cell_area: null
     psm_vartype:
       temperature: tas
 
@@ -31,6 +33,7 @@ HadCRUT:
     multiple_vars: False
     template: null
     available_vars: [temperature_anomaly]
+    cell_area: null
     psm_vartype:
       temperature: tas
 
@@ -43,6 +46,7 @@ BerkeleyEarth:
     multiple_vars: False
     template: null
     available_vars: [temperature]
+    cell_area: null
     psm_vartype:
       temperature: tas
 
@@ -55,6 +59,7 @@ NOAA:
     multiple_vars: False
     template: null
     available_vars: [data]
+    cell_area: null
     psm_vartype:
       temperature: tas
 
@@ -67,6 +72,7 @@ GPCC:
     multiple_vars: False
     template: null
     available_vars: [precip]
+    cell_area: null
     psm_vartype:
       moisture: precip
 
@@ -79,6 +85,7 @@ DaiPDSI:
     multiple_vars: False
     template: null
     available_vars: [pdsi]
+    cell_area: null
     psm_vartype:
       moisture: pdsi
 
@@ -95,6 +102,7 @@ icesm_last_millennium:
                      pr_sfc_Amon, d18O_sfc_Amon,
                      tos_sfc_Omon, sos_sfc_Omon,
                      d18Osw_sfc_Omon]
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_iCESM_past1000_085001-184912.nc'
@@ -108,6 +116,7 @@ icesm_last_millennium_historical:
                      pr_sfc_Amon, d18O_sfc_Amon,
                      tos_sfc_Omon, sos_sfc_Omon,
                      d18Osw_sfc_Omon]
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_iCESM_past1000historical_085001-200512.nc'
@@ -133,6 +142,15 @@ ccsm4_last_millenium:
                      AMOCindex_Omon, AMOC26Nmax_Omon, AMOC26N1000m_Omon,
                      AMOC45N1000_Omon]
     rotated_pole: [tos_sfc_Omon, sos_sfc_Omon, zos_Omon, ohc_0-700m_Omon]
+    cell_area: '[realm_var]_fx_CCSM4_past1000_r0i0p0.nc'
+    cell_area_template: '[realm_var]'
+    cell_area_realmvar_def:
+      ocean: 'areacello'
+      atmos: 'areacella'
+    var_realm_def:
+      Omon: ocean
+      Amon: atmos
+
     psm_var_map:
       temperature:
         tas: tas_sfc_Amon
@@ -151,6 +169,7 @@ ccsm4_preindustrial_control:
     available_vars: [AMOC26N1000m_Omon, AMOC26Nmax_Omon, AMOC45N1000m_Omon,
                      AMOCindex_Omon, pr_sfc_Amon, psl_sfc_Amon, tas_sfc_Amon,
                      zg_500hPa_Amon]
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_CCSM4_piControl_080001-130012.nc'
@@ -161,6 +180,7 @@ ccsm4_isotope_controlrun:
     multiple_vars: True
     template: '[vardef_template]'
     available_vars: [d180_sfc_Amon, tas_sfc_Amon, zg_500hPa_Amon]
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_CCSM4_isotope_controlrun.nc'
@@ -185,6 +205,7 @@ gfdl-cm3_preindustrial_control:
                       'ua_850hPa_Amon', 'ua_925hPa_Amon', 'va_1000hPa_Amon',
                       'va_250hPa_Amon', 'va_500hPa_Amon', 'va_700hPa_Amon',
                       'va_850hPa_Amon', 'va_925hPa_Amon']
+    cell_area: null
     psm_var_map:
       temperature: tas_sfc_Amon
       moisture:
@@ -210,6 +231,7 @@ mpi-esm-p_last_millenium:
                      'ua_925hPa_Amon', 'va_1000hPa_Amon', 'va_250hPa_Amon',
                      'va_500hPa_Amon', 'va_700hPa_Amon', 'va_850hPa_Amon',
                      'va_925hPa_Amon']
+    cell_area: null
     psm_var_map:
       temperature: tas_sfc_Amon
       moisture:
@@ -232,6 +254,7 @@ mpi-esm-p_last_millenium:
                      'va_1000hPa_Amon', 'va_250hPa_Amon', 'va_500hPa_Amon',
                      'va_700hPa_Amon', 'va_850hPa_Amon', 'va_950hPa_Amon',
                      'ua_600hPa_Amon', 'va_600hPa_Amon']
+    cell_area: null
     psm_var_map:
       temperature: tas_sfc_Amon
       moisture:
@@ -254,6 +277,7 @@ era20c:
                      'va_250hPa_Amon', 'va_500hPa_Amon', 'va_700hPa_Amon',
                      'va_850hPa_Amon', 'va_925hPa_Amon', 'ua_600hPa_Amon',
                      'va_600hPa_Amon', 'ua_950hPa_Amon', 'va_950hPa_Amon']
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_ERA20C_190001-201012.nc'
@@ -264,6 +288,7 @@ era20cm:
     multiple_vars: True
     template: '[vardef_template]'
     available_vars: ['tas_sfc_Amon', 'zg_500hPa_Amon']
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_ERA20CM_190001-201012.nc'
@@ -274,6 +299,7 @@ loveclim_goosse2005:
     multiple_vars: True
     template: '[vardef_template]'
     available_vars: ['tas_sfc_Amon', 'tos_sfc_Amon']
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_loveclim_expD2000.nc'
@@ -285,6 +311,7 @@ ihadcm3_preindustrial_control:
     template: '[vardef_template]'
     available_vars: ['tas_sfc_Amon', 'psl_sfc_Amon',
                      'pr_sfc_Amon', 'd18O_sfc_Amon']
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_ihadcm3_preindustrial_control.nc'
@@ -300,6 +327,7 @@ ccsm3_trace21ka:
                      'zg_500hPa_Adec', 'zg_850hPa_Adec', 'wap_700hPa_Adec',
                      'ta_1000hPa_Adec', 'ta_850hPa_Adec', 'ta_700hPa_Adec', 'ta_600hPa_Adec', 'ta_500hPa_Adec', 
                      'tos_sfc_Odec', 'sos_sfc_Odec']
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_CCSM3_TraCE21ka.nc'
@@ -310,6 +338,7 @@ cgenie_petm:
     multiple_vars: True
     template: '[vardef_template]'
     available_vars: ['tas_sfc_Adec', 'tos_sfc_Adec']
+    cell_area: null
 
   datadir: null
   datafile: '[vardef_template]_cgenie_petm.nc'
@@ -323,6 +352,7 @@ old20cr:
     multiple_vars: False
     template: null
     available_vars: [air]
+    cell_area: null
 
   datadir: /home/disk/katabatic/wperkins/data/20CR/
   datafile: 'air.2m.mon.mean.nc'
@@ -334,6 +364,7 @@ shortBerkeleyEarth:
     multiple_vars: False
     template: null
     available_vars: [tas_run_mean]
+    cell_area: null
 
   datadir: /home/disk/katabatic/wperkins/data/LMR/data/analyses/Experimental/
   datafile: tas_run_mean_berkeley_earth_monthly_195701-201412.nc
@@ -345,6 +376,7 @@ test_20cr:
     multiple_vars: True
     template: '[vardef_template]'
     available_vars: [air, tseries]
+    cell_area: null
 
   datadir: /home/disk/p/wperkins/Research/LMR/tests/data/
   datafile: '[vardef_template]_gridded_dat.nc'
