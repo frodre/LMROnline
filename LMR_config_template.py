@@ -14,7 +14,7 @@ NOTE:  All general user parameters that should be edited are displayed
 Adapted from LMR_exp_NAMELIST by AndreP
 """
 
-from os.path import join, exists
+from os.path import join
 from copy import deepcopy
 import yaml
 import numpy as np
@@ -1298,9 +1298,15 @@ class prior(ConfigGroup):
     regrid_resolution: int
         Integer representing the triangular truncation of the lower resolution 
         grid (e.g. 42 for T42). Not used for 'esmpy' regrid_method.
-    esmpy_interp_method: str
-        Which ESMpy regridding method to use.  Currently supports bilinear or 
-        higher-oder patch fit interpolation regridding.
+    esmpy_interp_method: str or dict of str
+        Which ESMpy regridding method to use. A single string will be apply 
+        this method to all fields, or a dict of mappings from prior variables 
+        to interpolation methods allows for specification.
+        Currently supports:
+        'bilinear':  Bilinear interpolation, good for smooth fields
+        'patch': Higher order patch interpolation
+        'conserve': Conservative regridding, only use on fields where 
+            conservation makes sense.  E.g. Mass or energy fields
     esmpy_regrid_to: str
         A grid defined in grid_def.yml to use as the regridding target.  
         Currently supports 't42' and 'reg_4x5deg'.
@@ -1421,7 +1427,7 @@ class prior(ConfigGroup):
             self.esmpy_grid_def = None
         elif self.regrid_method == 'esmpy':
             self.regrid_resolution = None
-            self.esmpy_interp_method = self.esmpy_interp_method
+            self.esmpy_interp_method = self._validate_interp_method()
             self.esmpy_grid_def = _GridDef.get_info(self.esmpy_regrid_to)
             self.regrid_grid = self.esmpy_regrid_to
 
@@ -1432,6 +1438,25 @@ class prior(ConfigGroup):
             raise SystemExit(('Could not find requested variable(s) {} in the '
                               'list of available variables for the {} '
                               'dataset').format(var_mismat, self.prior_source))
+
+    def _validate_interp_method(self):
+
+        interp_method = self.esmpy_interp_method
+
+        if isinstance(interp_method, dict):
+            state_keys = self.state_variables.keys()
+            for key in interp_method.keys():
+                if key not in state_keys:
+                    raise KeyError('ESMPy interpolation method mapping key '
+                                   'not found in state variable list: '
+                                   '{} ... Please fix '
+                                   'configuration'.format(key))
+        else:
+            if not isinstance(interp_method, str):
+                raise ValueError('Incorrect ESMPy interpolation method '
+                                 'specified in the configuration.')
+
+        return interp_method
 
 
 class forecaster(ConfigGroup):

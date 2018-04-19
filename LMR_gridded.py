@@ -613,8 +613,14 @@ class GriddedVariable(object):
         avg_interval_kwargs = gridded_config.avg_interval_kwargs
         regrid_method = gridded_config.regrid_method
         regrid_grid = gridded_config.regrid_grid
+
+        if isinstance(gridded_config.esmpy_interp_method, dict):
+            interp_method = gridded_config.esmpy_interp_method[varname]
+        else:
+            interp_method = gridded_config.esmpy_interp_method
+
         esmpy_kwargs = {'grid_def': gridded_config.esmpy_grid_def,
-                        'interp_method': gridded_config.esmpy_interp_method}
+                        'interp_method': interp_method}
 
         unique_cfg_kwargs = cls._load_unique_cfg_kwargs(gridded_config)
 
