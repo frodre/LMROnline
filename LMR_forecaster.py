@@ -101,7 +101,7 @@ class LIMForecaster(BaseForecaster):
             fit_noise = False
 
         self.lim = LIM.LIM(calib_state, nelem_in_tau1=nelem_in_yr,
-                           fit_nosie=fit_noise)
+                           fit_noise=fit_noise)
         self.var_order = var_order
         self.var_eofs = calib_eofs
         self.fcast_state_bnds = fcast_state_bnds
