@@ -797,7 +797,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(proxies.ncdcdtda, self).__init__(lmr_path=lmr_path, **kwargs)
+            super(proxies.NCDCdtda, self).__init__(lmr_path=lmr_path, **kwargs)
 
             self.database_filter = list(self.database_filter)
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
