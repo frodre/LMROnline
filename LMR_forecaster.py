@@ -50,7 +50,6 @@ class LIMForecaster(BaseForecaster):
         prior_map = lim_cfg.prior_mapping
         fcast_lead = lim_cfg.fcast_lead
         fcast_type = lim_cfg.fcast_type
-        self.use_ens_mean_fcast = lim_cfg.use_ens_mean_fcast
 
         fcast_calib_vars = LMR_gridded.ForecasterVariable.load_allvars(lim_cfg)
         fcast_calib_dobjs = {key: var.forecast_var_to_pylim_dataobj()
