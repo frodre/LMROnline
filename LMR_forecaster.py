@@ -49,6 +49,7 @@ class LIMForecaster(BaseForecaster):
         num_pcs = lim_cfg.fcast_num_pcs
         prior_map = lim_cfg.prior_mapping
         fcast_lead = lim_cfg.fcast_lead
+        fcast_type = lim_cfg.fcast_type
         self.use_ens_mean_fcast = lim_cfg.use_ens_mean_fcast
 
         fcast_calib_vars = LMR_gridded.ForecasterVariable.load_allvars(lim_cfg)
@@ -97,12 +98,28 @@ class LIMForecaster(BaseForecaster):
         #     except IOError:
         #         print ('No pre-calibrated LIM found.')
 
-        self.lim = LIM.LIM(calib_state, nelem_in_tau1=nelem_in_yr)
+        if fcast_type == 'noise_integrate':
+            fit_noise = True
+        else:
+            fit_noise = False
+
+        self.lim = LIM.LIM(calib_state, nelem_in_tau1=nelem_in_yr,
+                           fit_nosie=fit_noise)
         self.var_order = var_order
         self.var_eofs = calib_eofs
         self.fcast_state_bnds = fcast_state_bnds
         self.prior_map = prior_map
         self.fcast_lead = fcast_lead
+
+        if fcast_type == 'perfect':
+            self._fcast_func = self._perf_forecast
+        elif fcast_type == 'ens_mean_perfect':
+            self._fcast_func = self._perf_ensmean_forecast
+        elif fcast_type == 'noise_integrate':
+            self._fcast_func = self._noise_integration
+        else:
+            raise ValueError('Unrecognized forecast type specification: '
+                             '{}'.format(fcast_type))
 
         # if not path.exists(precalib_path):
         #     os.makedirs(precalib_path)
@@ -110,7 +127,7 @@ class LIMForecaster(BaseForecaster):
         # self.lim.save_precalib(precalib_pathfname)
 
     def forecast(self, state_obj):
-
+        """Perfect no-noise forecast. Drastically reduces output variance."""
         fcast_state = []
         is_compressed = []
         for var in self.var_order:
@@ -119,23 +136,13 @@ class LIMForecaster(BaseForecaster):
                 nens = data.shape[-1]
                 data = data.compressed().reshape(-1, nens)
                 is_compressed.append(var)
+            # Transposes sampling dimension and projects into EOF space
             eof_proj = np.dot(data.T, self.var_eofs[var])
             fcast_state.append(eof_proj)
 
         fcast_state = np.concatenate(fcast_state, axis=-1)
 
-        if self.use_ens_mean_fcast:
-            # Take the ensemble mean and forecast on that
-            fcast_data_ensmean = fcast_state.mean(axis=-1, keepdims=True)
-            fcast_data_enspert = fcast_state - fcast_data_ensmean
-
-            fcast_data = self.lim.forecast(fcast_data_ensmean,
-                                           [self.fcast_lead])
-
-            fcast_data = fcast_data + fcast_data_enspert
-        else:
-            # Forecast each individual ensemble member
-            fcast_data = self.lim.forecast(fcast_state, [self.fcast_lead])[0]
+        fcast_data = self._fcast_func(fcast_state)
 
         # var_data is returned as a view for annual, so this re-assigns
         fcast_state_out = {}
@@ -150,6 +157,26 @@ class LIMForecaster(BaseForecaster):
             fcast_state_out[self.prior_map[var]] = phys_space_fcast.T
 
         return fcast_state_out
+
+    def _perf_forecast(self, state_arr):
+        return self.lim.forecast(state_arr, [self.fcast_lead])[0]
+
+    def _perf_ensmean_forecast(self, state_arr):
+        # Take the ensemble mean and forecast on that
+        fcast_data_ensmean = state_arr.mean(axis=-1, keepdims=True)
+        fcast_data_enspert = state_arr - fcast_data_ensmean
+
+        fcast_data = self.lim.forecast(fcast_data_ensmean,
+                                       [self.fcast_lead])[0]
+
+        fcast_data = fcast_data + fcast_data_enspert
+
+        return fcast_data
+
+    def _noise_integration(self, state_arr):
+        return self.lim.noise_integration(state_arr, self.fcast_lead,
+                                          timesteps=1440)
+
 
 
 @class_docs_fixer

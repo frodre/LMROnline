@@ -365,6 +365,7 @@ forecaster:
   lim:
     datatag: ccsm4_last_millenium
     avg_interval: annual_std
+    fcast_type: 'noise_integrate'
 
     fcast_varnames: [tas_sfc_Amon]
     prior_mapping:

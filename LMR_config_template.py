@@ -1490,6 +1490,16 @@ class forecaster(ConfigGroup):
         avg_interval: str
             Average interval key as defined in constants.yml for averaging
             the calibration data.
+        fcast_type: str
+            Type of LIM forecast operation to perform.
+            'perfect': noiseless projection from time t to forecast at t + fcast
+                       lead. This should be used with hybrid covariance
+                       blending in core.
+            'ens_mean_perfect': Forecasts the ensemble mean value using a
+                                perfect forecast.  Still reduces the ensemble
+                                spread but presumabaly less so.  EXPERIMENTAL
+            'noise_integrate': takes each ensemble member and forecasts using
+                               noise integration method.
         fcast_varnames: list(str)
             List of variables to calibrate and forecast
         prior_mapping: dict{str: str}
@@ -1515,12 +1525,12 @@ class forecaster(ConfigGroup):
 
         fcast_varnames = []
         prior_mapping = {}
+        fcast_type = 'perfect'
 
         fcast_lead = 1
         fcast_num_pcs = 8
         detrend = True
         ignore_precalib_lim = False
-        use_ens_mean_fcast = False
 
         def __init__(self, lmr_path=None, save_pre_avg_file=None,
                      ignore_pre_avg_file=None, regrid_method=None,
@@ -1543,11 +1553,12 @@ class forecaster(ConfigGroup):
             self.fcast_num_pcs = self.fcast_num_pcs
             self.detrend = self.detrend
             self.ignore_precalib_lim = self.ignore_precalib_lim
-            self.use_ens_mean_fcast = self.use_ens_mean_fcast
 
             self.avg_interval = self.avg_interval
             avg_interval_defs = Constants.get_info('avg_interval')
             self.avg_interval_kwargs = avg_interval_defs[self.avg_interval]
+
+            self.fcast_type = self.fcast_type
 
             self.regrid_method = regrid_method
             self.regrid_grid = regrid_grid
