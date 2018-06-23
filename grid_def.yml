@@ -7,3 +7,7 @@ t42:
 reg_4x5deg:
   target_nlat: 45
   target_nlon: 72
+
+reg_2x2deg:
+  target_nlat: 90
+  target_nlon: 180

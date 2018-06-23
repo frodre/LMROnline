@@ -1509,6 +1509,10 @@ class forecaster(ConfigGroup):
         fcast_num_pcs: int
             Number of principle components to retain during LIM forecast
             calibration.
+        dobj_num_pcs: int
+            Number of principle components to reduce each variable to before
+            creation of multi-variate state vector. (Parameter reduction that
+            lowers the memory cost of multi-variate EOF truncation.)
         detrend: bool
             Flag to detrend source data prior to calibration step.
         ignore_precalib: bool
@@ -1528,7 +1532,8 @@ class forecaster(ConfigGroup):
         fcast_type = 'perfect'
 
         fcast_lead = 1
-        fcast_num_pcs = 8
+        fcast_num_pcs = 20
+        dobj_num_pcs = 400
         detrend = True
         ignore_precalib_lim = False
 
@@ -1551,6 +1556,7 @@ class forecaster(ConfigGroup):
 
             self.fcast_lead = self.fcast_lead
             self.fcast_num_pcs = self.fcast_num_pcs
+            self.dobj_num_pcs = self.dobj_num_pcs
             self.detrend = self.detrend
             self.ignore_precalib_lim = self.ignore_precalib_lim
 

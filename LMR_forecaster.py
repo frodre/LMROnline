@@ -3,6 +3,7 @@ import numpy as np
 import logging
 
 import pylim.LIM as LIM
+import pylim.Stats as plstat
 from LMR_utils2 import class_docs_fixer
 import LMR_gridded
 
@@ -45,6 +46,7 @@ class LIMForecaster(BaseForecaster):
         lim_cfg = forecaster_config.lim
         detrend = lim_cfg.detrend
         num_pcs = lim_cfg.fcast_num_pcs
+        dobj_num_pcs = lim_cfg.dobj_num_pcs
         prior_map = lim_cfg.prior_mapping
         fcast_lead = lim_cfg.fcast_lead
         fcast_type = lim_cfg.fcast_type
@@ -55,26 +57,22 @@ class LIMForecaster(BaseForecaster):
         self.calib_dobjs = fcast_calib_dobjs
 
         var_order = []
-        calib_state = []
-        calib_eofs = {}
-        fcast_state_bnds = {}
-        start = 0
+        var_eofs = {}
+
         for key, dobj in fcast_calib_dobjs.items():
+            var_order.append(key)
             dobj.calc_anomaly(nelem_in_yr)  # TODO: hardcoded annual
             if detrend:
                 dobj.detrend_data()
+            # TODO: Fix cell area loading in LMR_gridded
             dobj.area_weight_data()
-            dobj.eof_proj_data(num_pcs)
-            data = dobj.eof_proj[:]
+            dobj.eof_proj_data(dobj_num_pcs, proj_key=dobj._DETRENDED)
+            var_eofs[key] = dobj._eofs
 
-            var_order.append(key)
-            calib_state.append(data)
-            calib_eofs[key] = dobj._eofs
-            end = start + data.shape[-1]
-            fcast_state_bnds[key] = (start, end)
-            start = end
-
-        calib_state = np.concatenate(calib_state, axis=-1)
+        # FYI Order is preserved for dicts in Py3.6+
+        calib_state = _LIMState(fcast_calib_dobjs, dobj_key='eof_proj')
+        mvar_eof_stats = calib_state.calc_state_eofs(num_pcs)
+        calib_state.proj_state_onto_eofs()
 
 
         # Search for pre-calibrated LIM to save time
@@ -103,8 +101,8 @@ class LIMForecaster(BaseForecaster):
         self.lim = LIM.LIM(calib_state, nelem_in_tau1=nelem_in_yr,
                            fit_noise=fit_noise)
         self.var_order = var_order
-        self.var_eofs = calib_eofs
-        self.fcast_state_bnds = fcast_state_bnds
+        self.var_eofs = var_eofs
+        self.calib_state = calib_state
         self.prior_map = prior_map
         self.fcast_lead = fcast_lead
 
@@ -138,14 +136,17 @@ class LIMForecaster(BaseForecaster):
             fcast_state.append(eof_proj)
 
         fcast_state = np.concatenate(fcast_state, axis=-1)
+        fcast_state = fcast_state @ self.calib_state_eofs
 
         fcast_data = self._fcast_func(fcast_state)
+
+        fcast_data = self.calib_state.proj_data_into_orig_basis(fcast_data)
 
         # var_data is returned as a view for annual, so this re-assigns
         fcast_state_out = {}
         for var in self.var_order:
-            start, end = self.fcast_state_bnds[var]
-            fcast_out = fcast_data[:, start:end]
+            fcast_out = self.calib_state.get_var_from_state(var,
+                                                            data=fcast_data)
             phys_space_fcast = np.dot(fcast_out, self.var_eofs[var].T)
             if var in is_compressed:
                 dobj = self.calib_dobjs[var]
@@ -171,6 +172,7 @@ class LIMForecaster(BaseForecaster):
         return fcast_data
 
     def _noise_integration(self, state_arr):
+        # TODO: need to add a seed list generated for each recon year
         return self.lim.noise_integration(state_arr, self.fcast_lead,
                                           timesteps=1440)
 
@@ -210,6 +212,115 @@ def get_forecaster_class(key):
         Forecaster class to be instantiated
     """
     return _forecaster_classes[key]
+
+
+class _LIMState(object):
+    """
+    Create a state usable for LIM calibration
+
+    Parameters
+    ----------
+    dobjs: dict of DataTools.BaseDataObject
+        List of data objects that you would like to combine.  Must have the
+        eof projection already completed.
+
+    Attributes
+    ----------
+    var_span: dict of tuples(int)
+        The index location for each variable in the state.
+    data: ndarray
+        A combined state numpy array
+    """
+
+    def __init__(self, dobjs, dobj_key='eof_proj'):
+        self.var_span = {}
+        self.data = []
+        self.eofs = None
+        self.svals = None
+        self.is_eof_proj = False
+        self.dobjs = dobjs
+        self.var_order = []
+
+        start = 0
+        for key, dobj in dobjs.items():
+            self.var_order.append(key)
+            dobj_data = getattr(dobj, dobj_key)
+            self.data.append(dobj_data[:])
+            end = start + dobj_data.shape[1]
+            self.var_span[key] = (start, end)
+            start = end
+
+        self.data = np.concatenate(self.data, axis=1)
+        self.untruncated = self.data
+        self.eof_truncated = None
+
+    def get_var_from_state(self, key, data=None):
+        """
+        Retrieve a single variable from the state array. Defaults to
+        retrieving from self, but allowed to provide outside data of
+        the same shape.
+        """
+
+        if self.is_eof_proj and data is None:
+            raise ValueError(
+                'Cannot retrieve variables unless state is in original basis.'
+                ' Please use proj_state_into_phys().')
+
+        if data is None:
+            data = self.data
+
+        start, end = self.var_span[key]
+        return data[..., start:end]
+
+    def get_var_eofs(self, key):
+        "Retrieve the EOFs of a single variable"
+
+        if self.eofs is None:
+            raise ValueError('No EOFs have been calculated.')
+
+        start, end = self.var_span[key]
+        return self.eofs[start:end, :]
+
+    def calc_state_eofs(self, num_eofs):
+
+        var_stats = {}
+        state_eofs, state_svals = plstat.calc_eofs(self.data, num_eofs,
+                                                   var_stats_dict=var_stats)
+        self.eofs = state_eofs
+        self.svals = state_svals
+
+        return var_stats
+
+    def proj_state_onto_eofs(self):
+
+        if self.eofs is None:
+            raise ValueError('State EOFs have not been calculated!')
+
+        if self.is_eof_proj:
+            print('Data is already in EOF space.')
+            return None
+
+        if self.eof_truncated is None:
+            self.data = self.data @ self.eofs
+        else:
+            self.data = self.eof_truncated
+        self.is_eof_proj = True
+
+    # TODO: change name to 'return_state_to_phys'
+    def proj_state_into_phys(self):
+
+        if not self.is_eof_proj:
+            print('State is already in original basis.')
+            return None
+
+        self.data = self.untruncated
+        self.is_eof_proj = False
+
+    def proj_data_into_orig_basis(self, data):
+        return data @ self.eofs.T
+
+    def proj_data_into_eof_basis(self, data):
+        return data @ self.eofs
 
 
 

@@ -131,7 +131,7 @@ ccsm4_last_millenium:
                      pr_sfc_Amon, prw_int_Amon, scpdsi_sfc_Amon,
                      ai_sfc_Aann, pet_sfc_Amon,
                      tos_sfc_Omon, sos_sfc_Omon, ohc_0-700m_Omon,
-                     zos_Omon,
+                     zos_sfc_Omon,
                      ohcArctic_0-700m_Omon, ohcAtlanticNH_0-700m_Omon,
                      ohcAtlanticSH_0-700m_Omon, ohcAtlantic_0-700m_Omon,
                      ohcPacificNH_0-700m_Omon, ohcPacificSH_0-700m_Omon,

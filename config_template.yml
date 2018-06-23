@@ -372,7 +372,8 @@ forecaster:
       tas_sfc_Amon: tas_sfc_Amon
 
     fcast_lead: 1
-    fcast_num_pcs: 8
+    fcast_num_pcs: 20
+    dobj_num_pcs: 500
     detrend: True
     ignore_precalib_lim: True
     use_ense_mean_fcast: False
