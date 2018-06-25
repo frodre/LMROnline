@@ -98,7 +98,7 @@ class LIMForecaster(BaseForecaster):
         else:
             fit_noise = False
 
-        self.lim = LIM.LIM(calib_state, nelem_in_tau1=nelem_in_yr,
+        self.lim = LIM.LIM(calib_state.data, nelem_in_tau1=nelem_in_yr,
                            fit_noise=fit_noise)
         self.var_order = var_order
         self.var_eofs = var_eofs
@@ -128,15 +128,16 @@ class LIMForecaster(BaseForecaster):
         for var in self.var_order:
             data = state_obj.get_var_data(self.prior_map[var])
             if np.ma.is_masked(data):
-                nens = data.shape[-1]
-                data = data.compressed().reshape(-1, nens)
+                # Get the LIM calibration defined mask
+                valid_mask = self.calib_dobjs[var].valid_data
+                data = data[valid_mask, :]
                 is_compressed.append(var)
             # Transposes sampling dimension and projects into EOF space
             eof_proj = np.dot(data.T, self.var_eofs[var])
             fcast_state.append(eof_proj)
 
         fcast_state = np.concatenate(fcast_state, axis=-1)
-        fcast_state = fcast_state @ self.calib_state_eofs
+        fcast_state = fcast_state @ self.calib_state.eofs
 
         fcast_data = self._fcast_func(fcast_state)
 

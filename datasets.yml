@@ -141,7 +141,7 @@ ccsm4_last_millenium:
                      AMOCstreamfct_Omon,
                      AMOCindex_Omon, AMOC26Nmax_Omon, AMOC26N1000m_Omon,
                      AMOC45N1000_Omon]
-    rotated_pole: [tos_sfc_Omon, sos_sfc_Omon, zos_Omon, ohc_0-700m_Omon]
+    rotated_pole: [tos_sfc_Omon, sos_sfc_Omon, zos_sfc_Omon, ohc_0-700m_Omon]
     cell_area: '[realm_var]_fx_CCSM4_past1000_r0i0p0.nc'
     cell_area_template: '[realm_var]'
     cell_area_realmvar_def:

@@ -574,7 +574,8 @@ class GriddedVariable(object):
                                      dim_coords=dim_coords,
                                      coord_grids=coord_grids,
                                      force_flat=True,
-                                     fill_value=self._fill_val)
+                                     fill_value=self._fill_val,
+                                     cell_area=self.cell_area)
 
         return new_dobj
 
@@ -1184,36 +1185,6 @@ class ForecasterVariable(GriddedVariable):
             fcast_dict[vname] = fobj
 
         return fcast_dict
-
-    def forecast_var_to_pylim_dataobj(self):
-
-        print(('Converting ForecastVariable to pylim.DataObject: '
-               '{}'.format(self.name)))
-
-        BDO = DT.BaseDataObject
-
-        key_map = {_TIME: BDO.TIME,
-                   _LEV: BDO.LEVEL,
-                   _LAT: BDO.LAT,
-                   _LON: BDO.LON}
-
-        dim_coords = {key_map[dim]: (i, getattr(self, dim)[:])
-                      for i, dim in enumerate(self.dim_order)}
-        coord_grids = {}
-        if self.lat_grid is not None:
-            coord_grids[BDO.LAT] = self.lat_grid
-        if self.lon_grid is not None:
-            coord_grids[BDO.LON] = self.lon_grid
-        if not coord_grids:
-            coord_grids = None
-
-        new_dobj = DT.BaseDataObject(self.data,
-                                     dim_coords=dim_coords,
-                                     coord_grids=coord_grids,
-                                     force_flat=True,
-                                     fill_value=self._fill_val)
-
-        return new_dobj
 
 
 class AnalysisVariable(GriddedVariable):
