@@ -127,7 +127,7 @@ class LIMForecaster(BaseForecaster):
         is_compressed = []
         for var in self.var_order:
             data = state_obj.get_var_data(self.prior_map[var])
-            if np.ma.is_masked(data):
+            if np.any(np.isnan(data)):
                 # Get the LIM calibration defined mask
                 valid_mask = self.calib_dobjs[var].valid_data
                 data = data[valid_mask, :]
@@ -152,7 +152,7 @@ class LIMForecaster(BaseForecaster):
             if var in is_compressed:
                 dobj = self.calib_dobjs[var]
                 phys_space_fcast = dobj.inflate_full_grid(data=phys_space_fcast)
-                phys_space_fcast = np.ma.masked_invalid(phys_space_fcast)
+                # phys_space_fcast = np.ma.masked_invalid(phys_space_fcast)
             fcast_state_out[self.prior_map[var]] = phys_space_fcast.T
 
         return fcast_state_out

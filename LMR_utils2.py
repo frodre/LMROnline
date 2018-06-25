@@ -965,7 +965,8 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
         regrid_output[k] = out_data
 
     if masked_regrid:
-        regrid_output = np.ma.masked_invalid(regrid_output)
+        pass
+        # regrid_output = np.ma.masked_invalid(regrid_output)
 
     if do_reshape:
         regrid_output = regrid_output.reshape(X_nens, -1)

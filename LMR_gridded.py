@@ -370,7 +370,8 @@ class GriddedVariable(object):
                 tmp_data[mask] = np.nan
                 self.data[i:i+step] = tmp_data
         if convert_to_masked_array:
-            self.data = np.ma.masked_invalid(self.data)
+            pass
+            # self.data = np.ma.masked_invalid(self.data)
 
     def nan_to_fill_val(self):
         """

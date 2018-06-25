@@ -217,9 +217,12 @@ def LMR_driver_callable(cfg=None):
     # case saving
     # Dump prior state vector (Xb_one) to file 
     filen = workdir + '/' + 'Xb_one'
-    if isinstance(Xb_one.state, np.ma.MaskedArray):
-        state = Xb_one.get_var_data('state').filled()
-        aug_state = Xb_one.state.filled()
+    state = Xb_one.get_var_data('state').copy()
+    aug_state = Xb_one.state.copy()
+    nan_vals = np.isnan(state)
+    if np.any(nan_vals):
+        state[nan_vals] = 1.0e20
+        aug_state[np.isnan(aug_state)] = 1.0e20
     else:
         state = Xb_one.get_var_data('state')
         aug_state = Xb_one.state
