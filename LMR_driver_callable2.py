@@ -458,9 +458,9 @@ def LMR_driver_callable(cfg=None):
     for iyr, yr in enumerate(assim_times):
         filen = join(workdir, 'year{:04d}'.format(int(yr)))
         Xb_one.state = np.load(filen+'.npy')
-        xam = Xb_one.get_var_data('tas_sfc_Amon').mean(axis=1)
+        xa = Xb_one.get_var_data('tas_sfc_Amon').T
         gmt, nhmt, shmt = \
-            global_mean2(xam,
+            global_mean2(xa,
                          Xb_one.var_coords['tas_sfc_Amon']['lat'],
                          output_hemispheric=True)
         gmt_ensemble[iyr] = gmt
