@@ -31,7 +31,7 @@ SRC_DIR = opath.abspath(opath.dirname(__file__))
 
 # Control logging output. (0 = none; 1 = most important; 2 = many; 3 = a lot;
 #   >=4 all)
-LOG_LEVEL = 2
+LOG_LEVEL = 1
 
 # Class for distinction of configuration classes
 class ConfigGroup(object):
@@ -1275,7 +1275,7 @@ class prior(ConfigGroup):
     detrend: bool
         Indicates whether to detrend the prior or not. Applies to ALL state 
         variables.
-    avgInterval: dict OR list(int) 
+    avg_interval: dict OR list(int)
         dict of the form {'type':value} where 'type' indicates the type of 
         averaging ('annual' or 'multiyear'). 
         If type = 'annual', the corresponding value is a 
@@ -1287,6 +1287,8 @@ class prior(ConfigGroup):
         -OR-
         List of integers indicating the months over which to average the annual 
         prior. (as 'annual' above).
+    output: dict
+        Output designations for fields and scalars during runtime.
     regrid_method: str
         String indicating the method used to regrid the prior to lower spatial 
         resolution.
@@ -1331,6 +1333,15 @@ class prior(ConfigGroup):
 
     # Averaging interval for data defined in constants.yml
     avg_interval = 'annual_std'
+
+    # Designate outputs
+    outputs = {
+        'prior': [],
+        'posterior': ['ens_var', 'ens_mean'],
+        'field_ens_output': None,
+        'analysis_Ye': False,
+        'scalar_ens': {'tas_sfc_Amon': ['glob_mean']}
+    }
 
     # The reference period (in year CE) for calculation of anomalies
     # ** Valid for prior ccsm3_trace21ka only for now. Use None for all others **
@@ -1421,6 +1432,8 @@ class prior(ConfigGroup):
         self.avg_interval = self.avg_interval
         avg_interval_defs = Constants.get_info('avg_interval')
         self.avg_interval_kwargs = avg_interval_defs[self.avg_interval]
+
+        self.outputs = deepcopy(self.outputs)
 
         if self.regrid_method != 'esmpy':
             self.regrid_resolution = int(self.regrid_resolution)

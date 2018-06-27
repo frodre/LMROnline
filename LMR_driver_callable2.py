@@ -111,7 +111,7 @@ def LMR_driver_callable(cfg=None):
     nens = core_cfg.nens
     loc_rad = core_cfg.loc_rad
     inflation_fact = core_cfg.inflation_factor
-    state_backend = prior_cfg.backend_type
+    outputs = prior_cfg.outputs
 
     # ==========================================================================
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< MAIN CODE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -144,6 +144,12 @@ def LMR_driver_callable(cfg=None):
 
     # Create initial state vector of desired variables at smallest time res
     Xb_one = LMR_gridded.State.from_config(prior_cfg)
+
+    scalar_functions = prepare_scalar_calculations(outputs['scalar_ens'],
+                                                   Xb_one,
+                                                   prior_cfg)
+    [scalar_containers,
+    field_hdf5_outputs] = LMR_utils.prepare_recon_output(outputs)
 
     load_time = time() - begin_time
     if verbose > 2:

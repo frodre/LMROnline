@@ -352,6 +352,15 @@ prior:
 
   avg_interval: annual_std
 
+  output:
+    prior: ens_var
+    posterior: ens_var
+    field_ens_output: null
+    analysis_Ye: False
+    scalar_ens:
+      tas_sfc_Amon: [glob_mean]
+      tos_sfc_Amon: [glob_mean, enso, pdo]
+
   detrend: False
   # regridding options: null, simple, esmpy or spherical_harmonics
   regrid_method: spherical_harmonics

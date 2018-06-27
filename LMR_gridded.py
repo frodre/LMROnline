@@ -581,7 +581,8 @@ class GriddedVariable(object):
         return new_dobj
 
     @classmethod
-    def load(cls, gridded_config, varname, anomaly=False, sample=None):
+    def load(cls, gridded_config, varname, anomaly=False, sample=None,
+             **kwargs):
         """
         Load a single variable as a GriddedVariable
 
@@ -629,6 +630,12 @@ class GriddedVariable(object):
                         'interp_method': interp_method}
 
         unique_cfg_kwargs = cls._load_unique_cfg_kwargs(gridded_config)
+        for key, arg in kwargs.items():
+            if key in unique_cfg_kwargs:
+                unique_cfg_kwargs[key] = arg
+            else:
+                raise KeyError('Unrecognized keyword argument provided '
+                               'to load function: {}'.format(key))
 
         datainfo = gridded_config.datainfo
         if 'rotated_pole' in list(datainfo.keys()):
