@@ -33,14 +33,21 @@ def prepare_output_containers(outputs, state, ntimes, nens, h5f_path):
         scalar_containers_by_var[varkey] = scalar_containers_by_meas
 
     # create h5 file for field outputs
-
+    # TODO: potentially make the output files per variable (easier to id)
     filters = tb.Filters(complevel=4, complib='blosc')
     h5f = tb.open_file(h5f_path, mode='w', filters=filters)
     dtype = state.state.dtype
     atom = tb.Atom.from_dtype(dtype)
+    ens_get_func = None
     for varkey, sptl_shape in state.var_space_shp.items():
         var_grp = tb.Group(h5f.root, name=varkey)
         out_shape = (ntimes, *sptl_shape)
+
+        lat = state.var_coords[varkey]['lon'].reshape(sptl_shape)
+        lon = state.var_coords[varkey]['lon'].reshape(sptl_shape)
+
+        var_to_hdf5_carray(h5f, var_grp, 'lat', lat)
+        var_to_hdf5_carray(h5f, var_grp, 'lon', lon)
 
         prior_grp = tb.Group(var_grp, 'prior')
         for measure in outputs['prior']:

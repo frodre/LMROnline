@@ -150,7 +150,9 @@ def LMR_driver_callable(cfg=None):
                                                    Xb_one,
                                                    prior_cfg)
     [scalar_containers,
-    field_hdf5_outputs] = prepare_output_containers(outputs, Xb_one)
+    field_hdf5_outputs,
+    field_get_ens_func] = prepare_output_containers(outputs, Xb_one, ntimes,
+                                                    nens)
 
     load_time = time() - begin_time
     if verbose > 2:
@@ -160,7 +162,7 @@ def LMR_driver_callable(cfg=None):
 
     # check covariance inflation from config
     if inflation_fact is not None and verbose > 2:
-        print(('\nUsing covariance inflation factor: %8.2f' %inflate))
+        print(('\nUsing covariance inflation factor: %8.2f' % inflation_fact))
 
     # ==========================================================================
     # Calculate regridded state from prior, if option chosen -------------------
@@ -193,6 +195,8 @@ def LMR_driver_callable(cfg=None):
     type_site_assim = prox_manager.assim_ids_by_group
     # count the total number of proxies
     assim_proxy_count = len(prox_manager.ind_assim)
+
+    # TODO: Create AnalysisYe output
 
     if verbose > 0:
         print('Assimilating proxy types/sites:', type_site_assim)
