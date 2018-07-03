@@ -3,34 +3,50 @@ from LMR_utils2 import var_to_hdf5_carray, empty_hdf5_carray
 from collections import Sequence
 import numpy as np
 import tables as tb
+from os.path import join
 
-def prepare_scalar_calculations(scalar_outdef, state, prior_cfg):
+
+def prepare_scalar_calculations(scalar_outdef, state, prior_cfg, ntimes, nens):
 
     func_by_var = {}
-    for varname, scalar_measures in scalar_outdef.items:
+    scalar_containers_by_var = {}
+    for varkey, scalar_measures in scalar_outdef.items:
         func_by_measure = {}
+        scalar_containers_by_meas = {}
+
         for measure in scalar_measures:
-            curr_func = _gen_scalar_func(measure, varname,
-                                         state, prior_cfg)
+            container = np.zeros((ntimes, nens))
+            scalar_containers_by_meas[measure] = container
+            curr_func = _gen_scalar_func(measure, varkey,
+                                         state, prior_cfg, container)
             func_by_measure[measure] = curr_func
 
-        func_by_var[varname] = func_by_measure
+        func_by_var[varkey] = func_by_measure
+        scalar_containers_by_var[varkey] = scalar_containers_by_meas
 
-    return func_by_var
+    def insert_scalars(state, idx):
+
+        for _varkey, _scalar_measures in func_by_var.items():
+            data = state.get_var_data(_varkey)
+
+            for _measure, func in _scalar_measures.items():
+                scalar = func(data)
+                _container = scalar_containers_by_var[_varkey][measure]
+                _container[idx] = scalar
+
+    return insert_scalars, scalar_containers_by_var
+
+
+def save_scalar_ensembles(workdir, times, containers_by_var):
+
+    fname = '{}_{}_ens_output'
+    for varkey, scalar_measures in containers_by_var.items():
+        for measure, container in scalar_measures.items():
+            filepath = join(workdir, fname.format(varkey, measure))
+            np.savez(filepath, scalar_ens=container, recon_times=times)
 
 
 def prepare_output_containers(outputs, state, ntimes, nens, h5f_path):
-
-    # Scalar containers
-    scalar_outputs = outputs['scalar_ens']
-    scalar_containers_by_var = {}
-    for varkey, output_measures in scalar_outputs.items():
-        scalar_containers_by_meas = {}
-        for measure in output_measures:
-            container = np.zeros((ntimes, nens))
-            scalar_containers_by_meas[measure] = container
-
-        scalar_containers_by_var[varkey] = scalar_containers_by_meas
 
     # create h5 file for field outputs
     # TODO: potentially make the output files per variable (easier to id)
@@ -102,7 +118,6 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
     full_out_shp = (ntimes, stored_nens, *sptl_shape)
 
     return full_out_shp, grab_ens_members
-
 
 
 def _gen_scalar_func(measure, varname, state, prior_cfg):

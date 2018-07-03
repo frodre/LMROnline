@@ -71,7 +71,7 @@ from time import time
 import LMR_proxy2
 import LMR_gridded
 from LMR_utils2 import global_mean2
-from LMR_outputs import prepare_scalar_calculations, prepare_output_containers
+from LMR_outputs import (prepare_scalar_calculations, prepare_output_containers, save_scalar_ensembles)
 import LMR_config as BaseCfg
 import LMR_forecaster
 from LMR_DA import enkf_update_array_xb_blend, cov_localization
@@ -146,9 +146,9 @@ def LMR_driver_callable(cfg=None):
     # Create initial state vector of desired variables at smallest time res
     Xb_one = LMR_gridded.State.from_config(prior_cfg)
 
-    scalar_functions = prepare_scalar_calculations(outputs['scalar_ens'],
-                                                   Xb_one,
-                                                   prior_cfg)
+    [calc_and_store_scalars,
+     scalar_containers] = prepare_scalar_calculations(outputs['scalar_ens'], Xb_one, prior_cfg, ntimes, nens)
+
     [scalar_containers,
     field_hdf5_outputs,
     field_get_ens_func] = prepare_output_containers(outputs, Xb_one, ntimes,
@@ -424,6 +424,8 @@ def LMR_driver_callable(cfg=None):
             state = Xb_one.state
         np.save(filen, state)
 
+        calc_and_store_scalars(Xb_one, iyr)
+
         if online:
             # Push sub_base prior to next year
             inext_yr = iyr + 1
@@ -434,7 +436,8 @@ def LMR_driver_callable(cfg=None):
 
                 # Recall orig state, any vars not forecast are climatological
                 #  sample
-                Xb_one.stash_recall_state_list('orig', copy=True)
+                # TODO: Determine if you can get by not forecasting some data
+                # Xb_one.stash_recall_state_list('orig', copy=True)
                 Xb_one.update_var_data(fcast_out)
 
                 #Recalculate Ye values
@@ -463,6 +466,8 @@ def LMR_driver_callable(cfg=None):
                  lon=tmp_coords['lon'].reshape(xbv.shape))
 
     # 3 July 2015: compute and save the GMT for the full ensemble
+    save_scalar_ensembles(workdir, recon_times, scalar_containers)
+    # TODO: remove after scalar ens output verification
     gmt_ensemble = np.zeros([ntimes, nens])
     nhmt_ensemble = np.zeros([ntimes, nens])
     shmt_ensemble = np.zeros([ntimes, nens])
