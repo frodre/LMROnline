@@ -71,7 +71,8 @@ from time import time
 import LMR_proxy2
 import LMR_gridded
 from LMR_utils2 import global_mean2
-from LMR_outputs import (prepare_scalar_calculations, prepare_field_output, save_scalar_ensembles)
+from LMR_outputs import (prepare_scalar_calculations, prepare_field_output,
+                         save_scalar_ensembles, save_field_output)
 import LMR_config as BaseCfg
 import LMR_forecaster
 from LMR_DA import enkf_update_array_xb_blend, cov_localization
@@ -147,7 +148,9 @@ def LMR_driver_callable(cfg=None):
     Xb_one = LMR_gridded.State.from_config(prior_cfg)
 
     [calc_and_store_scalars,
-     scalar_containers] = prepare_scalar_calculations(outputs['scalar_ens'], Xb_one, prior_cfg, ntimes, nens)
+     scalar_containers] = prepare_scalar_calculations(outputs['scalar_ens'],
+                                                      Xb_one, prior_cfg, ntimes,
+                                                      nens)
 
     [scalar_containers,
     field_hdf5_outputs,
@@ -323,6 +326,9 @@ def LMR_driver_callable(cfg=None):
                                     grd_shp[1]))
             xbv_out[iyr] = xbv
 
+        save_field_output(iyr, 'prior', Xb_one, field_hdf5_outputs,
+                          output_def=outputs['prior'])
+
         # Update Xb with each proxy
         for iproxy, Y in enumerate(prox_manager.sites_assim_proxy_objs()):
 
@@ -426,9 +432,15 @@ def LMR_driver_callable(cfg=None):
 
         calc_and_store_scalars(Xb_one, iyr)
 
+        save_field_output(iyr, 'posterior', Xb_one.state, field_hdf5_outputs,
+                          output_def=outputs['posterior'])
+
+        if outputs['field_ens_output'] is not None:
+            save_field_output(iyr, 'field_ens_output', Xb_one.state,
+                              field_hdf5_outputs,
+                              ens_out_func=field_get_ens_func)
+
         if online:
-            # Push sub_base prior to next year
-            inext_yr = iyr + 1
 
             if not persistence:
                 # Forecast
@@ -440,7 +452,7 @@ def LMR_driver_callable(cfg=None):
                 # Xb_one.stash_recall_state_list('orig', copy=True)
                 Xb_one.update_var_data(fcast_out)
 
-                #Recalculate Ye values
+                # Recalculate Ye values
                 ye_all = _calc_yevals_from_prior(ye_shp, Xb_one, prox_manager)
                 Xb_one.reset_augmented_ye(ye_all)
 

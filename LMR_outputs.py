@@ -147,14 +147,14 @@ def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
         for measure in outputs['posterior']:
             empty_hdf5_carray(h5f, posterior_grp, measure, atom, out_shape)
 
-        fullfield_opt = outputs['fullfield_ens_output']
+        fullfield_opt = outputs['field_ens_output']
         if fullfield_opt is not None:
             [out_shp,
              ens_get_func] = _get_ensout_shp_and_func(fullfield_opt,
                                                       sptl_shape,
                                                       nens,
                                                       ntimes)
-            node = empty_hdf5_carray(h5f, var_grp, 'fullfield_ens', atom,
+            node = empty_hdf5_carray(h5f, var_grp, 'field_ens', atom,
                                      out_shp)
             node._v_attrs.opt = fullfield_opt
 
@@ -194,20 +194,8 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
     return full_out_shp, grab_ens_members
 
 
-def save_field_prior_output(prior_output, state, h5f):
-
-    for varkey, sptl_shape in state.var_space_shp.items():
-
-        data = state.get_var_data(varkey)
-
-        for measure in prior_output:
-
-            path = join('/', varkey, 'prior', measure)
-            #TODO: this_doesnt_work
-            node = h5f.get_node(path)
-
-
-def _save_field_output(field_type, state, h5f, output_def=None, ens_out_func=None):
+def save_field_output(idx, field_type, state, h5f,
+                      output_def=None, ens_out_func=None):
 
     for varkey, sptl_shape in state.var_space_shp.items():
 
@@ -218,9 +206,23 @@ def _save_field_output(field_type, state, h5f, output_def=None, ens_out_func=Non
             for measure in output_def:
                 path = join('/', varkey, field_type, measure)
                 node = h5f.get_node(path)
-                # Get the data
 
-    pass
+                output = field_output_reduction(measure, data, sptl_shape)
+
+                node[idx] = output
+
+        elif field_type == 'field_ens_output':
+            if ens_out_func is None:
+                raise ValueError('Ensemble reduction function is required '
+                                 'when to this function when "field_ens_out" '
+                                 'is specified...')
+
+            ens_out = ens_out_func(data)
+
+            path = join('/', varkey, field_type)
+            node = h5f.get_node(path)
+
+            node[idx] = ens_out
 
 
 def field_output_reduction(measure, state_data, sptl_shp):
@@ -230,7 +232,8 @@ def field_output_reduction(measure, state_data, sptl_shp):
     elif measure == 'ens_mean':
         out = state_data.mean(axis=1)
     else:
-        raise KeyError('Unrecognized ensemble field reduction key: {}'.format(measure))
+        raise KeyError('Unrecognized ensemble field reduction key: '
+                       '{}'.format(measure))
 
     out = out.reshape(sptl_shp)
     return out
