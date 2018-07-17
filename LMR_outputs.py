@@ -46,80 +46,6 @@ def save_scalar_ensembles(workdir, times, containers_by_var):
             np.savez(filepath, scalar_ens=container, recon_times=times)
 
 
-def prepare_output_containers(outputs, state, ntimes, nens, h5f_path):
-
-    # create h5 file for field outputs
-    # TODO: potentially make the output files per variable (easier to id)
-    filters = tb.Filters(complevel=4, complib='blosc')
-    h5f = tb.open_file(h5f_path, mode='w', filters=filters)
-    dtype = state.state.dtype
-    atom = tb.Atom.from_dtype(dtype)
-    ens_get_func = None
-    for varkey, sptl_shape in state.var_space_shp.items():
-        var_grp = tb.Group(h5f.root, name=varkey)
-        out_shape = (ntimes, *sptl_shape)
-
-        lat = state.var_coords[varkey]['lon'].reshape(sptl_shape)
-        lon = state.var_coords[varkey]['lon'].reshape(sptl_shape)
-
-        var_to_hdf5_carray(h5f, var_grp, 'lat', lat)
-        var_to_hdf5_carray(h5f, var_grp, 'lon', lon)
-
-        prior_grp = tb.Group(var_grp, 'prior')
-        for measure in outputs['prior']:
-            empty_hdf5_carray(h5f, prior_grp, measure, atom, out_shape)
-
-        posterior_grp = tb.Group(var_grp, 'posterior')
-        for measure in outputs['posterior']:
-            empty_hdf5_carray(h5f, posterior_grp, measure, atom, out_shape)
-
-        fullfield_opt = outputs['fullfield_ens_output']
-        if fullfield_opt is not None:
-            [out_shp,
-             ens_get_func] = _get_ensout_shp_and_func(fullfield_opt,
-                                                      sptl_shape,
-                                                      nens,
-                                                      ntimes)
-            node = empty_hdf5_carray(h5f, var_grp, 'fullfield_ens', atom,
-                                     out_shp)
-            node._v_attrs.opt = fullfield_opt
-
-    return scalar_containers_by_var, h5f, ens_get_func
-
-
-def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
-
-    if isinstance(option, Sequence) and not isinstance(option, str):
-        stored_nens = len(option)
-
-        def grab_ens_members(state_data):
-            ens = state_data[:, stored_nens]
-            ens = ens.reshape(stored_nens, *sptl_shape)
-            return ens
-    elif option == 'all':
-        stored_nens = nens
-
-        def grab_ens_members(state_data):
-            ens = state_data.reshape(stored_nens, *sptl_shape)
-            return ens
-    elif isinstance(option, int):
-        stored_nens =  option
-
-        def grab_ens_members(state_data):
-            step = nens // stored_nens
-            ens = state_data[:, ::step]
-            ens = ens.reshape(stored_nens, *sptl_shape)
-            return ens
-
-    else:
-        raise ValueError('Unrecognized option for determining fullfield '
-                         'ensemble output size.')
-
-    full_out_shp = (ntimes, stored_nens, *sptl_shape)
-
-    return full_out_shp, grab_ens_members
-
-
 def _gen_scalar_func(measure, varname, state, prior_cfg):
 
     if measure == 'glob_mean':
@@ -192,3 +118,125 @@ def _gen_pdo_index(prior_cfg, varname):
         return state_data.T @ full_grid_pdo_eof
 
     return pdo_index
+
+
+def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
+
+    # create h5 file for field outputs
+    # TODO: potentially make the output files per variable (easier to id)
+    filters = tb.Filters(complevel=4, complib='blosc')
+    h5f = tb.open_file(h5f_path, mode='w', filters=filters)
+    dtype = state.state.dtype
+    atom = tb.Atom.from_dtype(dtype)
+    ens_get_func = None
+    for varkey, sptl_shape in state.var_space_shp.items():
+        var_grp = tb.Group(h5f.root, name=varkey)
+        out_shape = (ntimes, *sptl_shape)
+
+        lat = state.var_coords[varkey]['lon'].reshape(sptl_shape)
+        lon = state.var_coords[varkey]['lon'].reshape(sptl_shape)
+
+        var_to_hdf5_carray(h5f, var_grp, 'lat', lat)
+        var_to_hdf5_carray(h5f, var_grp, 'lon', lon)
+
+        prior_grp = tb.Group(var_grp, 'prior')
+        for measure in outputs['prior']:
+            empty_hdf5_carray(h5f, prior_grp, measure, atom, out_shape)
+
+        posterior_grp = tb.Group(var_grp, 'posterior')
+        for measure in outputs['posterior']:
+            empty_hdf5_carray(h5f, posterior_grp, measure, atom, out_shape)
+
+        fullfield_opt = outputs['fullfield_ens_output']
+        if fullfield_opt is not None:
+            [out_shp,
+             ens_get_func] = _get_ensout_shp_and_func(fullfield_opt,
+                                                      sptl_shape,
+                                                      nens,
+                                                      ntimes)
+            node = empty_hdf5_carray(h5f, var_grp, 'fullfield_ens', atom,
+                                     out_shp)
+            node._v_attrs.opt = fullfield_opt
+
+    return h5f, ens_get_func
+
+
+def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
+
+    if isinstance(option, Sequence) and not isinstance(option, str):
+        stored_nens = len(option)
+
+        def grab_ens_members(state_data):
+            ens = state_data[:, stored_nens]
+            ens = ens.reshape(stored_nens, *sptl_shape)
+            return ens
+    elif option == 'all':
+        stored_nens = nens
+
+        def grab_ens_members(state_data):
+            ens = state_data.reshape(stored_nens, *sptl_shape)
+            return ens
+    elif isinstance(option, int):
+        stored_nens =  option
+
+        def grab_ens_members(state_data):
+            step = nens // stored_nens
+            ens = state_data[:, ::step]
+            ens = ens.reshape(stored_nens, *sptl_shape)
+            return ens
+
+    else:
+        raise ValueError('Unrecognized option for determining fullfield '
+                         'ensemble output size.')
+
+    full_out_shp = (ntimes, stored_nens, *sptl_shape)
+
+    return full_out_shp, grab_ens_members
+
+
+def save_field_prior_output(prior_output, state, h5f):
+
+    for varkey, sptl_shape in state.var_space_shp.items():
+
+        data = state.get_var_data(varkey)
+
+        for measure in prior_output:
+
+            path = join('/', varkey, 'prior', measure)
+            #TODO: this_doesnt_work
+            node = h5f.get_node(path)
+
+
+def _save_field_output(field_type, state, h5f, output_def=None, ens_out_func=None):
+
+    for varkey, sptl_shape in state.var_space_shp.items():
+
+        data = state.get_var_data(varkey)
+
+        if field_type == 'prior' or field_type == 'posterior':
+
+            for measure in output_def:
+                path = join('/', varkey, field_type, measure)
+                node = h5f.get_node(path)
+                # Get the data
+
+    pass
+
+
+def field_output_reduction(measure, state_data, sptl_shp):
+
+    if measure == 'ens_var':
+        out = state_data.var(ddof=1, axis=1)
+    elif measure == 'ens_mean':
+        out = state_data.mean(axis=1)
+    else:
+        raise KeyError('Unrecognized ensemble field reduction key: {}'.format(measure))
+
+    out = out.reshape(sptl_shp)
+    return out
+
+
+
+
+
+

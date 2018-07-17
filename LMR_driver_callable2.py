@@ -71,7 +71,7 @@ from time import time
 import LMR_proxy2
 import LMR_gridded
 from LMR_utils2 import global_mean2
-from LMR_outputs import (prepare_scalar_calculations, prepare_output_containers, save_scalar_ensembles)
+from LMR_outputs import (prepare_scalar_calculations, prepare_field_output, save_scalar_ensembles)
 import LMR_config as BaseCfg
 import LMR_forecaster
 from LMR_DA import enkf_update_array_xb_blend, cov_localization
@@ -151,8 +151,8 @@ def LMR_driver_callable(cfg=None):
 
     [scalar_containers,
     field_hdf5_outputs,
-    field_get_ens_func] = prepare_output_containers(outputs, Xb_one, ntimes,
-                                                    nens)
+    field_get_ens_func] = prepare_field_output(outputs, Xb_one, ntimes,
+                                               nens)
 
     load_time = time() - begin_time
     if verbose > 2:
