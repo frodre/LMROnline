@@ -18,7 +18,7 @@ def prepare_scalar_calculations(scalar_outdef, state, prior_cfg, ntimes, nens):
             container = np.zeros((ntimes, nens))
             scalar_containers_by_meas[measure] = container
             curr_func = _gen_scalar_func(measure, varkey,
-                                         state, prior_cfg, container)
+                                         state, prior_cfg)
             func_by_measure[measure] = curr_func
 
         func_by_var[varkey] = func_by_measure
