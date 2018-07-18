@@ -3,6 +3,7 @@ from LMR_utils2 import var_to_hdf5_carray, empty_hdf5_carray
 from collections import Sequence
 import numpy as np
 import tables as tb
+import pylim.Stats as ST
 from os.path import join
 
 
@@ -31,7 +32,7 @@ def prepare_scalar_calculations(scalar_outdef, state, prior_cfg, ntimes, nens):
 
             for _measure, func in _scalar_measures.items():
                 scalar = func(data)
-                _container = scalar_containers_by_var[_varkey][measure]
+                _container = scalar_containers_by_var[_varkey][_measure]
                 _container[idx] = scalar
 
     return insert_scalars, scalar_containers_by_var
