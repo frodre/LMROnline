@@ -175,7 +175,7 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
         stored_nens = len(option)
 
         def grab_ens_members(state_data):
-            ens = state_data[:, stored_nens]
+            ens = state_data[:, option]
             ens = ens.reshape(stored_nens, *sptl_shape)
             return ens
     elif option == 'all':
@@ -185,7 +185,7 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
             ens = state_data.reshape(stored_nens, *sptl_shape)
             return ens
     elif isinstance(option, int):
-        stored_nens =  option
+        stored_nens = option
 
         def grab_ens_members(state_data):
             step = nens // stored_nens
