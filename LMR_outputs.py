@@ -133,41 +133,40 @@ def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
     # create h5 file for field outputs
     # TODO: potentially make the output files per variable (easier to id)
     filters = tb.Filters(complevel=4, complib='blosc')
-    with tb.open_file(h5f_path, mode='w', filters=filters) as h5f:
-        # h5f = tb.open_file(h5f_path, mode='w', filters=filters)
-        dtype = state.state.dtype
-        atom = tb.Atom.from_dtype(dtype)
-        ens_get_func = None
-        for varkey, sptl_shape in state.var_space_shp.items():
-            var_grp = h5f.create_group(h5f.root, varkey)
-            out_shape = (ntimes, *sptl_shape)
+    h5f = tb.open_file(h5f_path, mode='w', filters=filters)
+    dtype = state.state.dtype
+    atom = tb.Atom.from_dtype(dtype)
+    ens_get_func = None
+    for varkey, sptl_shape in state.var_space_shp.items():
+        var_grp = h5f.create_group(h5f.root, varkey)
+        out_shape = (ntimes, *sptl_shape)
 
-            lat = state.var_coords[varkey]['lon'].reshape(sptl_shape)
-            lon = state.var_coords[varkey]['lon'].reshape(sptl_shape)
+        lat = state.var_coords[varkey]['lon'].reshape(sptl_shape)
+        lon = state.var_coords[varkey]['lon'].reshape(sptl_shape)
 
-            var_to_hdf5_carray(h5f, var_grp, 'lat', lat)
-            var_to_hdf5_carray(h5f, var_grp, 'lon', lon)
+        var_to_hdf5_carray(h5f, var_grp, 'lat', lat)
+        var_to_hdf5_carray(h5f, var_grp, 'lon', lon)
 
-            prior_grp = h5f.create_group(var_grp, 'prior')
-            for measure in outputs['prior']:
-                empty_hdf5_carray(h5f, prior_grp, measure, atom, out_shape)
+        prior_grp = h5f.create_group(var_grp, 'prior')
+        for measure in outputs['prior']:
+            empty_hdf5_carray(h5f, prior_grp, measure, atom, out_shape)
 
-            posterior_grp = h5f.create_group(var_grp, 'posterior')
-            for measure in outputs['posterior']:
-                empty_hdf5_carray(h5f, posterior_grp, measure, atom, out_shape)
+        posterior_grp = h5f.create_group(var_grp, 'posterior')
+        for measure in outputs['posterior']:
+            empty_hdf5_carray(h5f, posterior_grp, measure, atom, out_shape)
 
-            fullfield_opt = outputs['field_ens_output']
-            if fullfield_opt is not None:
-                [out_shp,
-                 ens_get_func] = _get_ensout_shp_and_func(fullfield_opt,
-                                                          sptl_shape,
-                                                          nens,
-                                                          ntimes)
-                node = empty_hdf5_carray(h5f, var_grp, 'field_ens', atom,
-                                         out_shp)
-                node._v_attrs.opt = fullfield_opt
+        fullfield_opt = outputs['field_ens_output']
+        if fullfield_opt is not None:
+            [out_shp,
+             ens_get_func] = _get_ensout_shp_and_func(fullfield_opt,
+                                                      sptl_shape,
+                                                      nens,
+                                                      ntimes)
+            node = empty_hdf5_carray(h5f, var_grp, 'field_ens', atom,
+                                     out_shp)
+            node._v_attrs.opt = fullfield_opt
 
-        return h5f, ens_get_func
+    return h5f, ens_get_func
 
 
 def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
