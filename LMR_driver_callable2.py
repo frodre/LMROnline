@@ -437,7 +437,7 @@ def LMR_driver_callable(cfg=None):
                           output_def=outputs['posterior'])
 
         if outputs['field_ens_output'] is not None:
-            save_field_output(iyr, 'field_ens_output', Xb_one.state,
+            save_field_output(iyr, 'field_ens_output', Xb_one,
                               field_hdf5_outputs,
                               ens_out_func=field_get_ens_func)
 

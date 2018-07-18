@@ -142,6 +142,9 @@ for iter_and_params in itertools.product(*param_iterables):
     cmd = 'mv -f ' + working_dir + '/*.npz' + ' ' + mc_arc_dir + '/'
     print(cmd)
     os.system(cmd)
+    cmd = 'mv -f ' + working_dir + '/*.h5' + ' ' + mc_arc_dir + '/'
+    print(cmd)
+    os.system(cmd)
     cmd = 'mv -f ' + working_dir + '/*.pckl' + ' ' + mc_arc_dir + '/'
     print(cmd)
     os.system(cmd)

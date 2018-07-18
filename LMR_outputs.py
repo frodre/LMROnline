@@ -162,7 +162,7 @@ def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
                                                       sptl_shape,
                                                       nens,
                                                       ntimes)
-            node = empty_hdf5_carray(h5f, var_grp, 'field_ens', atom,
+            node = empty_hdf5_carray(h5f, var_grp, 'field_ens_output', atom,
                                      out_shp)
             node._v_attrs.opt = fullfield_opt
 
@@ -176,21 +176,22 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
 
         def grab_ens_members(state_data):
             ens = state_data[:, option]
-            ens = ens.reshape(stored_nens, *sptl_shape)
+            ens = ens.T.reshape(stored_nens, *sptl_shape)
             return ens
     elif option == 'all':
         stored_nens = nens
 
         def grab_ens_members(state_data):
-            ens = state_data.reshape(stored_nens, *sptl_shape)
+            ens = state_data.T.reshape(stored_nens, *sptl_shape)
             return ens
     elif isinstance(option, int):
-        stored_nens = option
+        # first element + number of time step fits into total nens
+        stored_nens = (nens // option) + 1
 
         def grab_ens_members(state_data):
-            step = nens // stored_nens
+            step = option
             ens = state_data[:, ::step]
-            ens = ens.reshape(stored_nens, *sptl_shape)
+            ens = ens.T.reshape(stored_nens, *sptl_shape)
             return ens
 
     else:
