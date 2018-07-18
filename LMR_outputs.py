@@ -48,13 +48,14 @@ def save_scalar_ensembles(workdir, times, containers_by_var):
 
 def _gen_scalar_func(measure, varname, state, prior_cfg):
 
+    coord_data = state.var_coords[varname]
+    lat = coord_data['lat']
+    lon = coord_data['lon']
+
     if measure == 'glob_mean':
         cell_area = state.var_cell_area[varname]
-        func = _gen_global_mean_func(cell_area)
+        func = _gen_global_mean_func(cell_area, lat)
     elif measure == 'enso34':
-        coord_data = state.var_coords[varname]
-        lat = coord_data['lat']
-        lon = coord_data['lon']
         func = _gen_enso_index(lat, lon, region='34')
     elif measure == 'pdo':
         func = _gen_pdo_index(prior_cfg, varname)
@@ -64,9 +65,12 @@ def _gen_scalar_func(measure, varname, state, prior_cfg):
     return func
 
 
-def _gen_global_mean_func(cell_area):
+def _gen_global_mean_func(cell_area, lat):
 
-    weights = cell_area / cell_area.sum()
+    if cell_area is not None:
+        weights = cell_area / cell_area.sum()
+    else:
+        weights = np.cos(np.deg2rad(lat))
 
     def global_average(state_data):
         return state_data.T @ weights
