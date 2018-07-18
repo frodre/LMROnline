@@ -1245,6 +1245,7 @@ class State(object):
         self.var_coords = {}
         self.var_view_range = {}
         self.var_space_shp = {}
+        self.var_cell_area = {}
         self.augmented = False
 
         # Attr for backend storage
@@ -1264,6 +1265,7 @@ class State(object):
             self.len_state = var_end
             state.append(flat_data.T)
             self.var_coords[var] = flat_coords
+            self.var_cell_area[var] = pobj.cell_area
 
         self.state = np.concatenate(state, axis=0)
         self.shape = self.state.shape
