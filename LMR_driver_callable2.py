@@ -524,6 +524,8 @@ def LMR_driver_callable(cfg=None):
         filen = join(workdir, 'nonassimilated_proxies')
         np.save(filen, nonassimilated_proxies)
 
+    field_hdf5_outputs.close()
+
     exp_end_time = time() - begin_time
     if verbose > 0:
         print('')

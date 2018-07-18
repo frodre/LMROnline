@@ -353,8 +353,8 @@ prior:
   avg_interval: annual_std
 
   output:
-    prior: ens_var
-    posterior: ens_var
+    prior: [ens_var]
+    posterior: [ens_var]
     field_ens_output: null
     analysis_Ye: False
     scalar_ens:
