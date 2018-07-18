@@ -147,7 +147,7 @@ def LMR_driver_callable(cfg=None):
     # Create initial state vector of desired variables at smallest time res
     Xb_one = LMR_gridded.State.from_config(prior_cfg)
     state_keys = '_'.join(Xb_one.var_keys)
-    h5f_path = join(workdir, 'recon_output_' + state_keys)
+    h5f_path = join(workdir, 'recon_output_' + state_keys + '.h5')
 
     [calc_and_store_scalars,
      scalar_containers] = prepare_scalar_calculations(outputs['scalar_ens'],
