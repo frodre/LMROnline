@@ -70,6 +70,8 @@ def _gen_global_mean_func(cell_area, lat):
     if cell_area is not None:
         weights = cell_area / cell_area.sum()
     else:
+        # TODO: This only works for regular grids, but that's what we regrid to
+        # otherwise there'll be cell area loaded for fields.
         weights = np.cos(np.deg2rad(lat))
 
     def global_average(state_data):
@@ -100,8 +102,9 @@ def _gen_enso_index(lat, lon, region='34'):
 def _gen_pdo_index(prior_cfg, varname):
 
     print('Generating PDO EOF for index calculation.')
-    var_obj = PriorVariable.load(prior_cfg, varname, anomaly=True, nens=None)
-    var_dobj = var_obj.forecast_var_to_pylim_dataobj()
+    # Loads prior data and averages it.
+    prior_var = PriorVariable.load(prior_cfg, varname, anomaly=True, nens=None)
+    var_dobj = prior_var.forecast_var_to_pylim_dataobj()
     grids = var_dobj.get_coordinate_grids(['lat', 'lon'], compressed=True,
                                           flat=True)
     latgrid = grids['lat']
@@ -112,7 +115,7 @@ def _gen_pdo_index(prior_cfg, varname):
 
     # TODO: Is detrending generally right?
     var_dobj.detrend_data()
-    data = var_obj.data[:][:, mask]
+    data = var_dobj.data[:][:, mask]
     npac_eofs, npac_svals = ST.calc_eofs(data, 1)
     compressed_pdo_eof = np.zeros_like(latgrid)
     compressed_pdo_eof[mask] = npac_eofs[:, 0]
