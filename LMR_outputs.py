@@ -10,7 +10,7 @@ def prepare_scalar_calculations(scalar_outdef, state, prior_cfg, ntimes, nens):
 
     func_by_var = {}
     scalar_containers_by_var = {}
-    for varkey, scalar_measures in scalar_outdef.items:
+    for varkey, scalar_measures in scalar_outdef.items():
         func_by_measure = {}
         scalar_containers_by_meas = {}
 

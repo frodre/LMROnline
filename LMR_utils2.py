@@ -35,7 +35,6 @@ from scipy import signal, special
 from scipy.spatial import cKDTree
 from spharm import Spharmt, getspecindx, regrid
 
-from LMR_gridded import PriorVariable
 import pylim.Stats as ST
 
 def atoi(text):
