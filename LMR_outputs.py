@@ -137,7 +137,7 @@ def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
     atom = tb.Atom.from_dtype(dtype)
     ens_get_func = None
     for varkey, sptl_shape in state.var_space_shp.items():
-        var_grp = tb.Group(h5f.root, name=varkey)
+        var_grp = h5f.create_group(h5f.root, varkey)
         out_shape = (ntimes, *sptl_shape)
 
         lat = state.var_coords[varkey]['lon'].reshape(sptl_shape)
@@ -146,11 +146,11 @@ def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
         var_to_hdf5_carray(h5f, var_grp, 'lat', lat)
         var_to_hdf5_carray(h5f, var_grp, 'lon', lon)
 
-        prior_grp = tb.Group(var_grp, 'prior')
+        prior_grp = h5f.create_group(var_grp, 'prior')
         for measure in outputs['prior']:
             empty_hdf5_carray(h5f, prior_grp, measure, atom, out_shape)
 
-        posterior_grp = tb.Group(var_grp, 'posterior')
+        posterior_grp = h5f.create_group(var_grp, 'posterior')
         for measure in outputs['posterior']:
             empty_hdf5_carray(h5f, posterior_grp, measure, atom, out_shape)
 
