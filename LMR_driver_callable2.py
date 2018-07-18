@@ -146,6 +146,8 @@ def LMR_driver_callable(cfg=None):
 
     # Create initial state vector of desired variables at smallest time res
     Xb_one = LMR_gridded.State.from_config(prior_cfg)
+    state_keys = '_'.join(Xb_one.state_keys)
+    h5f_path = join(workdir, 'recon_output_' + state_keys)
 
     [calc_and_store_scalars,
      scalar_containers] = prepare_scalar_calculations(outputs['scalar_ens'],
@@ -153,9 +155,9 @@ def LMR_driver_callable(cfg=None):
                                                       nens)
 
     [scalar_containers,
-    field_hdf5_outputs,
-    field_get_ens_func] = prepare_field_output(outputs, Xb_one, ntimes,
-                                               nens)
+     field_hdf5_outputs,
+     field_get_ens_func] = prepare_field_output(outputs, Xb_one, ntimes,
+                                                nens, h5f_path)
 
     load_time = time() - begin_time
     if verbose > 2:

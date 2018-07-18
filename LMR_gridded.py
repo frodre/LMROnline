@@ -1249,6 +1249,7 @@ class State(object):
         self.var_view_range = {}
         self.var_space_shp = {}
         self.var_cell_area = {}
+        self.var_keys = []
         self.augmented = False
 
         # Attr for backend storage
@@ -1258,7 +1259,7 @@ class State(object):
 
         self.len_state = 0
         for var, pobj in prior_vars.items():
-
+            self.var_keys.append(var)
             self.var_space_shp[var] = pobj.space_shp
 
             var_start = self.len_state
