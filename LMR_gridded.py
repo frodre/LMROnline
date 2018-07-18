@@ -954,6 +954,9 @@ class GriddedVariable(object):
                                       'Cell area is required for regridding '
                                       'procedures when using rotated pole '
                                       'grids.')
+
+                    print('No cell area file designated for: '
+                          '{}'.format(varname))
                     cell_area = None
             else:
                 cell_area = None
