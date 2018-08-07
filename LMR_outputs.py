@@ -66,6 +66,19 @@ def _gen_scalar_func(measure, varname, state, prior_cfg):
     return func
 
 
+def _remove_nan_from_state(state_data):
+
+    nan_locs = np.isnan(state_data)
+    if np.any(nan_locs):
+        # Sum True values across ensemble members, if any NaNs, we mask it
+        valid_data = nan_locs.sum(axis=1) == 0
+        state_data = state_data[valid_data]
+    else:
+        valid_data = None
+
+    return state_data, valid_data
+
+
 def _gen_global_mean_func(cell_area, lat):
 
     if cell_area is not None:
@@ -74,9 +87,17 @@ def _gen_global_mean_func(cell_area, lat):
         # TODO: This only works for regular grids, but that's what we regrid to
         # otherwise there'll be cell area loaded for fields.
         weights = np.cos(np.deg2rad(lat))
+        weights = weights / weights.sum()
 
     def global_average(state_data):
-        return state_data.T @ weights
+        valid_state, valid_locs = _remove_nan_from_state(state_data)
+
+        if valid_locs is not None:
+            use_weights = weights[valid_locs]
+        else:
+            use_weights = weights
+
+        return valid_state.T @ use_weights
 
     return global_average
 
@@ -84,18 +105,26 @@ def _gen_global_mean_func(cell_area, lat):
 def _gen_enso_index(lat, lon, region='34'):
 
     if region == '34':
-        mask = ((lon >= 240) & (lon <= 290) &
+        mask = ((lon >= 190) & (lon <= 240) &
                 (lat >= -5) & (lat <= 5))
     else:
         raise KeyError('Unrecognized enso region in scalar function'
                        ' generation: {}'.format(region))
 
     num_pts_enso = mask.sum()
-    enso_avg_factor = np.zeros_like(lat)
-    enso_avg_factor[mask] = 1/num_pts_enso
+    enso_avg_factor = np.zeros(num_pts_enso)
+    enso_avg_factor[:] = 1/num_pts_enso
 
     def enso_index(state_data):
-        return state_data.T @ enso_avg_factor
+        state_enso_region = state_data[mask]
+
+        valid_enso_region, valid_data = _remove_nan_from_state(state_enso_region)
+        if valid_data is not None:
+            use_enso_factor = enso_avg_factor[valid_data]
+        else:
+            use_enso_factor = enso_avg_factor
+
+        return valid_enso_region.T @ use_enso_factor
 
     return enso_index
 
@@ -114,16 +143,25 @@ def _gen_pdo_index(prior_cfg, varname):
     mask = ((latgrid >= 20) & (latgrid <= 70) &
             (longrid >= 110) & (longrid <= 250))
 
+    # Valid mask from the full grid
+    valid_data = var_dobj.valid_data
+
     # TODO: Is detrending generally right?
     var_dobj.detrend_data()
+    var_dobj.area_weight_data(use_sqrt=True)
     data = var_dobj.data[:][:, mask]
     npac_eofs, npac_svals = ST.calc_eofs(data, 1)
-    compressed_pdo_eof = np.zeros_like(latgrid)
-    compressed_pdo_eof[mask] = npac_eofs[:, 0]
-    full_grid_pdo_eof = var_dobj.inflate_full_grid(data=compressed_pdo_eof)
+    pdo_eof = npac_eofs[:, 0]
+    # full_grid_pdo_eof = var_dobj.inflate_full_grid(data=compressed_pdo_eof)
 
     def pdo_index(state_data):
-        return state_data.T @ full_grid_pdo_eof
+        # If valid_data set then there were NaN points, remove them
+        if valid_data is not None:
+            state_data = state_data[valid_data, :]
+
+        # Take the N Pac. region
+        state_npac = state_data[mask, :]
+        return state_npac.T @ pdo_eof
 
     return pdo_index
 
