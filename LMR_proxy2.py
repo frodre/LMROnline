@@ -342,6 +342,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
             meta_src = pd.read_pickle(pages2kv1_cfg.metafile_proxy)
         if data_src is None:
             data_src = pd.read_pickle(pages2kv1_cfg.datafile_proxy)
+            data_src = data_src.to_dense()
 
         site_meta = meta_src[meta_src['Proxy ID'] == site]
         pid = site_meta['Proxy ID'].iloc[0]
@@ -407,6 +408,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
             meta_src = pd.read_pickle(pages2kv1_cfg.metafile_proxy)
         if data_src is None:
             data_src = pd.read_pickle(pages2kv1_cfg.datafile_proxy)
+            data_src = data_src.to_dense()
 
         filters = pages2kv1_cfg.simple_filters
         proxy_order = pages2kv1_cfg.proxy_order
@@ -526,6 +528,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
             meta_src = pd.read_pickle(pages2kv1_cfg.metafile_proxy)
         if data_src is None:
             data_src = pd.read_pickle(pages2kv1_cfg.datafile_proxy)
+            data_src = data_src.to_dense()
 
         # TODO: For now hard coded to annual resolution - AP
         useable = meta_src['Resolution (yr)'] == 1.0
@@ -1106,3 +1109,35 @@ def get_proxy_class(proxy_key):
         Class type to be instantiated and attached to a proxy.
     """
     return _proxy_classes[proxy_key]
+
+
+def _calc_ye_values(nproxies, proxy_list, xb_state):
+    nens = xb_state.shape[1]
+    ye_vals = np.zeros((nproxies, nens))
+
+    for i, pobj in enumerate(proxy_list):
+        ye_vals[i, :] = pobj.psm(xb_state)
+
+    return ye_vals
+
+
+def calc_assim_ye_vals(proxy_manager, xb_state):
+
+    pobjs = proxy_manager.sites_assim_proxy_objs()
+    nproxies = len(proxy_manager.ind_assim)
+
+    return _calc_ye_values(nproxies, pobjs, xb_state)
+
+
+def calc_eval_ye_vals(proxy_manager, xb_state):
+
+    pobjs = proxy_manager.sites_eval_proxy_objs()
+    nproxies = len(proxy_manager.ind_eval)
+
+    if pobjs:
+        return _calc_ye_values(nproxies, pobjs, xb_state)
+    else:
+        return None
+
+
+
