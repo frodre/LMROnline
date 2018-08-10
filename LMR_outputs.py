@@ -1,8 +1,12 @@
 from LMR_gridded import PriorVariable
 from LMR_utils2 import var_to_hdf5_carray, empty_hdf5_carray
-from collections import Sequence
+from collections import Sequence, namedtuple
+from numcodecs import Blosc
 import numpy as np
 import tables as tb
+import pickle
+import zarr
+
 import pylim.Stats as ST
 from os.path import join
 
@@ -284,6 +288,69 @@ def field_output_reduction(measure, state_data, sptl_shp):
 
     out = out.reshape(sptl_shp)
     return out
+
+
+def save_recon_proxy_information(proxy_manager, out_dir):
+    # save proxy assim ids and info
+    out_fname_assim = 'assimilated_proxies.pkl'
+    pobjs_assim = proxy_manager.sites_assim_proxy_objs()
+    assim_proxy_info = _gather_proxy_object_info(pobjs_assim, 'assimilated')
+    out_path = join(out_dir, out_fname_assim)
+    with open(out_path, 'wb') as f:
+        pickle.dump(assim_proxy_info, f)
+
+    # save proxy eval ids and info
+    out_fname_omit = 'witheld_proxies.pkl'
+    pobjs_omit = proxy_manager.sites_eval_proxy_objs()
+    if pobjs_omit:
+        omit_proxy_info = _gather_proxy_object_info(pobjs_omit, 'witheld')
+        out_path = join(out_dir, out_fname_omit)
+        with open(out_path, 'wb') as f:
+            pickle.dump(omit_proxy_info, f)
+
+
+ProxyInfo = namedtuple('ProxyInfo', ['type', 'key', 'lat', 'lon', 'status',
+                                     'available_years', 'psm_type',
+                                     'psm_R', 'ye_data_idx'])
+
+
+def _gather_proxy_object_info(pobj_list, status):
+
+    proxy_info = []
+    for i, pobj in enumerate(pobj_list):
+        info = ProxyInfo(pobj.type, pobj.id, pobj.lat, pobj.lon, status,
+                          pobj.time, pobj.psm_obj.psm_key, pobj.psm_obj.R, i)
+        proxy_info.append(info)
+
+    return proxy_info
+
+
+def create_Ye_output(out_path, nproxies, nens, nyears):
+    nbytes_in_nens = nens * 8
+    n_units_in_mb = 1 / (nbytes_in_nens / 1024**2)
+
+    # chunk along proxy and year dimension with 2:1 ratio
+    base_chunk_len = n_units_in_mb // 3
+    nproxy_chunk = 2 * base_chunk_len
+    nyr_chunk = base_chunk_len
+
+    if nyr_chunk > nyears:
+        nyr_chunk = nyears
+    if nproxy_chunk > nproxies:
+        nproxy_chunk = nproxies
+
+    chunk_shape = (nproxy_chunk, nyr_chunk, nens)
+
+    compressor = Blosc(cname='zstd', clevel=4, shuffle=Blosc.BITSHUFFLE)
+
+    ye_arr = zarr.open(out_path, mode='w',
+                       shape=(nproxies, nyears, nens), chunks=chunk_shape,
+                       compressor=compressor, dtype=np.float64)
+
+    return ye_arr
+
+
+
 
 
 

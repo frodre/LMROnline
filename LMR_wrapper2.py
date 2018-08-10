@@ -110,7 +110,7 @@ for iter_and_params in itertools.product(*param_iterables):
 
     # Call the driver
     try:
-        assim_proxy_objs, eval_proxy_objs = LMR.LMR_driver_callable(cfg)
+        LMR.LMR_driver_callable(cfg)
     except LMR.FilterDivergenceError as e:
         print(e)
 
@@ -119,11 +119,6 @@ for iter_and_params in itertools.product(*param_iterables):
         print(cmd)
         os.system(cmd)
         continue
-
-    # write the analysis ensemble mean and variance to separate files (per
-    # state variable)
-    ensemble_stats(core.datadir_output, assim_proxy_objs, eval_proxy_objs,
-                   core.write_posterior_Ye, core.save_full_field)
 
     # start: DO NOT DELETE
     # move files from local disk to an archive location
@@ -145,13 +140,10 @@ for iter_and_params in itertools.product(*param_iterables):
     cmd = 'mv -f ' + working_dir + '/*.h5' + ' ' + mc_arc_dir + '/'
     print(cmd)
     os.system(cmd)
-    cmd = 'mv -f ' + working_dir + '/*.pckl' + ' ' + mc_arc_dir + '/'
+    cmd = 'mv -f ' + working_dir + '/*.pkl' + ' ' + mc_arc_dir + '/'
     print(cmd)
     os.system(cmd)
-    cmd = 'mv -f ' + working_dir + '/assim*' + ' ' + mc_arc_dir + '/'
-    print(cmd)
-    os.system(cmd)
-    cmd = 'mv -f ' + working_dir + '/nonassim*' + ' ' + mc_arc_dir + '/'
+    cmd = 'mv -f ' + working_dir + '/*.zarr' + ' ' + mc_arc_dir + '/'
     print(cmd)
     os.system(cmd)
 

@@ -71,20 +71,11 @@ from time import time
 import LMR_proxy2
 import LMR_gridded
 from LMR_utils2 import global_mean2
-from LMR_outputs import (prepare_scalar_calculations, prepare_field_output,
-                         save_scalar_ensembles, save_field_output)
+import LMR_outputs as lmr_out
 import LMR_config as BaseCfg
 import LMR_forecaster
 from LMR_DA import enkf_update_array_xb_blend, cov_localization
 
-
-# *** Helper Methods
-def _calc_yevals_from_prior(ye_shp, xb_state, prox_manager):
-    ye_all = np.empty(shape=ye_shp)
-    for i, pobj in enumerate(prox_manager.sites_assim_proxy_objs()):
-        ye_all[i, :] = pobj.psm(xb_state)
-
-    return ye_all
 
 # *** main driver
 def LMR_driver_callable(cfg=None):
@@ -114,6 +105,7 @@ def LMR_driver_callable(cfg=None):
     loc_rad = core_cfg.loc_rad
     inflation_fact = core_cfg.inflation_factor
     outputs = prior_cfg.outputs
+    save_analysis_ye = outputs['analysis_Ye']
 
     # ==========================================================================
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< MAIN CODE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -150,13 +142,13 @@ def LMR_driver_callable(cfg=None):
     h5f_path = join(workdir, 'recon_output_' + state_keys + '.h5')
 
     [calc_and_store_scalars,
-     scalar_containers] = prepare_scalar_calculations(outputs['scalar_ens'],
-                                                      Xb_one, prior_cfg, ntimes,
-                                                      nens)
+     scalar_containers] = \
+        lmr_out.prepare_scalar_calculations(outputs['scalar_ens'], Xb_one,
+                                            prior_cfg, ntimes, nens)
 
     [field_hdf5_outputs,
-     field_get_ens_func] = prepare_field_output(outputs, Xb_one, ntimes,
-                                                nens, h5f_path)
+     field_get_ens_func] = lmr_out.prepare_field_output(outputs, Xb_one, ntimes,
+                                                        nens, h5f_path)
 
     load_time = time() - begin_time
     if verbose > 2:
@@ -167,16 +159,6 @@ def LMR_driver_callable(cfg=None):
     # check covariance inflation from config
     if inflation_fact is not None and verbose > 2:
         print(('\nUsing covariance inflation factor: %8.2f' % inflation_fact))
-
-    # ==========================================================================
-    # Calculate regridded state from prior, if option chosen -------------------
-    # ==========================================================================
-
-    # TODO: Regridding here
-    # if trunc_state:
-    #     Xb_one = Xb_one_full.truncate_state()
-    # else:
-    #     Xb_one = Xb_one_full.copy()
 
     # Keep dimension of pre-augmented version of state vector
     state_dim = Xb_one.shape[0]
@@ -199,8 +181,28 @@ def LMR_driver_callable(cfg=None):
     type_site_assim = prox_manager.assim_ids_by_group
     # count the total number of proxies
     assim_proxy_count = len(prox_manager.ind_assim)
+    # count the total witheld proxies
+    if prox_manager.ind_eval:
+        eval_proxy_count = len(prox_manager.ind_eval)
+    else:
+        eval_proxy_count = None
 
-    # TODO: Create AnalysisYe output
+    if save_analysis_ye:
+        assim_ye_path = join(workdir, 'assim_ye_ens_output.zarr')
+        assim_ye_out = lmr_out.create_Ye_output(assim_ye_path,
+                                                assim_proxy_count,
+                                                nens, ntimes)
+
+        if eval_proxy_count is not None:
+            eval_ye_path = join(workdir, 'eval_ye_ens_output.zarr')
+            eval_ye_out = lmr_out.create_Ye_output(eval_ye_path,
+                                                   eval_proxy_count,
+                                                   nens, ntimes)
+        else:
+            eval_ye_out = None
+    else:
+        assim_ye_out = None
+        eval_ye_out = None
 
     if verbose > 0:
         print('Assimilating proxy types/sites:', type_site_assim)
@@ -222,10 +224,8 @@ def LMR_driver_callable(cfg=None):
     # ----------------------------------
 
     # TODO: Figure out how to handle precalculated YE Vals
-    # TODO: append eval proxy YE values
     # Extract all the Ye's from master list of proxy objects into numpy array
-    ye_shp = (assim_proxy_count, nens)
-    ye_all = _calc_yevals_from_prior(ye_shp, Xb_one, prox_manager)
+    ye_all = LMR_proxy2.calc_assim_ye_vals(prox_manager, Xb_one)
     Xb_one.augment_state(ye_all)
 
     # TODO: Switch to cPickled prior object... right now hardcoded for annual
@@ -260,25 +260,6 @@ def LMR_driver_callable(cfg=None):
     # Loop over all years and proxies, and perform assimilation ----------------
     # ==========================================================================
     Xb_one.stash_state('orig')
-
-    # Array containing the global and hemispheric-mean state
-    # Now doing surface air temperature only (var = tas_sfc_Amon)!
-    gmt_save = np.zeros([assim_proxy_count+1, ntimes])
-    nhmt_save = np.zeros([assim_proxy_count+1, ntimes])
-    shmt_save = np.zeros([assim_proxy_count+1, ntimes])
-
-    xbm = Xb_one.get_var_data('tas_sfc_Amon').mean(axis=1)  # ensemble mean
-    gmt, nhmt, shmt = global_mean2(xbm,
-                                   Xb_one.var_coords['tas_sfc_Amon']['lat'],
-                                   output_hemispheric=True)
-    # First row is prior GMT
-    gmt_save[0, :] = gmt
-    nhmt_save[0, :] = nhmt
-    shmt_save[0, :] = shmt
-    # Prior for first proxy assimilated
-    gmt_save[1, :] = gmt 
-    nhmt_save[1, :] = nhmt
-    shmt_save[1, :] = shmt
 
     ens_calib_check = np.zeros((assim_proxy_count, 5))
 
@@ -315,20 +296,9 @@ def LMR_driver_callable(cfg=None):
                                   (1-hybrid_a_val) * Xb_static)
                 Xb_one.state = blend_forecast
 
-
-        # Save prior variance if online assimilation
-        if online:
-            xbv = Xb_one.get_var_data('tas_sfc_Amon')
-            xbv = xbv.var(ddof=1, axis=1)
-            grd_shp = Xb_one.var_space_shp['tas_sfc_Amon']
-            xbv = xbv.reshape(grd_shp)
-            if iyr == 0:
-                xbv_out = np.zeros((len(assim_times), grd_shp[0],
-                                    grd_shp[1]))
-            xbv_out[iyr] = xbv
-
-        save_field_output(iyr, 'prior', Xb_one, field_hdf5_outputs,
-                          output_def=outputs['prior'])
+        # Save output fields for the prior
+        lmr_out.save_field_output(iyr, 'prior', Xb_one, field_hdf5_outputs,
+                                  output_def=outputs['prior'])
 
         # Update Xb with each proxy
         for iproxy, Y in enumerate(prox_manager.sites_assim_proxy_objs()):
@@ -337,10 +307,6 @@ def LMR_driver_callable(cfg=None):
             try:
                 Y.values[t]
             except KeyError:
-                # Make sure GMT spot filled from previous proxy
-                gmt_save[iproxy+1, iyr] = gmt_save[iproxy, iyr]
-                nhmt_save[iproxy+1, iyr] = nhmt_save[iproxy, iyr]
-                shmt_save[iproxy+1, iyr] = shmt_save[iproxy, iyr]
                 continue
 
             if verbose > 1:
@@ -396,24 +362,9 @@ def LMR_driver_callable(cfg=None):
 
             Xb_one.state = Xa
 
-            xam = Xb_one.get_var_data('tas_sfc_Amon').mean(axis=1)
-            gmt, nhmt, shmt = \
-                global_mean2(xam,
-                             Xb_one.var_coords['tas_sfc_Amon']['lat'],
-                             output_hemispheric=True)
-            gmt_save[iproxy+1, iyr] = gmt
-            nhmt_save[iproxy+1, iyr] = nhmt
-            shmt_save[iproxy+1, iyr] = shmt
-
 
             # check the variance change for sign
             thistime = time()
-            # if verbose > 2:
-            #     xbvar = Xb.var(axis=1, ddof=1)
-            #     xavar = Xa.var(ddof=1, axis=1)
-            #     vardiff = xavar - xbvar
-            #     print 'max change in variance:' + str(np.max(vardiff))
-            #     print 'update took ' + str(thistime-lasttime) + 'seconds'
             lasttime = thistime
 
 
@@ -422,24 +373,27 @@ def LMR_driver_callable(cfg=None):
             raise FilterDivergenceError('Filter divergence detected'
                                         ' during year {}. Skipping '
                                         'iteration.'.format(t))
-        # Save annual data to file
-        ypad = '{:04d}'.format(int(t))
-        filen = join(workdir, 'year' + ypad + '.npy')
-        if isinstance(Xb_one.state, np.ma.MaskedArray):
-            state = Xb_one.state.filled()
-        else:
-            state = Xb_one.state
-        np.save(filen, state)
 
+        # Calculate and store index values from field
         calc_and_store_scalars(Xb_one, iyr)
+        # Calculate and store posterior field reductions
+        lmr_out.save_field_output(iyr, 'posterior', Xb_one, field_hdf5_outputs,
+                                  output_def=outputs['posterior'])
 
-        save_field_output(iyr, 'posterior', Xb_one, field_hdf5_outputs,
-                          output_def=outputs['posterior'])
-
+        # Save field ensemble members
         if outputs['field_ens_output'] is not None:
-            save_field_output(iyr, 'field_ens_output', Xb_one,
-                              field_hdf5_outputs,
-                              ens_out_func=field_get_ens_func)
+            lmr_out.save_field_output(iyr, 'field_ens_output', Xb_one,
+                                      field_hdf5_outputs,
+                                      ens_out_func=field_get_ens_func)
+
+        # Save Ye Information
+        if save_analysis_ye:
+            assim_ye = Xb_one.get_var_data('ye_vals')
+            assim_ye_out[:, iyr] = assim_ye
+
+            if eval_proxy_count is not None:
+                eval_ye = LMR_proxy2.calc_eval_ye_vals(prox_manager, Xb_one)
+                eval_ye_out[:, iyr] = eval_ye
 
         if online:
 
@@ -454,7 +408,7 @@ def LMR_driver_callable(cfg=None):
                 Xb_one.update_var_data(fcast_out)
 
                 # Recalculate Ye values
-                ye_all = _calc_yevals_from_prior(ye_shp, Xb_one, prox_manager)
+                ye_all = LMR_proxy2.calc_assim_ye_vals(prox_manager, Xb_one)
                 Xb_one.reset_augmented_ye(ye_all)
 
                 # Inflation Adjustment
@@ -470,59 +424,22 @@ def LMR_driver_callable(cfg=None):
         print('Reconstruction completed in ' + str(end_time/60.0)+' mins')
         print('=====================================================')
 
-    if online:
-        # Save prior ensemble variance
-        filen = join(workdir, 'prior_ensvar_tas_sfc_Amon')
-        tmp_coords = Xb_one.var_coords['tas_sfc_Amon']
-        np.savez(filen, xbv=xbv_out,
-                 lat=tmp_coords['lat'].reshape(xbv.shape),
-                 lon=tmp_coords['lon'].reshape(xbv.shape))
+    if verbose > 0:
+        if assim_ye_out is not None:
+            print('-----------------------------------')
+            print('Assimilated proxy Ye output info...')
+            print(assim_ye_out.info)
+            print('-----------------------------------')
 
-    # 3 July 2015: compute and save the GMT for the full ensemble
-    save_scalar_ensembles(workdir, recon_times, scalar_containers)
-    # TODO: remove after scalar ens output verification
-    gmt_ensemble = np.zeros([ntimes, nens])
-    nhmt_ensemble = np.zeros([ntimes, nens])
-    shmt_ensemble = np.zeros([ntimes, nens])
-    for iyr, yr in enumerate(assim_times):
-        filen = join(workdir, 'year{:04d}'.format(int(yr)))
-        Xb_one.state = np.load(filen+'.npy')
-        xa = Xb_one.get_var_data('tas_sfc_Amon').T
-        gmt, nhmt, shmt = \
-            global_mean2(xa,
-                         Xb_one.var_coords['tas_sfc_Amon']['lat'],
-                         output_hemispheric=True)
-        gmt_ensemble[iyr] = gmt
-        nhmt_ensemble[iyr] = nhmt
-        shmt_ensemble[iyr] = shmt
+        if eval_ye_out is not None:
+            print('-----------------------------------')
+            print('Witheld proxy Ye output info...')
+            print(eval_ye_out.info)
+            print('-----------------------------------')
 
-    filen = join(workdir, 'gmt_ensemble')
-    np.savez(filen, gmt_ensemble=gmt_ensemble, nhmt_ensemble=nhmt_ensemble,
-             shmt_ensemble=shmt_ensemble, recon_times=recon_times)
-
-    # save global mean temperature history and the proxies assimilated
-    print(('saving global mean temperature update history and ',
-           'assimilated proxies...'))
-    filen = join(workdir, 'gmt')
-    np.savez(filen, gmt_save=gmt_save, nhmt_save=nhmt_save, shmt_save=shmt_save,
-             recon_times=recon_times,
-             apcount=assim_proxy_count,
-             tpcount=assim_proxy_count)
-
-    # TODO: (AP) The assim/eval lists of lists instead of lists of 1-item dicts
-    assimilated_proxies = [{p.type: [p.id, p.lat, p.lon, p.time,
-                                     p.psm_obj.sensitivity]}
-                           for p in prox_manager.sites_assim_proxy_objs()]
-    filen = join(workdir, 'assimilated_proxies')
-    np.save(filen, assimilated_proxies)
-    
-    # collecting info on non-assimilated proxies and save to file
-    nonassimilated_proxies = [{p.type: [p.id, p.lat, p.lon, p.time,
-                                        p.psm_obj.sensitivity]}
-                              for p in prox_manager.sites_eval_proxy_objs()]
-    if nonassimilated_proxies:
-        filen = join(workdir, 'nonassimilated_proxies')
-        np.save(filen, nonassimilated_proxies)
+    # Save Scalar information and proxies assimilated/withheld
+    lmr_out.save_scalar_ensembles(workdir, recon_times, scalar_containers)
+    lmr_out.save_recon_proxy_information(prox_manager, workdir)
 
     field_hdf5_outputs.close()
 
@@ -533,9 +450,6 @@ def LMR_driver_callable(cfg=None):
         print('Experiment completed in ' + str(exp_end_time/60.0) + ' mins')
         print('=====================================================')
 
-    # TODO: best method for Ye saving?
-    return (prox_manager.sites_assim_proxy_objs(),
-            prox_manager.sites_eval_proxy_objs())
 # ------------------------------------------------------------------------------
 # --------------------------- end of main code ---------------------------------
 # ------------------------------------------------------------------------------
