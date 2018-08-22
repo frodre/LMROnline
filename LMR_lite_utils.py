@@ -8,6 +8,11 @@ University of Washington
 26 February 2018
 
 Modifications:
+20 April 2018: new routine prior_regrid for regridding prior (GJH)
+21 March 2018: mod get_valid_proxes to accept proxy indices for filtering (rather than use all) (GJH)
+6 March 2018: fix for the Grid object; new routine make_obs for making "observations" from a gridded dataset (GJH)
+28 February 2018: port to Python3 (GJH)
+
 """
 
 import os
@@ -30,6 +35,7 @@ from time import time
 import LMR_prior
 import LMR_proxy_pandas_rework
 import LMR_utils
+import pandas as pd
 
 def make_gmt_figure(analysis_data,analysis_time,fsave=None):
 
@@ -194,7 +200,7 @@ def make_random_ensemble(Xb_one,max_ens,nens,ranseed=None):
     return Xb_one_new, ens_inds
 
 
-def make_random_proxies(prox_manager,Ye,Ye_coords,ens_inds,max_proxies,nproxies,ranseed=None):
+def make_random_proxies(prox_manager,Ye,Ye_coords,ens_inds,max_proxies,nproxies,ranseed=None,verbose=False):
 
     """
     Purpose: provide random column draws from an existing ensemble matrix
@@ -242,9 +248,10 @@ def make_random_proxies(prox_manager,Ye,Ye_coords,ens_inds,max_proxies,nproxies,
     vYe_coords = Ye_coords[vP,:]
     
     elapsed_time = time() - begin_time
-    print('-----------------------------------------------------')
-    print('completed in ' + str(elapsed_time) + ' seconds')
-    print('-----------------------------------------------------')
+    if verbose:
+        print('-----------------------------------------------------')
+        print('completed in ' + str(elapsed_time) + ' seconds')
+        print('-----------------------------------------------------')
 
     return vR, vP, vT, vYe, vYe_coords
 
@@ -290,14 +297,10 @@ def make_proxy_group(prox_manager,pgroup,Ye,Ye_coords,ens_inds,verbose=False):
     return vR, vP, vT, vYe, vYe_coords
  
 
-def load_config(verbose=False):
+def load_config(yaml_file,verbose=False):
     begin_time = time()
 
     if not LMR_config.LEGACY_CONFIG:
-        if len(sys.argv) > 3:
-            yaml_file = sys.argv[1]
-        else:
-            yaml_file = os.path.join(LMR_config.SRC_DIR, 'config_lite.yml')
 
         try:
             if verbose: print('Loading configuration: {}'.format(yaml_file))
@@ -441,8 +444,7 @@ def load_prior(cfg,verbose=False):
 
     return X, Xb_one
 
-
-def load_proxies(cfg,verbose=False):
+def load_proxies(cfg,verbose=True):
 
     core = cfg.core
 
@@ -468,10 +470,9 @@ def load_proxies(cfg,verbose=False):
     return prox_manager
 
 
-def get_valid_proxies(cfg,prox_manager,target_year,Ye_assim,Ye_assim_coords,verbose=False):
+def get_valid_proxies(cfg,prox_manager,target_year,Ye_assim,Ye_assim_coords,prox_inds=None,verbose=False):
  
     begin_time = time()
-
     core = cfg.core
     recon_timescale = core.recon_timescale
 
@@ -481,8 +482,8 @@ def get_valid_proxies(cfg,prox_manager,target_year,Ye_assim,Ye_assim_coords,verb
 
     tas_var = [item for item in list(cfg.prior.state_variables.keys()) if 'tas_sfc_' in item]
 
-    start_yr = int(target_year-recon_timescale/2)
-    end_yr = int(target_year+recon_timescale/2)
+    start_yr = int(target_year-recon_timescale//2)
+    end_yr = int(target_year+recon_timescale//2)
 
     vY = []
     vR = []
@@ -494,7 +495,18 @@ def get_valid_proxies(cfg,prox_manager,target_year,Ye_assim,Ye_assim_coords,verb
             # exclude lower bound to not include same obs in adjacent time intervals
             Yvals = Y.values[(Y.values.index > start_yr) & (Y.values.index <= end_yr)]
         else:
-            Yvals = Y.values[(Y.values.index >= start_yr) & (Y.values.index <= end_yr)]
+            # use all available proxies from config.yml
+            if prox_inds is None:
+                #Yvals = Y.values[(Y.values.index >= start_yr) & (Y.values.index <= end_yr)]
+                Yvals = Y.values[(Y.time == target_year)]
+                # use only the selected proxies (e.g., randomly filtered post-config)
+            else:
+                if proxy_idx in prox_inds: 
+                    #Yvals = Y.values[(Y.values.index >= start_yr) & (Y.values.index <= end_yr)]
+                    Yvals = Y.values[(Y.time == target_year)]
+                else:
+                    Yvals = pd.DataFrame()
+                    
         if Yvals.empty: 
             if verbose: print('no obs for this year')
             pass
@@ -502,11 +514,11 @@ def get_valid_proxies(cfg,prox_manager,target_year,Ye_assim,Ye_assim_coords,verb
             nYobs = len(Yvals)
             Yobs =  Yvals.mean()
             ob_err = Y.psm_obj.R/nYobs
-            if (target_year >=start_yr) & (target_year <= end_yr):
-                vY.append(Yobs)
-                vR.append(ob_err)
-                vP.append(proxy_idx)
-                vT.append(Y.type)
+ #           if (target_year >=start_yr) & (target_year <= end_yr):
+            vY.append(Yobs)
+            vR.append(ob_err)
+            vP.append(proxy_idx)
+            vT.append(Y.type)
     vYe = Ye_assim[vP,:]
     vYe_coords = Ye_assim_coords[vP,:]
    
@@ -554,13 +566,21 @@ def Kalman_update(vY,vYe,vR,Xb_one,verbose=False):
     
     return xam
 
-
-def Kalman_optimal(Y,vR,Ye,Xb,verbose=False):
+def Kalman_optimal(Y,vR,Ye,Xb,nsvs=None,transform_only=False,verbose=False):
     """
     Y: observation vector (p x 1)
     vR: observation error variance vector (p x 1)
     Ye: prior-estimated observation vector (p x n)
     Xbp: prior ensemble perturbation matrix (m x n) 
+
+    Originator:
+
+    Greg Hakim
+    University of Washington
+    26 February 2018
+
+    Modifications:
+    11 April 2018: Fixed bug in handling singular value matrix (rectangular, not square)
     """    
     if verbose:
         print('\n all-at-once solve...\n')
@@ -569,68 +589,93 @@ def Kalman_optimal(Y,vR,Ye,Xb,verbose=False):
 
     nobs = Ye.shape[0]
     nens = Ye.shape[1]
-
+    ndof = np.min([nobs,nens])
+    
+    if verbose:
+        print('number of obs: '+str(nobs))
+        print('number of ensemble members: '+str(nens))
+        
     # ensemble prior mean and perturbations
     xbm = Xb.mean(axis=1)
-    Xbp = Xb - Xb.mean(axis=1,keepdims=True)
+    #Xbp = Xb - Xb.mean(axis=1,keepdims=True)
+    Xbp = np.subtract(Xb,xbm[:,None])  # "None" means replicate in this dimension
 
     R = np.diag(vR)
     Risr = np.diag(1./np.sqrt(vR))
-    # ensemble-mean Hx (suffix key: m=ensemble mean, p=perturbation from ensemble mean; f=full value)
-    # keepdims = True needed for broadcasting to work; (p,1) shape rather than (p,)
+    # (suffix key: m=ensemble mean, p=perturbation from ensemble mean; f=full value)
+    # keepdims=True needed for broadcasting to work; (p,1) shape rather than (p,)
     Yem = Ye.mean(axis=1,keepdims=True)
     Yep = Ye - Yem
     Htp = np.dot(Risr,Yep)/np.sqrt(nens-1)
     Htm = np.dot(Risr,Yem)
     Yt = np.dot(Risr,Y)
-    # numpy svd quirks: 
-    # - full_matrices returns max-sized matrices (A=USV^T will not work for rectangular A)
-    # - V is actually V^T
-    #U,s,V = np.linalg.svd(Htp,full_matrices=False)
-    # full matrices when nens > nobs: ensemble null space
-    #U,s,V_full = np.linalg.svd(Htp,full_matrices=True)
-    #V = V_full[0:nobs,:]
-    U,s,V = np.linalg.svd(Htp,full_matrices=False)
+    # numpy svd quirk: V is actually V^T!
+    U,s,V = np.linalg.svd(Htp,full_matrices=True)
+    if not nsvs:
+        nsvs = len(s) - 1
+    if verbose:
+        print('ndof :'+str(ndof))
+        print('U :'+str(U.shape))
+        print('s :'+str(s.shape))
+        print('V :'+str(V.shape))
+        print('recontructing using '+ str(nsvs) + ' singular values')
+        
     innov = np.dot(U.T,Yt-np.squeeze(Htm))
     # Kalman gain
-    K = np.diag(s/(s*s + 1))
-    # this is the analysis increment in smallest space (obs or nens, depending on which is smaller)
+    Kpre = s[0:nsvs]/(s[0:nsvs]*s[0:nsvs] + 1)
+    K = np.zeros([nens,nobs])
+    np.fill_diagonal(K,Kpre)
+    # ensemble-mean analysis increment in transformed space 
     xhatinc = np.dot(K,innov)
-    # this is the analysis increment in the transformed ensemble space
+    # ensemble-mean analysis increment in the transformed ensemble space
     xtinc = np.dot(V.T,xhatinc)/np.sqrt(nens-1)
-    # this is the ensemble-mean analysis increment in the original space
-    xinc = np.dot(Xbp,xtinc)
-    # ensemble mean analysis in the original space
-    xam = xbm + xinc
+    if transform_only:
+        xam = []
+        Xap = []
+    else:
+        # ensemble-mean analysis increment in the original space
+        xinc = np.dot(Xbp,xtinc)
+        # ensemble mean analysis in the original space
+        xam = xbm + xinc
 
-    # transform the ensemble perturbations
-    lam = np.sqrt(1. - (1./(1. + s**2)))        
-    T = np.dot(V.T,np.diag(lam))
-    Xap = np.dot(Xbp,T)    
-
+        # transform the ensemble perturbations
+        lam = np.zeros([nobs,nens])
+        np.fill_diagonal(lam,s[0:nsvs])
+        tmp = np.linalg.inv(np.dot(lam,lam.T) + np.identity(nobs))
+        sigsq = np.identity(nens) - np.dot(np.dot(lam.T,tmp),lam)
+        sig = np.sqrt(sigsq)
+        T = np.dot(V.T,sig)
+        Xap = np.dot(Xbp,T)    
+        # perturbations must have zero mean
+        #Xap = Xap - Xap.mean(axis=1,keepdims=True)
+        if verbose: print('min s:',np.min(s))
     elapsed_time = time() - begin_time
     if verbose:
+        print('shape of U: ' + str(U.shape))
+        print('shape of s: ' + str(s.shape))
+        print('shape of V: ' + str(V.shape))
         print('-----------------------------------------------------')
         print('completed in ' + str(elapsed_time) + ' seconds')
         print('-----------------------------------------------------')
 
     readme = '''
     The SVD dictionary contains the SVD matrices U,s,V where V 
-    is the transpose of what numpy returns. xinc is the ensemble-mean
+    is the transpose of what numpy returns. xtinc is the ensemble-mean
     analysis increment in the intermediate space; *any* state variable 
-    can be reconstructed from this matrix. T is the matrix that transforms
-    the ensemble from the background to the analysis in the orginal space.
+    can be reconstructed from this matrix.
     '''
-    SVD = {'U':U,'s':s,'V':np.transpose(V),'xtinc':xtinc,'T':T,'readme':readme}
+    SVD = {'U':U,'s':s,'V':np.transpose(V),'xtinc':xtinc,'readme':readme}
     return xam,Xap,SVD
-
 
 def Kalman_optimal_sklearn(Y,vR,Ye,Xb,mindim=None,transform_only=False,verbose=False):
     """
+    THIS ROUTINE IS DEPRECATED. While it produces the right ensemble mean, it cannot produce the ensemble variance because the sklearn svd routine doesn't return null-space vectors.
+
     Y: observation vector (p x 1)
     vR: observation error variance vector (p x 1)
     Ye: prior-estimated observation vector (p x n)
-    Xbp: prior ensemble perturbation matrix (m x n) 
+    Xb: prior ensemble matrix (m x n) 
+    mindim: number of singular values to use
     """    
 
     from sklearn.utils.extmath import randomized_svd
@@ -679,6 +724,8 @@ def Kalman_optimal_sklearn(Y,vR,Ye,Xb,mindim=None,transform_only=False,verbose=F
         # ensemble mean analysis in the original space
         xam = xbm + xinc
         Xap = np.dot(Xbp,T)    
+        # perturbations must have zero mean
+        Xap = Xap - Xap.mean(axis=1,keepdims=True)
 
     elapsed_time = time() - begin_time
     if verbose:
@@ -857,6 +904,7 @@ def load_analyses(cfg,full_field=False,lmr_gm=None,lmr_time=None,satime=1900,eat
             [gis_gm,_,_] = LMR_utils.global_hemispheric_means(GIS_anomaly,GIS_lat)
             [cru_gm,_,_] = LMR_utils.global_hemispheric_means(CRU_anomaly,CRU_lat)
             [be_gm,_,_]  = LMR_utils.global_hemispheric_means(BE_anomaly,BE_lat)
+            [mlost_gm,_,_]  = LMR_utils.global_hemispheric_means(MLOST_anomaly,MLOST_lat)
 
             # set common reference period to define anomalies
             smatch, ematch = LMR_utils.find_date_indices(GIS_time,satime,eatime)
@@ -929,6 +977,9 @@ def make_obs(ob_lat,ob_lon,dat_lat,dat_lon,dat,verbose=False):
 
     # initialize
     obs = np.zeros([nobs,nyears])
+    obs_ind_lat = np.zeros(nobs)
+    obs_ind_lon = np.zeros(nobs)
+  
     k = -1
     # make the obs
     for lon in ob_lon:
@@ -937,6 +988,169 @@ def make_obs(ob_lat,ob_lon,dat_lat,dat_lon,dat,verbose=False):
             dist = LMR_utils.get_distance(lon,lat,dat_lon,dat_lat)
             jind, kind = np.unravel_index(dist.argmin(),dist.shape)
             obs[k,:] = dat[:,jind,kind]
+            obs_ind_lat[k] = jind
+            obs_ind_lon[k] = kind
+
             #print(lat,jind,kind,ob[100,k])
             
-    return obs
+    return obs,obs_ind_lat,obs_ind_lon
+
+# started from: stackoverflow.com/201618804
+def smooth(y,box_pts):
+    box = np.ones(box_pts)/box_pts
+    y_smooth = np.convolve(y,box,mode='same')
+    # remove endpoints with artifacts
+    ii = np.int(box_pts/2.)
+    y_smooth[0:ii] = np.nan
+    y_smooth[-ii:] = np.nan
+
+    return y_smooth
+
+def smooth_121(y):
+    # 1-2-1 smoother by convolution. leaves last 3 points biased
+    box = np.array([1.,2.,1.])/4.
+    y_smooth = np.convolve(y,box,mode='same')
+    y_smooth[-2:-1] = np.nan
+    # remove endpoints with artifacts
+    y_smooth[0:1] = np.nan
+    y_smooth[-1:] = np.nan
+
+    return y_smooth
+
+def prior_regrid(cfg,X,Xb_one,verbose=False):
+
+    # scraped from LMR_utils.py on 20 April 2018 and modified for local use
+
+    # this block sets variables for compatability with original code
+    regrid_method = cfg.prior.regrid_method
+    prior = cfg.prior
+    nens = cfg.core.nens
+    Xb_one_full = X.ens
+
+    # Declare dictionary w/ info on content of truncated state vector
+    new_state_info = {}
+
+    # Transform every 2D state variable, one at a time
+    Nx = 0
+    for var in list(X.full_state_info.keys()):
+        dct = {}
+
+        dct['vartype'] = X.full_state_info[var]['vartype']
+
+        # variable indices in full state vector
+        ibeg_full = X.full_state_info[var]['pos'][0]
+        iend_full = X.full_state_info[var]['pos'][1]
+        # extract array corresponding to state variable "var"
+        var_array_full = Xb_one_full[ibeg_full:iend_full+1, :]
+        # corresponding spatial coordinates
+        coords_array_full = X.coords[ibeg_full:iend_full+1, :]
+
+        # Are we truncating this variable? (i.e. is it a 2D lat/lon variable?)
+
+        if X.full_state_info[var]['vartype'] == '2D:horizontal':
+            print(var, ' : 2D lat/lon variable, truncating this variable')
+            # lat/lon column indices in X.coords
+            ind_lon = X.full_state_info[var]['spacecoords'].index('lon')
+            ind_lat = X.full_state_info[var]['spacecoords'].index('lat')
+            nlat = X.full_state_info[var]['spacedims'][ind_lat]
+            nlon = X.full_state_info[var]['spacedims'][ind_lon]
+
+            # calculate the truncated fieldNtimes
+            if regrid_method == 'simple':
+                [var_array_new, lat_new, lon_new] = \
+                    LMR_utils.regrid_simple(nens, var_array_full, coords_array_full, \
+                                            ind_lat, ind_lon, regrid_resolution)
+            elif regrid_method == 'spherical_harmonics':
+                [var_array_new, lat_new, lon_new] = \
+                    LMR_utils.regrid_sphere(nlat, nlon, nens, var_array_full, regrid_resolution)
+            elif regrid_method == 'esmpy':
+                target_grid = prior.esmpy_grid_def
+
+                lat_2d = coords_array_full[:, ind_lat].reshape(nlat, nlon)
+                lon_2d = coords_array_full[:, ind_lon].reshape(nlat, nlon)
+
+                [var_array_new,
+                 lat_new,
+                 lon_new] = LMR_utils.regrid_esmpy(target_grid['nlat'],
+                                                   target_grid['nlon'],
+                                                   nens,
+                                                   var_array_full,
+                                                   lat_2d,
+                                                   lon_2d,
+                                                   nlat,
+                                                   nlon,
+                                                   method=prior.esmpy_interp_method)
+            else:
+                print('Exiting! Unrecognized regridding method.')
+                raise SystemExit
+
+            nlat_new = np.shape(lat_new)[0]
+            nlon_new = np.shape(lat_new)[1]
+
+            print(('=> Full array:      ' + str(np.min(var_array_full)) + ' ' +
+                   str(np.max(var_array_full)) + ' ' + str(np.mean(var_array_full)) +
+                   ' ' + str(np.std(var_array_full))))
+            print(('=> Truncated array: ' + str(np.min(var_array_new)) + ' ' +
+                   str(np.max(var_array_new)) + ' ' + str(np.mean(var_array_new)) +
+                   ' ' + str(np.std(var_array_new))))
+
+            # corresponding indices in truncated state vector
+            ibeg_new = Nx
+            iend_new = Nx+(nlat_new*nlon_new)-1
+            # for new state info dictionary
+            dct['pos'] = (ibeg_new, iend_new)
+            dct['spacecoords'] = X.full_state_info[var]['spacecoords']
+            dct['spacedims'] = (nlat_new, nlon_new)
+            # updated dimension
+            new_dims = (nlat_new*nlon_new)
+
+            # array with new spatial coords
+            coords_array_new = np.zeros(shape=[new_dims, 2])
+            coords_array_new[:, 0] = lat_new.flatten()
+            coords_array_new[:, 1] = lon_new.flatten()
+
+        else:
+            print(var,\
+                ' : not truncating this variable: no changes from full state')
+
+            var_array_new = var_array_full
+            coords_array_new = coords_array_full
+            # updated dimension
+            new_dims = var_array_new.shape[0]
+            ibeg_new = Nx
+            iend_new = Nx + new_dims - 1
+            dct['pos'] = (ibeg_new, iend_new)
+            dct['spacecoords'] = X.full_state_info[var]['spacecoords']
+            dct['spacedims'] = X.full_state_info[var]['spacedims']
+
+
+        # fill in new state info dictionary
+        new_state_info[var] = dct
+
+        # if 1st time in loop over state variables, create Xb_one array as copy
+        # of var_array_new
+        if Nx == 0:
+            Xb_one = np.copy(var_array_new)
+            Xb_one_coords = np.copy(coords_array_new)
+        else:  # if not 1st time, append to existing array
+            Xb_one = np.append(Xb_one, var_array_new, axis=0)
+            Xb_one_coords = np.append(Xb_one_coords, coords_array_new, axis=0)
+
+        # making sure Xb_one has proper mask, if it contains
+        # at least one invalid value
+        if np.isnan(Xb_one).any():        
+            Xb_one = np.ma.masked_invalid(Xb_one)
+            np.ma.set_fill_value(Xb_one, np.nan)
+
+        # updating dimension of new state vector
+        Nx = Nx + new_dims
+
+        # LMR_lite specific mod: update lat,lon information in X for later use
+        X.prior_dict[var]['lat'] = lat_new
+        X.prior_dict[var]['lon'] = lon_new
+        
+        # end loop over vars
+        
+    X.trunc_state_info = new_state_info
+    
+    return X, Xb_one

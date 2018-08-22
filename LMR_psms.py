@@ -43,7 +43,9 @@ import numpy as np
 import logging
 import LMR_gridded
 import pickle
-from LMR_utils import haversine, get_distance, smooth2D, get_data_closest_gridpt, class_docs_fixer
+import os.path
+from LMR_utils import (haversine, get_distance, smooth2D,
+                       get_data_closest_gridpt, class_docs_fixer)
 
 import pandas as pd
 from scipy.stats import linregress
@@ -364,9 +366,6 @@ class LinearPSM(BasePSM):
             Diagnostic output flags for calibration method
         """
 
-        # reference period (years) over which calibration anomalies are referenced
-        ref_period = (1900,2000)
-
         calib_spatial_avg = False
         Npts = 9  # nb of neighboring pts used in smoothing
 
@@ -436,7 +435,7 @@ class LinearPSM(BasePSM):
                 tmp = np.nan
             reg_x[i] = tmp
 
-
+        # TODO: Check where this ref period stuff is in production
         # making sure calibration anomalies are referenced to ref_period
         # --------------------------------------------------------------
         # indices of elements in calibration set within ref_period
@@ -721,20 +720,17 @@ class LinearPSM_TorP(BasePSM):
             psm_obj_T = LinearPSM(linearTorP_cfg.tempearature, proxy_obj,
                                   psm_data=psm_data_T)
         except (KeyError, IOError) as e:
-            # No precalibration found, have to do it for this proxy
-            # print 'PSM (temperature) not calibrated for:' + str((proxy, site))
-            print(e)
-            print('PSM (temperature) not calibrated for:' +
-                   str((proxy, site)))
+            # No precalibration found for temperature
+            print(' PSM(temperature) not calibrated for:' +
+                  str((proxy, site)))
 
         # Try loading pre-calibrated PSM for moisture
         try:
             psm_obj_P = LinearPSM(linearTorP_cfg.moisture, proxy_obj,
                                   psm_data=psm_data_P)
         except (KeyError, IOError) as e:
-            # No precalibration found, have to do it for this proxy
-            print(e)
-            print('PSM (moisture) not calibrated for:' +
+            # No precalibration found for moisture
+            print(' PSM(moisture) not calibrated for:' +
                   str((proxy, site)))
 
         if psm_obj_T is not None and psm_obj_P is not None:
@@ -745,17 +741,24 @@ class LinearPSM_TorP(BasePSM):
                 compare_T = psm_obj_T.R
                 compare_P = psm_obj_P.R
 
-            if abs(compare_T) >= abs(compare_P):
+        # Now check about temperature vs. moisture ...
+        if (proxy, site) in psm_data_T.keys() and (proxy, site) in psm_data_P.keys():
+            # calibrated for temperature AND for precipitation, check relative goodness of fit 
+            # and assign "sensitivity" & corresponding PSM parameters according to best fit.x
+            # ... based on PSM R^2
+            if abs(psm_site_data_T['PSMcorrel']) >= abs(psm_site_data_P['PSMcorrel']):
+                # better fit w.r.t. temperature
                 self.sensitivity = 'temperature'
             else:
+                # better fit w.r.t. precipitation/moisture
                 self.sensitivity = 'moisture'
         elif psm_obj_T is not None:
             self.sensitivity = 'temperature'
         elif psm_obj_P is not None:
             self.sensitivity = 'moisture'
         else:
-            raise SystemExit('Exiting! You must use the PSMbuild facility to '
-                             'generate the appropriate calibrated PSMs')
+            raise ValueError('Proxy in database but not found in pre-calibration files... '
+                             'Skipping: {}'.format(proxy_obj.id))
 
         if self.sensitivity == 'temperature':
             self.psm_obj = psm_obj_T
@@ -984,9 +987,6 @@ class BilinearPSM(BasePSM):
         diag_output, diag_output_figs: bool, optional
             Diagnostic output flags for calibration method
         """
-
-         # reference period (years) over which calibration anomalies are referenced
-        ref_period = (1900,2000)
 
         calib_spatial_avg = False
         Npts = 9  # nb of neighboring pts used in smoothing

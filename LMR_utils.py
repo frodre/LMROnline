@@ -260,7 +260,8 @@ def smooth2D(im, n=15):
     improc = signal.convolve2d(im, g, mode='same', boundary=bndy)
     return(improc)
 
-def ensemble_stats(workdir, y_assim, y_eval=None, write_posterior_Ye=False, save_full_field=False):
+
+def ensemble_stats(cfg_core, y_assim, y_eval=None):
     """
     Compute the ensemble mean and variance for files in the input directory
 
@@ -291,12 +292,22 @@ def ensemble_stats(workdir, y_assim, y_eval=None, write_posterior_Ye=False, save
                 either from assimilated or withheld proxy sets
       Revised February 2018 (R. Tardif, UW)
               : More streamlined handling of full-ensemble saving facility
-                to prevent occurrences of MemoryError even though full-ensemble
+                as attempt to prevent occurrences of MemoryError even though full-ensemble
                 save was not activated
+      Revised April 2018 (R. Tardif, UW)
+              : Enabled option for possible regridding of 2D reanalysis fields at the archiving stage.
+      Revised April 2018 (R. Tardif, UW)
+              : Added options for archiving information on the reanalysis ensemble other than
+                the mean (i.e. full ensemble, ensemble variance, percentiles or subset of members)
 
       TODO: Look into how to prevent occurences of MemoryError when 
             full-ensemble saving is activated.
     """
+
+    workdir = cfg_core.datadir_output
+    write_posterior_Ye =  cfg_core.write_posterior_Ye
+    
+    # ---
     
     prior_filn = workdir + '/Xb_one.npz'
     
@@ -325,110 +336,264 @@ def ensemble_stats(workdir, y_assim, y_eval=None, write_posterior_Ye=False, save
         ibeg = state_info[var]['pos'][0]
         iend = state_info[var]['pos'][1]
 
-        # Determine variable type (2D lat/lon, 2D lat/depth, time series etc ...)
+        # Determine variable type (2D lat/lon, 2D lat/depth, time series etc.)
         # Look for the 'vartype' entry in the state vector dict.
-        # Possibilities are: '2D:horizontal', '2D:meridional_vertical', '0D:time series'
+        # Possibilities are: '2D:horizontal', '2D:meridional_vertical',
+        #                    '1D:meridional', '0D:time series'
         if state_info[var]['vartype'] == '2D:horizontal': 
             # 2D:horizontal variable
+            # ----------------------
+            # Extracting info on reanalysis grid
             ndim1 = state_info[var]['spacedims'][0]
             ndim2 = state_info[var]['spacedims'][1]
+            
+            nlat = state_info[var]['spacedims'][state_info[var]['spacecoords'].index('lat')]
+            nlon = state_info[var]['spacedims'][state_info[var]['spacecoords'].index('lon')]
 
-            # Prior
-            Xb = np.reshape(Xbtmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
-            xbm = np.mean(Xb,axis=2)       # ensemble mean
-            xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
+            lats = Xb_coords[ibeg:iend+1,state_info[var]['spacecoords'].index('lat')]
+            lons = Xb_coords[ibeg:iend+1,state_info[var]['spacecoords'].index('lon')]
 
-            # Process the **analysis** (i.e. posterior) files
+            
+            # -- Prior --
+            if cfg_core.archive_regrid_method is not None:
+                # option to regrid the reanalysis is activated
+                target_grid = cfg_core.archive_esmpy_grid_def
+
+                lat_2d = lats.reshape(nlat, nlon)
+                lon_2d = lons.reshape(nlat, nlon)
+                
+                [priorVariabletoArchive,
+                 lat_new,
+                 lon_new] = regrid_esmpy(target_grid['nlat'],
+                                         target_grid['nlon'],
+                                         nens,
+                                         Xbtmp[ibeg:iend+1,:],
+                                         lat_2d,
+                                         lon_2d,
+                                         nlat,
+                                         nlon,
+                                         include_poles=target_grid['include_poles'],
+                                         method=cfg_core.archive_esmpy_interp_method)
+
+                ndim1_archive = lat_new.shape[0]
+                ndim2_archive = lon_new.shape[1]
+                lats_archive = lat_new.flatten()
+                lons_archive = lon_new.flatten()
+                
+            else:            
+                # no regridding
+                ndim1_archive = ndim1
+                ndim2_archive = ndim2
+                lats_archive = lats
+                lons_archive = lons
+                priorVariabletoArchive = Xbtmp[ibeg:iend+1,:]
+
+            
+            Xb = np.reshape(priorVariabletoArchive,(ndim1_archive,ndim2_archive,nens))
+            xbm = np.mean(Xb,axis=2)           # ensemble mean
+            if cfg_core.save_archive == 'ens_variance':
+                xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
+            elif cfg_core.save_archive == 'ens_percentiles':
+                xb_pctl = np.zeros([ndim1_archive,ndim2_archive,2])
+                xb_pctl[:,:,0] = np.percentile(Xb,cfg_core.save_archive_percentiles[0],axis=2)
+                xb_pctl[:,:,1] = np.percentile(Xb,cfg_core.save_archive_percentiles[1],axis=2)
+            elif cfg_core.save_archive == 'ens_subsample':
+                xb_sub = Xb[:,:,0:cfg_core.save_archive_ens_subsample]
+
+            
+            # -- Process the **analysis** (i.e. posterior) files --
             years = []
-            if save_full_field:
-                xa_ens = np.zeros([nyears,ndim1,ndim2,nens])
-            xam = np.zeros([nyears,ndim1,ndim2])
-            xav = np.zeros([nyears,ndim1,ndim2],dtype=np.float64)
+            if cfg_core.save_archive == 'ens_full':
+                if 'xa_ens' in dir():
+                    del xa_ens
+                xa_ens = np.zeros([nyears,ndim1_archive,ndim2_archive,nens])
+            xam = np.zeros([nyears,ndim1_archive,ndim2_archive])
+            if cfg_core.save_archive == 'ens_variance':
+                xav = np.zeros([nyears,ndim1_archive,ndim2_archive],dtype=np.float64)
+            elif cfg_core.save_archive == 'ens_percentiles':
+                xa_pctl = np.zeros([nyears,ndim1_archive,ndim2_archive,2])
+            elif cfg_core.save_archive == 'ens_subsample':
+                xa_sub = np.zeros([nyears,ndim1_archive,ndim2_archive,cfg_core.save_archive_ens_subsample])
+
             k = -1
             for f in sfiles:
-                k = k + 1
-                i = f.rfind('year')
-                fname_end = f[i+4:]
-                ii = fname_end.rfind('.')
-                year = fname_end[:ii]
-                years.append(year)
+                k += 1
+                fname_end = f.split('/')[-1]
+                year = fname_end.rstrip('.npy').lstrip('year')
+                years.append(year)                
+
                 Xatmp = np.load(f)
-                Xa = np.reshape(Xatmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
-                if save_full_field:
-                    xa_ens[k,:,:,:] = Xa              # total ensemble
+                
+                if cfg_core.archive_regrid_method is not None:
+                    # option to regrid the reanalysis is activated
+                    # nlat, nlon, lat_2d, lon_2d are same as for prior above
+                    [posteriorVariabletoArchive,
+                     lat_new,
+                     lon_new] = regrid_esmpy(target_grid['nlat'],
+                                             target_grid['nlon'],
+                                             nens,
+                                             Xatmp[ibeg:iend+1,:],
+                                             lat_2d,
+                                             lon_2d,
+                                             nlat,
+                                             nlon,
+                                             include_poles=target_grid['include_poles'],
+                                             method=cfg_core.archive_esmpy_interp_method)
+                else:
+                    posteriorVariabletoArchive = Xatmp[ibeg:iend+1,:]
+
+                Xa = np.reshape(posteriorVariabletoArchive,(ndim1_archive,ndim2_archive,nens))
                 xam[k,:,:] = np.mean(Xa,axis=2)       # ensemble mean
-                xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
+                if cfg_core.save_archive == 'ens_full':
+                    xa_ens[k,:,:,:] = Xa              # total ensemble
+                elif cfg_core.save_archive == 'ens_variance':
+                    xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
+                elif cfg_core.save_archive == 'ens_percentiles':
+                    xa_pctl[k,:,:,0] = np.percentile(Xa,cfg_core.save_archive_percentiles[0],axis=2)
+                    xa_pctl[k,:,:,1] = np.percentile(Xa,cfg_core.save_archive_percentiles[1],axis=2)
+                elif cfg_core.save_archive == 'ens_subsample':
+                    xa_sub[k,:,:,:] = Xa[:,:,:cfg_core.save_archive_ens_subsample]
 
-
+                
             # form dictionary containing variables to save, including info on array dimensions
             coordname1 = state_info[var]['spacecoords'][0]
             coordname2 = state_info[var]['spacecoords'][1]
             dimcoord1 = 'n'+coordname1
             dimcoord2 = 'n'+coordname2
 
-            coord1 = np.reshape(Xb_coords[ibeg:iend+1,0],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
-            coord2 = np.reshape(Xb_coords[ibeg:iend+1,1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+            if coordname1 == 'lat':
+                coord1 = lats_archive.reshape(ndim1_archive, ndim2_archive)
+                coord2 = lons_archive.reshape(ndim1_archive, ndim2_archive)
+            else:
+                coord1 = lons_archive.reshape(ndim1_archive, ndim2_archive)
+                coord2 = lats_archive.reshape(ndim1_archive, ndim2_archive)
 
-            if save_full_field:
-                vars_to_save_ens  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], \
-                                     dimcoord2:state_info[var]['spacedims'][1], \
-                                     coordname1:coord1, coordname2:coord2, 'xb_ens':Xb, 'xa_ens':xa_ens}
-
-            vars_to_save_mean = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
-                                     coordname1:coord1, coordname2:coord2, 'xbm':xbm, 'xam':xam}
-            vars_to_save_var  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
-                                     coordname1:coord1, coordname2:coord2, 'xbv':xbv, 'xav':xav}
-
-
-        elif state_info[var]['vartype'] == '2D:meridional_vertical': 
-
-            ndim1 = state_info[var]['spacedims'][0]
-            ndim2 = state_info[var]['spacedims'][1]
-
-            # Prior
-            Xb = np.reshape(Xbtmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
-            xbm = np.mean(Xb,axis=2)       # ensemble mean
-            xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
-
-            # Process the **analysis** (i.e. posterior) files
-            years = []
-            if save_full_field:
-                xa_ens = np.zeros([nyears,ndim1,ndim2,nens])
-            xam = np.zeros([nyears,ndim1,ndim2])
-            xav = np.zeros([nyears,ndim1,ndim2],dtype=np.float64)
-            k = -1
-            for f in sfiles:
-                k = k + 1
-                i = f.rfind('year')
-                fname_end = f[i+4:]
-                ii = fname_end.rfind('.')
-                year = fname_end[:ii]
-                years.append(year)
-                Xatmp = np.load(f)
-                Xa = np.reshape(Xatmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
-                if save_full_field:
-                    xa_ens[k,:,:,:] = Xa              # total ensemble
-                xam[k,:,:] = np.mean(Xa,axis=2)       # ensemble mean
-                xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
-
-
-            # form dictionary containing variables to save, including info on array dimensions
-            coordname1 = state_info[var]['spacecoords'][0]
-            coordname2 = state_info[var]['spacecoords'][1]
-            dimcoord1 = 'n'+coordname1
-            dimcoord2 = 'n'+coordname2
-
-            coord1 = np.reshape(Xb_coords[ibeg:iend+1,0],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
-            coord2 = np.reshape(Xb_coords[ibeg:iend+1,1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
-
-            if save_full_field:
-                vars_to_save_ens  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], \
-                                     dimcoord2:state_info[var]['spacedims'][1], coordname1:coord1, coordname2:coord2, \
+            # ensemble mean
+            vars_to_save_mean = {'nens':nens, 'years':years, \
+                                 dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
+                                 coordname1:coord1, coordname2:coord2, \
+                                 'xbm':xbm, 'xam':xam}
+                
+            if cfg_core.save_archive == 'ens_full': 
+                vars_to_save_ens  = {'nens':nens, 'years':years, \
+                                     dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
+                                     coordname1:coord1, coordname2:coord2, \
                                      'xb_ens':Xb, 'xa_ens':xa_ens}
-            vars_to_save_mean = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
-                                     coordname1:coord1, coordname2:coord2, 'xbm':xbm, 'xam':xam}
-            vars_to_save_var  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
-                                     coordname1:coord1, coordname2:coord2, 'xbv':xbv, 'xav':xav}
+            elif cfg_core.save_archive == 'ens_variance':
+                vars_to_save_var  = {'nens':nens, 'years':years, \
+                                     dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
+                                     coordname1:coord1, coordname2:coord2, \
+                                     'xbv':xbv, 'xav':xav}                
+            elif cfg_core.save_archive == 'ens_percentiles':
+                vars_to_save_var  = {'nens':nens, 'years':years, \
+                                     dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
+                                     coordname1:coord1, coordname2:coord2, \
+                                     'percentiles': cfg_core.save_archive_percentiles, \
+                                     'xb_pctl':xb_pctl, 'xa_pctl':xa_pctl}
+            elif cfg_core.save_archive == 'ens_subsample':
+                vars_to_save_var  = {'nens':nens, 'nsubsample': cfg_core.save_archive_ens_subsample, \
+                                     'years':years, dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
+                                     coordname1:coord1, coordname2:coord2, \
+                                     'xb_subsample':xb_sub, 'xa_subsample':xa_sub}
+
+
+        elif state_info[var]['vartype'] == '2D:meridional_vertical':
+
+            ndim1 = state_info[var]['spacedims'][0]
+            ndim2 = state_info[var]['spacedims'][1]
+
+            
+            # Prior
+            Xb = np.reshape(Xbtmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
+            xbm = np.mean(Xb,axis=2)           # ensemble mean
+            if cfg_core.save_archive == 'ens_variance':
+                xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
+            elif cfg_core.save_archive == 'ens_percentiles':
+                xb_pctl = np.zeros([ndim1,ndim2,2])
+                xb_pctl[:,:,0] = np.percentile(Xb,cfg_core.save_archive_percentiles[0],axis=2)
+                xb_pctl[:,:,1] = np.percentile(Xb,cfg_core.save_archive_percentiles[1],axis=2)
+            elif cfg_core.save_archive == 'ens_subsample':
+                xb_sub = Xb[:,:,0:cfg_core.save_archive_ens_subsample]
+
+            
+            # Process the **analysis** (i.e. posterior) files
+            years = []
+            # ensemble mean
+            xam = np.zeros([nyears,ndim1,ndim2])
+            if cfg_core.save_archive == 'ens_full':
+                if 'xa_ens' in dir():
+                    del xa_ens
+                xa_ens = np.zeros([nyears,ndim1,ndim2,nens])
+            elif cfg_core.save_archive == 'ens_variance':
+                xav = np.zeros([nyears,ndim1,ndim2],dtype=np.float64)
+            elif cfg_core.save_archive == 'ens_percentiles':
+                 xa_pctl = np.zeros([nyears,ndim1,ndim2,2])
+            elif cfg_core.save_archive == 'ens_subsample':
+                xa_sub = np.zeros([nyears,ndim1,ndim2,cfg_core.save_archive_ens_subsample])
+
+            k = -1
+            for f in sfiles:
+                k += 1
+                fname_end = f.split('/')[-1]
+                year = fname_end.rstrip('.npy').lstrip('year')
+                years.append(year)
+                
+                Xatmp = np.load(f)
+
+                Xa = np.reshape(Xatmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
+                xam[k,:,:] = np.mean(Xa,axis=2)       # ensemble mean
+                if cfg_core.save_archive == 'ens_full':
+                    xa_ens[k,:,:,:] = Xa              # total ensemble
+                elif cfg_core.save_archive == 'ens_variance':
+                    xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
+                elif cfg_core.save_archive == 'ens_percentiles':
+                    xa_pctl[k,:,:,0] = np.percentile(Xa,cfg_core.save_archive_percentiles[0],axis=2)
+                    xa_pctl[k,:,:,1] = np.percentile(Xa,cfg_core.save_archive_percentiles[1],axis=2)
+                elif cfg_core.save_archive == 'ens_subsample':
+                    xa_sub[k,:,:,:] = Xa[:,:,:cfg_core.save_archive_ens_subsample]
+
+
+            # form dictionary containing variables to save, including info on array dimensions
+            coordname1 = state_info[var]['spacecoords'][0]
+            coordname2 = state_info[var]['spacecoords'][1]
+            dimcoord1 = 'n'+coordname1
+            dimcoord2 = 'n'+coordname2
+
+            coord1 = np.reshape(Xb_coords[ibeg:iend+1,0],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+            coord2 = np.reshape(Xb_coords[ibeg:iend+1,1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+
+            # ensemble mean
+            vars_to_save_mean = {'nens':nens, 'years':years, \
+                                 dimcoord1:state_info[var]['spacedims'][0], \
+                                 dimcoord2:state_info[var]['spacedims'][1], \
+                                 coordname1:coord1, coordname2:coord2,
+                                 'xbm':xbm, 'xam':xam}
+
+            if cfg_core.save_archive == 'ens_full':
+                vars_to_save_ens  = {'nens':nens, 'years':years, \
+                                     dimcoord1:state_info[var]['spacedims'][0], \
+                                     dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, \
+                                     'xb_ens':Xb, 'xa_ens':xa_ens}
+            elif cfg_core.save_archive == 'ens_variance':
+                vars_to_save_var  = {'nens':nens, 'years':years, \
+                                     dimcoord1:state_info[var]['spacedims'][0], \
+                                     dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, \
+                                     'xbv':xbv, 'xav':xav}
+            elif cfg_core.save_archive == 'ens_percentiles':
+                vars_to_save_var  = {'nens':nens, 'years':years, \
+                                     dimcoord1:state_info[var]['spacedims'][0], \
+                                     dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, \
+                                     'percentiles': cfg_core.save_archive_percentiles, \
+                                     'xb_pctl':xb_pctl, 'xa_pctl':xa_pctl}
+            elif cfg_core.save_archive == 'ens_subsample':
+                vars_to_save_var  = {'nens':nens, 'nsubsample': cfg_core.save_archive_ens_subsample, \
+                                     'years':years, dimcoord1:state_info[var]['spacedims'][0], \
+                                     dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, \
+                                     'xb_subsample':xb_sub, 'xa_subsample':xa_sub}
 
 
         elif state_info[var]['vartype'] == '1D:meridional': 
@@ -438,28 +603,52 @@ def ensemble_stats(workdir, y_assim, y_eval=None, write_posterior_Ye=False, save
             # Prior
             Xb = np.reshape(Xbtmp[ibeg:iend+1,:],(ndim1,nens))
             xbm = np.mean(Xb,axis=1)       # ensemble mean
-            xbv = np.var(Xb,axis=1,ddof=1) # ensemble variance
+            if cfg_core.save_archive == 'ens_variance':
+                xbv = np.var(Xb,axis=1,ddof=1) # ensemble variance
+            elif cfg_core.save_archive == 'ens_percentiles':
+                xb_pctl = np.zeros([ndim1,2])
+                xb_pctl[:,0] = np.percentile(Xb,cfg_core.save_archive_percentiles[0],axis=1)
+                xb_pctl[:,1] = np.percentile(Xb,cfg_core.save_archive_percentiles[1],axis=1)
+            elif cfg_core.save_archive == 'ens_subsample':
+                xb_sub = Xb[:,0:cfg_core.save_archive_ens_subsample]
+
 
             # Process the **analysis** (i.e. posterior) files
             years = []
-            if save_full_field:
-                xa_ens = np.zeros([nyears,ndim1,nens])
+            # ensemble mean
             xam = np.zeros([nyears,ndim1])
-            xav = np.zeros([nyears,ndim1],dtype=np.float64)
+            if cfg_core.save_archive == 'ens_full':
+                if 'xa_ens' in dir():
+                    del xa_ens
+                xa_ens = np.zeros([nyears,ndim1,nens])
+            elif cfg_core.save_archive == 'ens_variance':
+                xav = np.zeros([nyears,ndim1],dtype=np.float64)
+            elif cfg_core.save_archive == 'ens_percentiles':
+                xa_pctl = np.zeros([nyears,ndim1,2])
+            elif cfg_core.save_archive == 'ens_subsample':
+                xa_sub = np.zeros([nyears,ndim1,cfg_core.save_archive_ens_subsample])
+
             k = -1
             for f in sfiles:
-                k = k + 1
-                i = f.rfind('year')
-                fname_end = f[i+4:]
-                ii = fname_end.rfind('.')
-                year = fname_end[:ii]
+                k += 1
+                fname_end = f.split('/')[-1]
+                year = fname_end.rstrip('.npy').lstrip('year')
                 years.append(year)
+
                 Xatmp = np.load(f)
+
                 Xa = np.reshape(Xatmp[ibeg:iend+1,:],(ndim1,nens))
-                if save_full_field:
-                    xa_ens[k,:,:] = Xa              # total ensemble
                 xam[k,:] = np.mean(Xa,axis=1)       # ensemble mean
-                xav[k,:] = np.var(Xa,axis=1,ddof=1) # ensemble variance
+                if cfg_core.save_archive == 'ens_full':
+                    xa_ens[k,:,:] = Xa              # total ensemble
+                elif cfg_core.save_archive == 'ens_variance':
+                    xav[k,:] = np.var(Xa,axis=1,ddof=1) # ensemble variance
+                elif cfg_core.save_archive == 'ens_percentiles':
+                    xa_pctl[k,:,0] = np.percentile(Xa,cfg_core.save_archive_percentiles[0],axis=1)
+                    xa_pctl[k,:,1] = np.percentile(Xa,cfg_core.save_archive_percentiles[1],axis=1)
+                elif cfg_core.save_archive == 'ens_subsample':
+                    xa_sub[k,:,:] = Xa[:,0:cfg_core.save_archive_ens_subsample]
+
 
             # form dictionary containing variables to save, including info on array dimensions
             coordname1 = state_info[var]['spacecoords'][0]
@@ -467,42 +656,92 @@ def ensemble_stats(workdir, y_assim, y_eval=None, write_posterior_Ye=False, save
 
             coord1 = np.reshape(Xb_coords[ibeg:iend+1,0],(state_info[var]['spacedims'][0]))
 
-            if save_full_field:
-                vars_to_save_ens  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], \
+            # ensemble mean
+            vars_to_save_mean = {'nens':nens, 'years':years, \
+                                 dimcoord1:state_info[var]['spacedims'][0], \
+                                 coordname1:coord1, 'xbm':xbm, 'xam':xam}            
+            
+            if cfg_core.save_archive == 'ens_full':
+                vars_to_save_ens  = {'nens':nens, 'years':years, \
+                                     dimcoord1:state_info[var]['spacedims'][0], \
                                      coordname1:coord1, 'xb_ens':Xb, 'xa_ens':xa_ens}
-            vars_to_save_mean = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], \
-                                     coordname1:coord1, 'xbm':xbm, 'xam':xam}
-            vars_to_save_var  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], \
+            elif cfg_core.save_archive == 'ens_variance':
+                vars_to_save_var  = {'nens':nens, 'years':years, \
+                                     dimcoord1:state_info[var]['spacedims'][0], \
                                      coordname1:coord1, 'xbv':xbv, 'xav':xav}
-        
+            elif cfg_core.save_archive == 'ens_percentiles':
+                vars_to_save_var  = {'nens':nens, 'years':years, \
+                                     dimcoord1:state_info[var]['spacedims'][0], \
+                                     coordname1:coord1, \
+                                     'percentiles': cfg_core.save_archive_percentiles, \
+                                     'xb_pctl':xb_pctl, 'xa_pctl':xa_pctl}
+            elif cfg_core.save_archive == 'ens_subsample':
+                vars_to_save_var  = {'nens':nens, 'nsubsample': cfg_core.save_archive_ens_subsample, \
+                                     'years':years, dimcoord1:state_info[var]['spacedims'][0], \
+                                     coordname1:coord1, \
+                                     'xb_subsample':xb_sub, 'xa_subsample':xa_sub}
+                
+                
         elif state_info[var]['vartype'] == '0D:time series': 
             # 0D:time series variable (no spatial dims)
             Xb = Xbtmp[ibeg:iend+1,:] # prior (full) ensemble
             xbm = np.mean(Xb,axis=1)  # ensemble mean
-            xbv = np.var(Xb,axis=1,ddof=1)   # ensemble variance
+            
+            if cfg_core.save_archive == 'ens_variance':
+                xbv = np.var(Xb,axis=1,ddof=1)   # ensemble variance
+            elif cfg_core.save_archive == 'ens_percentiles':
+                xb_pctl = np.zeros([2])
+                xb_pctl[0] = np.percentile(Xb,cfg_core.save_archive_percentiles[0],axis=1)
+                xb_pctl[1] = np.percentile(Xb,cfg_core.save_archive_percentiles[1],axis=1)
+            elif cfg_core.save_archive == 'ens_subsample':
+                xb_sub = Xb[:,0:cfg_core.save_archive_ens_subsample]
+
 
             # process the **analysis** files
             years = []
             xa_ens = np.zeros((nyears, Xb.shape[1]))
             xam = np.zeros([nyears])
-            xav = np.zeros([nyears],dtype=np.float64)
+            if cfg_core.save_archive == 'ens_variance':
+                xav = np.zeros([nyears],dtype=np.float64)
+            elif cfg_core.save_archive == 'ens_percentiles':
+                xa_pctl = np.zeros([nyears,2])
+            elif cfg_core.save_archive == 'ens_subsample':
+                xa_sub = np.zeros([nyears,cfg_core.save_archive_ens_subsample])
+
             k = -1
             for f in sfiles:
-                k = k + 1
-                i = f.rfind('year')
-                fname_end = f[i+4:]
-                ii = fname_end.rfind('.')
-                year = fname_end[:ii]
+                k += 1
+                fname_end = f.split('/')[-1]
+                year = fname_end.rstrip('.npy').lstrip('year')
                 years.append(year)
+                
                 Xatmp = np.load(f)
-                Xa = Xatmp[ibeg:iend+1,:]
-                xa_ens[k] = Xa  # total ensemble
-                xam[k] = np.mean(Xa,axis=1) # ensemble mean
-                xav[k] = np.var(Xa,axis=1,ddof=1)  # ensemble variance
 
+                Xa = Xatmp[ibeg:iend+1,:]
+                xa_ens[k] = Xa              # total ensemble
+                xam[k] = np.mean(Xa,axis=1) # ensemble mean
+                if cfg_core.save_archive == 'ens_variance':
+                    xav[k] = np.var(Xa,axis=1,ddof=1)  # ensemble variance
+                elif cfg_core.save_archive == 'ens_percentiles':
+                    xa_pctl = np.zeros([nyears,2])
+                    xa_pctl[k,0] = np.percentile(Xa,cfg_core.save_archive_percentiles[0],axis=1)
+                    xa_pctl[k,1] = np.percentile(Xa,cfg_core.save_archive_percentiles[1],axis=1)
+                elif cfg_core.save_archive == 'ens_subsample':
+                    xa_sub[k,:] = Xa[:,0:cfg_core.save_archive_ens_subsample]
+                    
+                
             vars_to_save_ens = {'nens':nens, 'years':years, 'xb_ens':Xb, 'xa_ens':xa_ens}
             vars_to_save_mean = {'nens':nens, 'years':years, 'xbm':xbm, 'xam':xam}
-            vars_to_save_var  = {'nens':nens, 'years':years, 'xbv':xbv, 'xav':xav}
+
+            if cfg_core.save_archive == 'ens_variance':
+                vars_to_save_var  = {'nens':nens, 'years':years, 'xbv':xbv, 'xav':xav}
+            elif cfg_core.save_archive == 'ens_percentiles':
+                vars_to_save_var  = {'nens':nens, 'years':years, \
+                                     'percentiles': cfg_core.save_archive_percentiles, \
+                                     'xb_pctl':xb_pctl, 'xa_pctl':xa_pctl}
+            elif cfg_core.save_archive == 'ens_subsample':
+                vars_to_save_var  = {'nens':nens, 'nsubsample': cfg_core.save_archive_ens_subsample, \
+                                     'years':years, 'xb_subsample':xb_sub, 'xa_subsample':xa_sub}
 
             # (full) ensemble to file for this variable type
             filen = workdir + '/ensemble_full_' + var
@@ -513,22 +752,30 @@ def ensemble_stats(workdir, y_assim, y_eval=None, write_posterior_Ye=False, save
             print('ERROR in ensemble_stats: Variable of unrecognized (space) dimensions! Skipping variable:', var)
             continue
 
+        
+        # --- Write data to archive files ---
 
-        if (state_info[var]['vartype'] != '0D:time series') and save_full_field:
-            filen = workdir + '/ensemble_full_' + var
-            print('writing the new ensemble file' + filen)
-            np.savez(filen, **vars_to_save_ens)
-
-        # --- Write data to files ---
         # ens. mean to file
         filen = workdir + '/ensemble_mean_' + var
         print('writing the new ensemble mean file...' + filen)
         np.savez(filen, **vars_to_save_mean)
 
-        # ens. variance to file
-        filen = workdir + '/ensemble_variance_' + var
-        print('writing the new ensemble variance file...' + filen)
-        np.savez(filen, **vars_to_save_var)
+        if (state_info[var]['vartype'] != '0D:time series') and cfg_core.save_archive == 'ens_full':
+            filen = workdir + '/ensemble_full_' + var
+            print('writing the new ensemble file' + filen)
+            np.savez(filen, **vars_to_save_ens)
+        elif cfg_core.save_archive == 'ens_variance':
+            filen = workdir + '/ensemble_variance_' + var
+            print('writing the new ensemble variance file...' + filen)
+            np.savez(filen, **vars_to_save_var)
+        elif cfg_core.save_archive == 'ens_percentiles':
+            filen = workdir + '/ensemble_percentiles_' + var
+            print('writing the new ensemble percentiles file...' + filen)
+            np.savez(filen, **vars_to_save_var)
+        elif cfg_core.save_archive == 'ens_subsample':
+            filen = workdir + '/ensemble_subsample_' + var
+            print('writing the new ensemble members subsample file...' + filen)
+            np.savez(filen, **vars_to_save_var)
 
 
     # --------------------------------------------------------
@@ -536,6 +783,9 @@ def ensemble_stats(workdir, y_assim, y_eval=None, write_posterior_Ye=False, save
     # --------------------------------------------------------
     if write_posterior_Ye:
 
+        if 'xa_ens' in dir():
+            del xa_ens
+        
         # get information on dim of state without the Ye's (before augmentation)
         stateDim  = npzfile['stateDim']
         Xbtmp_aug = npzfile['Xb_one_aug']
@@ -729,8 +979,8 @@ def regrid_simple(Nens,X,X_coords,ind_lat,ind_lon,ntrunc):
     return X_new,lat_new,lon_new
 
 
-def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
-                 X_nlon, method='bilinear'):
+def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D,
+                 X_nlat, X_nlon, include_poles=False, method='bilinear'):
     """
     Regrid field to target resolution using the ESMF package.
     
@@ -754,6 +1004,8 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
         number of latitude points in the source grid
     X_nlon: int
         number of longitude points in the source grid
+    include_poles: boolean
+        consider (or not) poles in constructing the lat-lon grid
     method: str
         Regridding method to use. Valid options include 'bilinear' and 'patch'
 
@@ -836,8 +1088,11 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
                          coord_typekind=ESMF.TypeKind.R8,
                          staggerloc=ESMF.StaggerLoc.CENTER)
 
+    # NEW: now including explicit use of include_endpts argument (RT, April 10 2018)    
     [new_lat, new_lon,
-     new_lat_bnds, new_lon_bnds] = generate_latlon(target_nlat, target_nlon)
+     new_lat_bnds, new_lon_bnds] = generate_latlon(target_nlat, target_nlon,
+                                                   include_endpts=include_poles)
+
     new_grid_x_cen = new_grid.get_coords(x)
     new_grid_x_cen[:] = new_lon.T
     new_grid_y_cen = new_grid.get_coords(y)
@@ -962,8 +1217,8 @@ def regrid_sphere(nlat,nlon,Nens,X,ntrunc):
     return X_new,lat_new,lon_new
 
 
-def generate_latlon(nlats, nlons, lat_bnd=(-90,90), lon_bnd=(0, 360),
-                    include_endpts=False):
+def generate_latlon(nlats, nlons, include_endpts=False,
+                    lat_bnd=(-90,90), lon_bnd=(0, 360)):
     """
     Generate regularly spaced latitude and longitude arrays where each point 
     is the center of the respective grid cell.
@@ -995,6 +1250,7 @@ def generate_latlon(nlats, nlons, lat_bnd=(-90,90), lon_bnd=(0, 360),
         Array of longitude boundaries for all grid cells (nlon+1)   
 
     """
+    
     if len(lat_bnd) != 2 or len(lon_bnd) != 2:
         raise ValueError('Bound tuples must be of length 2')
     if np.any(np.diff(lat_bnd) < 0) or np.any(np.diff(lon_bnd) < 0):
@@ -1100,32 +1356,6 @@ def assimilated_proxies(workdir):
             ptypes[key] = 1
             
     return ptypes,nrecords
-
-def coefficient_efficiency_old(ref,test):
-    """
-    Compute the coefficient of efficiency for a test time series, with respect to a reference time series.
-
-    Inputs:
-    test: one-dimensional test array
-    ref: one-dimensional reference array, of same size as test
-
-    Outputs:
-    CE: scalar CE score
-    """
-
-    # error
-    error = test - ref
-
-    # error variance
-    evar = np.var(error,ddof=1)
-
-    # variance in the reference 
-    rvar = np.var(ref,ddof=1)
-
-    # CE
-    CE = 1. - (evar/rvar)
-
-    return CE
 
 def coefficient_efficiency(ref,test,valid=None):
     """
@@ -1564,21 +1794,31 @@ def create_precalc_ye_filename(config,psm_key,prior_kind):
     proxy_database = config.proxies.use_from[0]
 
     # Generate PSM calibration string
+    calib_str_ext = ''
+    if config.core.anom_reference_period:
+        calib_str_ext = calib_str_ext+'_ref{}-{}'.format(str(config.core.anom_reference_period[0]),
+                                                         str(config.core.anom_reference_period[1]))
+    if config.psm.calib_period:
+        calib_str_ext = calib_str_ext+'_cal{}-{}'.format(str(config.psm.calib_period[0]),
+                                                         str(config.psm.calib_period[1]))
+    
     if psm_key == 'linear':
         calib_avgPeriod = config.psm.linear.avgPeriod
-        calib_str = config.psm.linear.datatag_calib
+        calib_str = config.psm.linear.datatag_calib+calib_str_ext
         state_vars_for_ye = config.psm.linear.psm_required_variables
         
     elif psm_key == 'linear_TorP':
         calib_avgPeriod = config.psm.linear_TorP.avgPeriod
         calib_str = 'T:{}-PR:{}'.format(config.psm.linear_TorP.datatag_calib_T,
                                         config.psm.linear_TorP.datatag_calib_P)
+        calib_str = calib_str+calib_str_ext
         state_vars_for_ye = config.psm.linear_TorP.psm_required_variables
 
     elif psm_key == 'bilinear':
         calib_avgPeriod = config.psm.bilinear.avgPeriod
         calib_str = 'T:{}-PR:{}'.format(config.psm.bilinear.datatag_calib_T,
                                         config.psm.bilinear.datatag_calib_P)
+        calib_str = calib_str+calib_str_ext
         state_vars_for_ye = config.psm.bilinear.psm_required_variables
         
     elif psm_key == 'h_interp':
@@ -1593,6 +1833,7 @@ def create_precalc_ye_filename(config,psm_key,prior_kind):
         
     else:
         raise ValueError('Unrecognized PSM key.')
+
     
     if calib_avgPeriod:
         psm_str = psm_key +'_'+ calib_avgPeriod + '-' + calib_str

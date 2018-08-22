@@ -12,20 +12,11 @@ wrapper:
   multi_seed: null
 
 core:
-  nexp: test_merge
-#  lmr_path: /home/katabatic/wperkins/data/LMR
-#  lmr_path: /home/disk/ice4/nobackup/hakim/lmr
+  nexp: test_recon
   lmr_path: /home/disk/kalman3/rtardif/LMR
 
-#  datadir_output: /home/katabatic/wperkins/data/LMR/output/working
-#  datadir_output: /home/disk/ice4/hakim/svnwork/lmr/trunk/data
   datadir_output: /home/disk/kalman3/rtardif/LMR/output/wrk
-#  datadir_output: /home/disk/ekman4/rtardif/LMR/output/wrk
-
-#  archive_dir: /home/katabatic2/wperkins/LMR_output/testing
-#  archive_dir: /home/disk/kalman3/hakim/LMR
   archive_dir: /home/disk/kalman3/rtardif/LMR/output
-#  archive_dir: /home/disk/ekman4/rtardif/LMR/output
 
   online_reconstruction: False
   clean_start: True
@@ -38,6 +29,7 @@ core:
 #  recon_period: !!python/tuple [-120000, 2000]
   recon_timescale: 1
 #  recon_timescale: 250
+  anom_reference_period: !!python/tuple [1951, 1980]
   nens: 100
   seed: null
   loc_rad: null
@@ -51,11 +43,20 @@ core:
   reg_inflate: False
   inflation_factor: 1.1
 
+  # Ensemble archiving options: ens_full, ens_variance, ens_percentiles, ens_subsample
+  save_archive: ens_variance
+  save_archive_percentiles: !!python/tuple [5, 95]
+  save_archive_ens_subsample: 10
+  # Possible regridding reanalysis 2D fields
+  archive_regrid_method: null
+  archive_esmpy_interp_method: bilinear
+  archive_esmpy_regrid_to: t42
+
 proxies:
-#  use_from: PAGES2kv1
-  use_from: LMRdb
-#  use_from: NCDCdtda
-  proxy_frac: 1.0
+#  use_from: [PAGES2kv1]
+  use_from: [LMRdb]
+#  use_from: [NCDCdtda]  
+  proxy_frac: 0.75
   proxy_timeseries_kind: asis
   load_psm_with_proxies: True
   proxy_availability_filter: False
@@ -131,7 +132,7 @@ proxies:
       Speleothem_All: [ 'Lamina thickness' ]
 
   LMRdb:
-    dbversion: 'v0.2.0'
+    dbversion: 'v1.0.0'
     datadir_proxy: null
     datafile_proxy: 'LMRdb_{}_Proxies.df.pckl'
     metafile_proxy: 'LMRdb_{}_Metadata.df.pckl'
@@ -305,6 +306,15 @@ proxies:
         ]
 
 psm:
+  all_calib_sources:
+    temperature: [GISTEMP, MLOST, NOAAGlobalTemp, HadCRUT, BerkeleyEarth]
+    moisture: [GPCC, DaiPDSI]
+
+  calib_period: !!python/tuple [1850, 2015]
+#  avgPeriod: annual
+  avgPeriod: season
+  season_source: proxy_metadata
+#  season_source: psm_calib
 
   linear:
     datatag: GISTEMP
@@ -362,9 +372,12 @@ prior:
       tos_sfc_Amon: [glob_mean, enso, pdo]
 
   detrend: False
+
   # regridding options: null, simple, esmpy or spherical_harmonics
-  regrid_method: spherical_harmonics
+  regrid_method: esmpy
+  # next parameter applies only to *simple* and *spherical_harmonics* options
   regrid_resolution: 42
+  # specific to *esmpy*
   esmpy_interp_method: bilinear
   esmpy_regrid_to: t42
 

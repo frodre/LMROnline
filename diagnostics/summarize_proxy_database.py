@@ -49,7 +49,8 @@ data_directory = "/home/disk/kalman3/rtardif/LMRpy3/"
 proxy_db = 'LMRdb'
 
 # Version of the database to query (for proxy_db = LMRdb only)
-dbversion = 'v0.2.0'
+#dbversion = 'v0.3.0'
+dbversion = 'v1.0.0'
 
 # Filter on proxy temporal resolution (range is inclusive)
 temporal_resolution_range = (1,1); resolution_tag = 'annual'
@@ -60,7 +61,8 @@ temporal_resolution_range = (1,1); resolution_tag = 'annual'
 #output_directory = "/home/scec-00/lmr/erbm/analysis/results/LMR/pages2kv2/figures/"
 #output_directory = "/home/disk/kalman3/rtardif/LMR/data/proxies/PAGES2kv1/Figs/"
 #output_directory = "/home/disk/kalman3/rtardif/LMR/data/proxies/LMRdb/Figs/summary_v0.2.0/"
-output_directory = "/home/disk/kalman3/rtardif/LMRpy3/data/proxies/LMRdb/Figs/summary_v0.2.0/"
+#output_directory = "/home/disk/kalman3/rtardif/LMRpy3/data/proxies/LMRdb/Figs/summary_v0.3.0/"
+output_directory = "/home/disk/kalman3/rtardif/LMRpy3/data/proxies/LMRdb/Figs/summary_v1.0.0/"
 
 # Swith to indicate whether you want the figure to the produced on-screen (False)
 # or save in .png files (True)
@@ -206,17 +208,15 @@ for ptype in sorted(proxy_types):
         #ax  = fig.add_axes([0.1,0.1,0.8,0.8])
         m = Basemap(projection='robin', lat_0=0, lon_0=0,resolution='l', area_thresh=700.0); latres = 20.; lonres=40.  # GLOBAL
 
-        #water = '#9DD4F0'
-        #continents = '#888888'
         water = '#D3ECF8'
         continents = '#F2F2F2'
         
         m.drawmapboundary(fill_color=water)
         m.drawcoastlines(linewidth=0.5)
-        m.drawcountries()
+        m.drawcountries(linewidth=0.5)
         m.fillcontinents(color=continents,lake_color=water)
-        m.drawparallels(np.arange(-80.,81.,latres))
-        m.drawmeridians(np.arange(-180.,181.,lonres))
+        m.drawparallels(np.arange(-80.,81.,latres),linewidth=0.5)
+        m.drawmeridians(np.arange(-180.,181.,lonres),linewidth=0.5)
 
         l = []
         for k in range(len(plotlist)):

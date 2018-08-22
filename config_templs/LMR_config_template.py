@@ -24,10 +24,7 @@ import os.path as opath
 LEGACY_CONFIG = False
 
 # Absolute path to LMR source code directory
-#SRC_DIR = '/home/disk/ekman/rtardif/codes/LMR/pyLMR'
-# SRC_DIR = '/home/disk/ice4/hakim/gitwork/LMR'
-# SRC_DIR = '/home/disk/p/wperkins/Research/LMR'
-SRC_DIR = opath.abspath(opath.dirname(__file__))
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Control logging output. (0 = none; 1 = most important; 2 = many; 3 = a lot;
 #   >=4 all)
@@ -236,8 +233,7 @@ class core(ConfigGroup):
         Flag to indicate whether the analysis_Ye.pckl is to be generated 
         or not (large file containing full information on the posterior 
         proxy estimates (assimilated proxy records).
-    save_full_field: bool
-        Flag to indicate whether fields for the full ensemble should be saved
+
     """
 
     ##** BEGIN User Parameters **##
@@ -249,8 +245,6 @@ class core(ConfigGroup):
 
     # Whether or not to produce the analysis_Ye.pckl file
     write_posterior_Ye = False
-    # Whether or not to write the full ensemble
-    save_full_field = False
 
     online_reconstruction = False
     # TODO: Move this to forecaster config
@@ -277,6 +271,20 @@ class core(ConfigGroup):
     reg_inflate = False
     inflation_factor = 1.1
 
+    # Ensemble archiving options: ens_full, ens_variance, ens_percentiles, ens_subsample
+    save_archive = 'ens_variance'
+    # if save_archive = 'ens_percentiles', which percentiles to caclulate and save
+    save_archive_percentiles = (5,95)
+    # if save_archive = 'ens_subsample', number of members to archive
+    save_archive_ens_subsample = 10
+
+    # Possibly regrid the generated reanalysis fields to archive files.
+    # Options: None (no regridding) or 'esmpy'
+    archive_regrid_method = None
+    archive_esmpy_interp_method = 'bilinear'
+    archive_esmpy_regrid_to = 't42'
+
+    
     ##** END User Parameters **##
 
     def __init__(self, curr_iter=None, **kwargs):
@@ -308,6 +316,24 @@ class core(ConfigGroup):
         self.adaptive_inflate = self.adaptive_inflate
         self.reg_inflate = self.reg_inflate
         self.inflation_factor = self.inflation_factor
+        self.datadir_output = self.datadir_output
+        self.archive_dir = self.archive_dir
+        self.write_posterior_Ye = self.write_posterior_Ye
+        self.anom_reference_period = self.anom_reference_period
+
+
+        self.save_archive = self.save_archive
+        self.save_archive_percentiles = self.save_archive_percentiles
+        self.save_archive_ens_subsample = self.save_archive_ens_subsample
+
+
+        if self.archive_regrid_method is not None:
+            if self.archive_regrid_method == 'esmpy':
+                self.archive_esmpy_interp_method = self.archive_esmpy_interp_method
+                self.archive_esmpy_grid_def = _GridDef.get_info(self.archive_esmpy_regrid_to)
+            else:
+                raise ValueError('Unrecognized option for regridding to archive files!'
+                                 ' Only None or esmpy are allowed.')
 
         if curr_iter is None:
             self.curr_iter = wrapper.iter_range[0]
@@ -388,7 +414,7 @@ class proxies(ConfigGroup):
     class ProxyConfigGroup(ConfigGroup):
         """
         Parameters for a ProxyGroup Class
-    
+
         Notes
         -----
         proxy_type_mappings and simple_filters are creating during instance
@@ -471,16 +497,16 @@ class proxies(ConfigGroup):
     class PAGES2kv1(ProxyConfigGroup):
         """
         Parameters for a PAGES2kv1 Class
-        
-        See ProxyConfigGroup for a description of common Proxy configuration 
+
+        See ProxyConfigGroup for a description of common Proxy configuration
         attributes.
-        
+
         Attributes
         ----------
         simple_filters: dict{'str': Iterable}
             List mapping proxy metadata sheet columns to a list of values
             to filter by.
-        
+
         """
 
         ##** BEGIN User Parameters **##
@@ -572,8 +598,8 @@ class proxies(ConfigGroup):
     class LMRdb(ProxyConfigGroup):
         """
         Parameters for LMRdb proxy class
-        
-        See ProxyConfigGroup for a description of common Proxy configuration 
+
+        See ProxyConfigGroup for a description of common Proxy configuration
         attributes.
 
         Attributes
@@ -592,10 +618,7 @@ class proxies(ConfigGroup):
 
         ##** BEGIN User Parameters **##
 
-        #dbversion = 'v0.0.0'
-        #dbversion = 'v0.1.0'
-        dbversion = 'v0.2.0'
-
+        dbversion = 'v1.0.0'
         
         datadir_proxy = None
         datafile_proxy = 'LMRdb_{}_Proxies.df.pckl'
@@ -733,10 +756,10 @@ class proxies(ConfigGroup):
     class NCDCdtda(ConfigGroup):
         """
         Parameters for NCDCdtda proxy class
-        
-        See ProxyConfigGroup for a description of common Proxy configuration 
+
+        See ProxyConfigGroup for a description of common Proxy configuration
         attributes.
-        
+
         Attributes
         ----------
         simple_filters: dict{'str': Iterable}
@@ -865,6 +888,11 @@ class psm(ConfigGroup):
         # season_source = 'psm_calib'
 
         psm_r_crit = 0.0
+
+        # Period over which data is used to establish a statistical relationship
+        # between proxy and instrumental data (statistical PSMs only)
+        calib_period = (1850, 2015)
+
         min_data_req_frac = 1.0  # 0.0 no data required, 1.0 all data required
         ##** END User Parameters **##
 
@@ -903,11 +931,17 @@ class psm(ConfigGroup):
                     dbversion = proxies.LMRdb.dbversion
                     filename = ('PSMs_' + proxies.use_from +
                                 '_' + dbversion +
-                                '_' + self.avg_interval +
-                                '_' + self.datatag +'.pckl')
+                                '_' + self.avg_interval+
+                                '_' + self.datatag_calib +
+                                '_ref' + str(core.anom_reference_period[0]) + '-' + str(core.anom_reference_period[1]) +
+                                '_cal' + str(psm.calib_period[0]) + '-' + str(psm.calib_period[1]) +
+                                '.pckl')
                 else:
-                    filename = ('PSMs_' + proxies.use_from +
-                                '_' + self.datatag+'.pckl')
+                    filename = ('PSMs_' + '-'.join(proxies.use_from) +
+                                '_' + self.datatag_calib +
+                                '_ref' + str(core.anom_reference_period[0]) + '-' + str(core.anom_reference_period[1]) +
+                                '_cal' + str(psm.calib_period[0]) + '-' + str(psm.calib_period[1]) +
+                                '.pckl')
                 self.pre_calib_datafile = join(lmr_path,
                                                'PSM',
                                                filename)
@@ -1081,13 +1115,19 @@ class psm(ConfigGroup):
                     dbversion = proxies.LMRdb.dbversion
                     filename = ('PSMs_'+proxies.use_from +
                                 '_' + dbversion +
-                                '_' + self.avg_interval + source +
-                                '_' + self.datatag_T +
-                                '_' + self.datatag_P + '.pckl')
+                                '_' + self.avgPeriod +
+                                '_' + self.datatag_calib_T +
+                                '_' + self.datatag_calib_P +
+                                '_ref' + str(core.anom_reference_period[0]) + '-' + str(core.anom_reference_period[1]) +
+                                '_cal' + str(psm.calib_period[0]) + '-' + str(psm.calib_period[1]) +
+                                '.pckl')
                 else:
-                    filename = ('PSMs_'+proxies.use_from +
-                                '_' + self.datatag_T +
-                                '_' + self.datatag_P + '.pckl')
+                    filename = ('PSMs_'+'-'.join(proxies.use_from) +
+                                '_' + self.datatag_calib_T +
+                                '_' + self.datatag_calib_P +
+                                '_ref' + str(core.anom_reference_period[0]) + '-' + str(core.anom_reference_period[1]) +
+                                '_cal' + str(psm.calib_period[0]) + '-' + str(psm.calib_period[1]) +
+                                '.pckl')
                 self.pre_calib_datafile = join(lmr_path,
                                                  'PSM',
                                                  filename)
@@ -1267,57 +1307,57 @@ class prior(ConfigGroup):
         shifted assimilation resolution.  Allowed flags are 'NPY' for numpy
         and 'H5' for HDF5 backends.
     state_variables: dict
-       Dict. of the form {'var1': 'kind1', 'var2':'kind2', etc.} where 'var1', 
-       'var2', etc. (keys of the dict) are the names of the state variables to 
-       be included in the state vector and 'kind1', 'kind2' etc. are the 
-       associated "kind" for each state variable indicating whether anomalies 
-       ('anom') or full field ('full') are desired. 
+       Dict. of the form {'var1': 'kind1', 'var2':'kind2', etc.} where 'var1',
+       'var2', etc. (keys of the dict) are the names of the state variables to
+       be included in the state vector and 'kind1', 'kind2' etc. are the
+       associated "kind" for each state variable indicating whether anomalies
+       ('anom') or full field ('full') are desired.
     detrend: bool
-        Indicates whether to detrend the prior or not. Applies to ALL state 
+        Indicates whether to detrend the prior or not. Applies to ALL state
         variables.
     avg_interval: dict OR list(int)
-        dict of the form {'type':value} where 'type' indicates the type of 
-        averaging ('annual' or 'multiyear'). 
+        dict of the form {'type':value} where 'type' indicates the type of
+        averaging ('annual' or 'multiyear').
         If type = 'annual', the corresponding value is a 
-        list of integers indficsting the months of the year over which the 
+        list of integers indficsting the months of the year over which the
         averaging is the be performed (ex. [6,7,8] for JJA).
-        If type = 'multiyear', the list is composed of a single integer 
-        indicating the length of the averaging period, in number of years 
+        If type = 'multiyear', the list is composed of a single integer
+        indicating the length of the averaging period, in number of years
         (ex. [100] for prior returned as 100-yr averages).
         -OR-
-        List of integers indicating the months over which to average the annual 
+        List of integers indicating the months over which to average the annual
         prior. (as 'annual' above).
     output: dict
         Output designations for fields and scalars during runtime.
     regrid_method: str
-        String indicating the method used to regrid the prior to lower spatial 
+        String indicating the method used to regrid the prior to lower spatial
         resolution.
         Allowed options are: 
         1) None : Regridding NOT performed. 
         2) 'spherical_harmonics' : Original regridding using pyspharm library.
-        3) 'simple': Regridding through simple inverse distance averaging of 
+        3) 'simple': Regridding through simple inverse distance averaging of
             surrounding grid points.
         4) 'esmpy': Regridding using the ESMpy package. Includes bilinear and
            higher-order patch fit regridding.
     regrid_resolution: int
-        Integer representing the triangular truncation of the lower resolution 
+        Integer representing the triangular truncation of the lower resolution
         grid (e.g. 42 for T42). Not used for 'esmpy' regrid_method.
     esmpy_interp_method: str or dict of str
-        Which ESMpy regridding method to use. A single string will be apply 
-        this method to all fields, or a dict of mappings from prior variables 
+        Which ESMpy regridding method to use. A single string will be apply
+        this method to all fields, or a dict of mappings from prior variables
         to interpolation methods allows for specification.
         Currently supports:
         'bilinear':  Bilinear interpolation, good for smooth fields
         'patch': Higher order patch interpolation
-        'conserve': Conservative regridding, only use on fields where 
+        'conserve': Conservative regridding, only use on fields where
             conservation makes sense.  E.g. Mass or energy fields
     esmpy_regrid_to: str
         A grid defined in grid_def.yml to use as the regridding target.  
         Currently supports 't42' and 'reg_4x5deg'.
     state_variables_info: dict
         Defines which variables represent temperature or moisture.
-        Should be modified only if a new temperature or moisture state variable 
-        is added. 
+        Should be modified only if a new temperature or moisture state variable
+        is added.
     """
 
     ##** BEGIN User Parameters **##
@@ -1343,10 +1383,16 @@ class prior(ConfigGroup):
         'scalar_ens': {'tas_sfc_Amon': ['glob_mean']}
     }
 
-    # The reference period (in year CE) for calculation of anomalies
-    # ** Valid for prior ccsm3_trace21ka only for now. Use None for all others **
-    # Options: None or tuple indicating the reference period
-    anom_reference = None
+
+
+
+    ## The reference period (in year CE) for calculation of anomalies
+    ## ** Valid for prior ccsm3_trace21ka only for now. Use None for all others **
+    ## Options: None or tuple indicating the reference period
+    #anom_reference = None
+
+
+
     
     # boolean : detrend prior?
     # by default, considers the entire length of the simulation
@@ -1369,6 +1415,15 @@ class prior(ConfigGroup):
     regrid_method = 'simple'
     # resolution of truncated grid, based on triangular truncation (e.g.,
     # use 42 for T42))
+    # 2) 'spherical_harmonics': through spherical harmonics using pyspharm library.
+    #    Note: Does *NOT* handle fields with missing/masked values (e.g. ocean variables)
+    # 3) 'simple': through simple interpolation using distance-weighted averaging.
+    #    Note: fields with missing/masked values (e.g. ocean variables) allowed.
+    # 4) 'esmpy': regridding facilitated by ESMpy package, includes blinear,
+    #    and higher order patch interpolation
+    regrid_method = 'esmpy'
+    # resolution of truncated grid, based on triangular truncation (e.g., use 42 for T42))
+    # note: this option applies only to 'simple' or 'spherical_harmonics' options
     regrid_resolution = 42
 
     # ESMpy regridding options
@@ -1394,7 +1449,6 @@ class prior(ConfigGroup):
         self.state_variables = deepcopy(self.state_variables)
         self.detrend = self.detrend
         self.regrid_method = self.regrid_method
-        self.anom_reference = self.anom_reference
 
         if nens is None:
             nens = core.nens
@@ -1711,7 +1765,8 @@ def update_config_attrs_yaml(yaml_dict, cfg_module):
     yaml_dict = {'core': {'lmr_path': '/new/path/to/LMR_files'},
                  'psm': {'linear': {'datatag': 'GISTEMP'}}}
 
-    These are the types of dictionaries that result from a yaml.load function.
+    These are the same types of dictionaries that result from a yaml.load
+    function.
 
     Warnings
     --------
