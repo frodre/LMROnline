@@ -44,25 +44,23 @@ import logging
 import LMR_gridded
 import pickle
 import os.path
+import pandas as pd
+import statsmodels.formula.api as sm
+import matplotlib.pyplot as plt
+import scipy.interpolate as interpolate
+
+from scipy.stats import linregress
+from abc import ABCMeta, abstractmethod
+from mpl_toolkits.mplot3d import Axes3D
+from scipy.io import loadmat
+from functools import lru_cache
+
 from LMR_utils import (haversine, get_distance, smooth2D,
                        get_data_closest_gridpt, class_docs_fixer)
 
-import pandas as pd
-from scipy.stats import linregress
-import statsmodels.formula.api as sm
-
-from abc import ABCMeta, abstractmethod
-
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-
-# Needed in BayesRegUK37PSM class
-#import matlab.engine # for old matlab implementation
-from scipy.io import loadmat
-import scipy.interpolate as interpolate
-
 # Logging output utility, configuration controlled by driver
 logger = logging.getLogger(__name__)
+
 
 class BasePSM(metaclass=ABCMeta):
     """
@@ -229,8 +227,8 @@ class LinearPSM(BasePSM):
         proxy = proxy_obj.type
         site = proxy_obj.id
         r_crit = linear_psm_cfg.psm_r_crit
-        self.lat  = proxy_obj.lat
-        self.lon  = proxy_obj.lon
+        self.lat = proxy_obj.lat
+        self.lon = proxy_obj.lon
         self.elev = proxy_obj.elev
 
         # Variable is used temporarily
@@ -247,49 +245,36 @@ class LinearPSM(BasePSM):
         try:
             # Try using pre-calibrated psm_data
             if psm_data is None:
-                psm_data = self._load_psm_data(linear_psm_cfg)
+                pre_calib_fpath = linear_psm_cfg.pre_calib_datafile
+                psm_data = self._load_psm_data(pre_calib_fpath)
 
             psm_site_data = psm_data[(proxy, site)]
             self.corr = psm_site_data['PSMcorrel']
             self.slope = psm_site_data['PSMslope']
             self.intercept = psm_site_data['PSMintercept']
             self.R = psm_site_data['PSMmse']
+            self.seasonality = psm_site_data.get('Seasonality', None)
 
-            # check if seasonality defined in the psm data
-            # if it is, return as an attribute
-            if 'Seasonality' in list(psm_site_data.keys()):
-                self.seasonality = psm_site_data['Seasonality']
-
-        except KeyError as e:
-            raise ValueError('Proxy in database but not found in pre-calibration file... '
-                             'Skipping: {}'.format(proxy_obj.id))
+        except KeyError:
+            raise ValueError('Proxy in database but not found in '
+                             'pre-calibration file... Skipping: '
+                             '{}'.format(proxy_obj.id))
         except IOError as e:
-            # No precalibration found, have to do it for this proxy
-            print('No pre-calibration file found for'
-                   ' {} ({}) ... calibrating ...'.format(proxy_obj.id,
-                                                         proxy_obj.type))
-
-            # If calibration load required need to pass on to other proxies
-            # so the class attr _calib_obj is set
-            # The Proxy2 loadall function will see that this is set
-            # and hold the object there (reseting _calib_object to None) until
-            # all proxies are loaded
             print('No pre-calibration found for {}'.format(proxy_obj.id))
             if not on_the_fly_calib:
                 raise e
             else:
-                print (' ... calibrating on the fly')
+                print(' ... calibrating on the fly')
 
-            # TODO: Fix call and Calib Module
-            if calib_obj is None:
-                source = linear_psm_cfg.datatag
-                calib_class = LMR_gridded.get_analysis_var_class(source)
-                calib_obj = calib_class.load(linear_psm_cfg)
+                if calib_obj is None:
+                    source = linear_psm_cfg.datatag
+                    calib_class = LMR_gridded.get_analysis_var_class(source)
+                    calib_obj = calib_class.load(linear_psm_cfg)
 
-                self._calib_object = calib_obj
+                    self._calib_object = calib_obj
 
-            self.calibrate(calib_obj, proxy_obj,
-                           diag_output=diag_out, diag_output_figs=diag_fig)
+                self.calibrate(calib_obj, proxy_obj,
+                               diag_output=diag_out, diag_output_figs=diag_fig)
 
         # Raise exception if critical correlation value not met
         if abs(self.corr) < r_crit:
@@ -297,7 +282,6 @@ class LinearPSM(BasePSM):
                               'critical threshold ({:.2f}).'
                               ).format(self.corr, r_crit))
 
-    # TODO: Ideally prior state info and coordinates should all be in single obj
     def psm(self, state_object):
         """
         Maps a given state to observations for the given proxy
@@ -345,10 +329,14 @@ class LinearPSM(BasePSM):
 
         return self.slope * data + self.intercept
 
-    # Define the error model for this proxy
-    @staticmethod
-    def error():
-        return 0.1
+    def error(self):
+        """
+        Error model for the proxy.
+        Returns
+        -------
+
+        """
+        return self.R
 
     # TODO: Simplify a lot of the actions in the calibration
     def calibrate(self, calib_obj, proxy, diag_output=False, diag_output_figs=False):
@@ -366,11 +354,6 @@ class LinearPSM(BasePSM):
             Diagnostic output flags for calibration method
         """
 
-        calib_spatial_avg = False
-        Npts = 9  # nb of neighboring pts used in smoothing
-
-        #print 'Calibrating: ', '{:25}'.format(proxy.id), '{:35}'.format(proxy.type)
-
         # --------------------------------------------
         # Use linear model (regression) as default PSM
         # --------------------------------------------
@@ -382,48 +365,41 @@ class LinearPSM(BasePSM):
         dist = get_distance(proxy.lon, proxy.lat, calib_obj.lon, calib_obj.lat)
         # indices of nearest grid pt.
         jind, kind = np.unravel_index(dist.argmin(), dist.shape)
+        calvals = calib_obj.temp_anomaly[:, jind, kind]
 
-        if calib_spatial_avg:
-            C2Dsmooth = np.zeros([calib_obj.time.shape[0], calib_obj.lat.shape[0], calib_obj.lon.shape[0]])
-            for m in range(calib_obj.time.shape[0]):
-                C2Dsmooth[m, :, :] = smooth2D(calib_obj.temp_anomaly[m, :, :], n=Npts)
-            calvals = C2Dsmooth[:, jind, kind]
-        else:
-            calvals = calib_obj.temp_anomaly[:, jind, kind]
-
-        # TODO: it's a mess from here on out
         # -------------------------------------------------------
         # Calculate averages of calibration data over appropriate
         # intervals (annual or according to proxy seasonality)
         # -------------------------------------------------------
         if self.avg_interval == 'annual':
             # Simply use annual averages
-            avgMonths = [1,2,3,4,5,6,7,8,9,10,11,12]
+            avg_months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         elif 'season' in self.avg_interval:
             # Consider the seasonality of the proxy record
-            avgMonths =  proxy.seasonality
+            avg_months = proxy.seasonality
         else:
-            print('ERROR: Unrecognized value for avgPeriod! Exiting!')
-            exit(1)
+            raise ValueError('Unrecognized value for avg_interval for PSM '
+                             'calibration!')
 
-        nbmonths = len(avgMonths)
-        cyears = np.asarray(list(set([calib_obj.time[k].year for k in range(len(calib_obj.time))]))) # 'set' is used to get unique values
+        nbmonths = len(avg_months)
+        tmp = [calib_obj.time[k].year for k in range(len(calib_obj.time))]
+        cyears = np.asarray(list(set())) # 'set' is used to get unique values
         nbcyears = len(cyears)
         reg_x = np.zeros(shape=[nbcyears])
         reg_x[:] = np.nan # initialize with nan's
 
         for i in range(nbcyears):
             # monthly data from current year
-            indsyr = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] and v.month in avgMonths]
+            indsyr = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] and v.month in avg_months]
             # check if data from previous year is to be included
             indsyrm1 = []
-            if any(m < 0 for m in avgMonths):
-                year_before = [abs(m) for m in avgMonths if m < 0]
+            if any(m < 0 for m in avg_months):
+                year_before = [abs(m) for m in avg_months if m < 0]
                 indsyrm1 = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] - 1. and v.month in year_before]
             # check if data from following year is to be included
             indsyrp1 = []
-            if any(m > 12 for m in avgMonths):
-                year_follow = [m-12 for m in avgMonths if m > 12]
+            if any(m > 12 for m in avg_months):
+                year_follow = [m-12 for m in avg_months if m > 12]
                 indsyrp1 = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] + 1. and v.month in year_follow]
 
             inds = indsyrm1 + indsyr + indsyrp1
@@ -636,9 +612,9 @@ class LinearPSM(BasePSM):
             return {}
 
     @staticmethod
-    def _load_psm_data(linear_psm_cfg):
+    @lru_cache(maxsize=8)
+    def _load_psm_data(pre_calib_file):
         """Helper method for loading from dataframe"""
-        pre_calib_file = linear_psm_cfg.pre_calib_datafile
 
         if pre_calib_file is None:
             raise IOError('No pre-calibration file specified.')
@@ -774,9 +750,8 @@ class LinearPSM_TorP(BasePSM):
                               ).format(self.corr, r_crit))
 
     # Define the error model for this proxy
-    @staticmethod
-    def error():
-        return 0.1
+    def error(self):
+        return 0.12
 
     def calibrate(self, calib_obj, proxy, diag_output=False, diag_output_figs=False):
         """
