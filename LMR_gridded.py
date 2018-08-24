@@ -682,6 +682,20 @@ class GriddedVariable(object):
 
     @staticmethod
     def _load_unique_cfg_kwargs(config):
+        """
+        Grab configuration keyword arguments that are specific to the gridded
+        class.
+
+        Parameters
+        ----------
+        config: LMR_config.prior
+            Configuration object for the prior class.
+
+        Returns
+        -------
+        cfg_kwargs:
+            Special keyword arguments for the current gridded class.
+        """
         return {}
 
     @classmethod
@@ -1142,6 +1156,20 @@ class PriorVariable(GriddedVariable):
 
     @staticmethod
     def _load_unique_cfg_kwargs(config):
+        """
+        Grab configuration keyword arguments that are specific to the gridded
+        class.
+
+        Parameters
+        ----------
+        config: LMR_config.ConfigObject
+            Configuration object for the prior class.
+
+        Returns
+        -------
+        cfg_kwargs:
+            Special keyword arguments for the current gridded class.
+        """
         unique_kwargs = {'detrend': config.detrend,
                          'nens': config.nens,
                          'seed': config.seed}
@@ -1202,6 +1230,20 @@ class AnalysisVariable(GriddedVariable):
 
     @staticmethod
     def _load_unique_cfg_kwargs(config):
+        """
+        Grab configuration keyword arguments that are specific to the gridded
+        class.
+
+        Parameters
+        ----------
+        config: LMR_config.ConfigObject
+            Configuration object for loading gridded analysis data.
+
+        Returns
+        -------
+        cfg_kwargs:
+            Special keyword arguments for the current gridded class.
+        """
         unique_kwargs = {'detrend': config.detrend}
         return unique_kwargs
 
