@@ -224,6 +224,62 @@ def test_global_mean2(ncf_data):
     np.testing.assert_allclose(shm_test, shm_time)
 
 
+def test_averaging_period_nelem_greater_than_nelem_in_yr():
+
+    with pytest.raises(ValueError):
+        Utils.get_averaging_period((1, 2, 3, 4, 5), nelem_in_yr=3)
+
+
+def test_averaging_period_span_greater_than_nelem_in_yr():
+
+    with pytest.raises(ValueError):
+        Utils.get_averaging_period([-1, 0, 11], nelem_in_yr=12,
+                                   is_zero_based=True)
+
+    with pytest.raises(ValueError):
+        Utils.get_averaging_period([0, 12], nelem_in_yr=12, is_zero_based=True)
+
+    with pytest.raises(ValueError):
+        Utils.get_averaging_period([-6, 7], 12)
+
+    with pytest.raises(ValueError):
+        Utils.get_averaging_period([4, 16], 12)
+
+
+def test_averaging_period_unique_warning():
+
+    with pytest.warns(UserWarning):
+        res = Utils.get_averaging_period([1, 8, 3, 1, 8], 12)
+        assert res == (0, 2, 7)
+
+
+def test_averaging_period_negative_indices():
+    res = Utils.get_averaging_period((-9, -11, 0, 2, 4), nelem_in_yr=12,
+                                     is_zero_based=True)
+    assert res == (9, 11, 12, 14, 16)
+
+    res = Utils.get_averaging_period((-10, -11, -12, 1, 2, 3), nelem_in_yr=12)
+    assert res == (9, 10, 11, 12, 13, 14)
+
+
+def test_averaging_period_zero_vs_nonzero_indexed():
+
+    res = Utils.get_averaging_period([0, 1, 2, 3], nelem_in_yr=12,
+                                     is_zero_based=True)
+    assert res == (0, 1, 2, 3)
+
+    res = Utils.get_averaging_period([1, 2, 3, 4], nelem_in_yr=12)
+    assert res == (0, 1, 2, 3)
+
+    with pytest.raises(ValueError):
+        Utils.get_averaging_period([0, 1, 2, 3], 12, is_zero_based=False)
+
+
+def test_averaging_period_sorting():
+    res = Utils.get_averaging_period((-12, -11, -10, 3, 2, 1), 12)
+    assert res == (9, 10, 11, 12, 13, 14)
+
+
 if __name__ == '__main__':
 
     tst_dat = ncf.Dataset('data/gridded_dat.nc', 'r')

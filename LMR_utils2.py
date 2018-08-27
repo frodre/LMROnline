@@ -2699,3 +2699,70 @@ def set_paramsearch_attributes(sorted_keys, values, cfg_object):
         paramsearch_dir.append(param_str)
 
     return '_'.join(paramsearch_dir)
+
+
+def get_averaging_period(elements, nelem_in_yr, is_zero_based=False):
+    """
+    Take a list of elements to be used for subannual averaging and normalize
+    them to a common output tuple that is in order, contains no negative
+    integers, and uses 0-based indexing.
+
+    Parameters
+    ----------
+    elements: list of int
+        List of indices that will be used to perform subannual averaging on
+        the data.
+    nelem_in_yr: int
+        Number of elements that comprise a single year in the data to be
+        averaged.
+
+    Returns
+    -------
+    tuple
+        Quality checked list of subannual indices used for subannual
+        averaging by LMR_gridded
+    """
+
+    nelem = len(elements)
+
+    # More elements in the subannual list than there are possible elem in a yr
+    if nelem > nelem_in_yr:
+        raise ValueError('List length of subannual elements to average must be '
+                         'less than or equal to the number of elements in a '
+                         'year.')
+
+    elements = np.array(elements, dtype=np.int)
+
+    if np.any(elements == 0) and not is_zero_based:
+        raise ValueError('If using zero-based indexing.  Argument '
+                         '"is_zero_based" must be set to true.')
+
+    if np.any(elements < 0):
+        neg_ind = elements < 0
+        pos_ind = elements >= 0
+        negative_swapped = abs(elements[neg_ind])
+        shifted_positive = elements[pos_ind] + nelem_in_yr
+        elements[neg_ind] = negative_swapped
+        elements[pos_ind] = shifted_positive
+
+    # elements specified span longer than a year
+    elem_span = max(elements) - min(elements)
+    if elem_span >= nelem_in_yr:
+        raise ValueError('List of subannual elements spans longer than the '
+                         'number of elements in a year.  Please use a '
+                         'multi-annual distinction to average multiple years.')
+
+    # Convert from monthly number to array index (0-based)
+    if not is_zero_based:
+        elements -= 1
+
+    # Reduce list to unique subannual elements
+    unique_elements = set(elements)
+    if len(unique_elements) != nelem:
+        elements = unique_elements
+        warnings.warn(UserWarning('Duplicate indices found in the list of '
+                                  'subannual elements to average.'))
+
+    elements = tuple(sorted(elements))
+
+    return elements

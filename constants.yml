@@ -16,7 +16,7 @@ avg_interval:
     nyears: 1
   annual_fall:
     nelem_in_yr: 12
-    elem_to_avg: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+    elem_to_avg: [-10, -11, -12, 1, 2, 3, 4, 5, 6, 7, 8, 9]
   nh_growing:
     nelem_in_yr: 12
     elem_to_avg: [4, 5, 6, 7, 8, 9]
