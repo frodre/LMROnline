@@ -411,15 +411,6 @@ class LinearPSM(BasePSM):
                 tmp = np.nan
             reg_x[i] = tmp
 
-        # TODO: Check where this ref period stuff is in production
-        # making sure calibration anomalies are referenced to ref_period
-        # --------------------------------------------------------------
-        # indices of elements in calibration set within ref_period
-        inds, = np.where((cyears>=ref_period[0]) & (cyears<=ref_period[1]))
-        # remove mean over reference period
-        reg_x = reg_x - np.nanmean(reg_x[inds])
-
-
         # ------------------------
         # Set-up linear regression
         # ------------------------
@@ -1088,18 +1079,7 @@ class BilinearPSM(BasePSM):
                 if nancount > nbmaxnan: tmp = np.nan
             else:
                 tmp = np.nan
-            reg_x_P[i] = tmp
-
-
-        # making sure calibration anomalies are referenced to ref_period
-        # --------------------------------------------------------------
-        # indices of elements in calibration set within ref_period
-        indsT, = np.where((cyears_T>=ref_period[0]) & (cyears_T<=ref_period[1]))
-        indsP, = np.where((cyears_P>=ref_period[0]) & (cyears_P<=ref_period[1]))
-        # remove mean over reference period
-        reg_x_T = reg_x_T - np.nanmean(reg_x_T[indsT])
-        reg_x_P = reg_x_P - np.nanmean(reg_x_P[indsP])
-
+            reg_x_P[i] = tmpq
 
         # ---------------------------
         # Perform bilinear regression
