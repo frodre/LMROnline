@@ -33,7 +33,8 @@ Revisions:
 """
 
 import LMR_psms
-from LMR_utils2 import augment_docstr, class_docs_fixer, fix_lon
+from LMR_utils2 import (augment_docstr, class_docs_fixer, fix_lon,
+                        get_averaging_period)
 
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
@@ -219,7 +220,9 @@ class BaseProxyObject(metaclass=ABCMeta):
         self.lon = fix_lon(lon)
         self.elev = elev
         self.time = time
-        self.seasonality = seasonality
+
+        if seasonality is not None:
+            self.seasonality = get_averaging_period(seasonality, 12)
 
         # Retrieve appropriate PSM function
         self.psm_config = psm_config

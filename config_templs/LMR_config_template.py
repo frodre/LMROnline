@@ -18,7 +18,9 @@ from os.path import join
 from copy import deepcopy
 import yaml
 import numpy as np
-import os.path as opath
+import os
+
+from LMR_utils2 import get_averaging_period
 
 # If true, uses only LMR_config.  No yaml loading
 LEGACY_CONFIG = False
@@ -94,27 +96,11 @@ class _ConstantDefinitions(_YamlStorage):
             avg_indices = val['elem_to_avg']
             nelem_in_yr = val['nelem_in_yr']
 
+            avg_indices = get_averaging_period(avg_indices, nelem_in_yr)
+
             avg_indices = np.array(avg_indices, dtype=np.int16)
 
-            if np.any(avg_indices < 0):
-                neg_ind = avg_indices < 0
-                pos_ind = avg_indices >= 0
-                negative_swapped = abs(avg_indices[neg_ind])
-                shifted_positive = avg_indices[pos_ind] + nelem_in_yr
-                avg_indices[neg_ind] = negative_swapped
-                avg_indices[pos_ind] = shifted_positive
-
-            # Convert from monthly number to array index (0-based)
-            avg_indices -= 1
-
-            if np.any(np.diff(avg_indices) > 1):
-                raise ValueError('Averaging indices in constants file '
-                                 'non-contiguous for key: {}. Code only '
-                                 'supports contiguous'
-                                 ' averaging currently.'.format(key))
-
             val['elem_to_avg'] = avg_indices
-
 
 
 # Load dataset information on configuration import
@@ -1285,6 +1271,37 @@ class psm(ConfigGroup):
         if save_pre_avg_file is None:
             save_pre_avg_file = core.save_pre_avg_file
         self.save_pre_avg_file = save_pre_avg_file
+
+        # Add constants instance for averaging periods
+        self._avg_def_constants = Constants.get_info('avg_interval')
+
+    def add_avg_interval_kwargs(self, name, elem_to_avg, nelem_in_yr, nyears):
+        """Add an averaging definition to the current psm_config list of
+        definitions"""
+        if name in self._avg_def_constants:
+            raise KeyError('Average definition already exists.')
+
+        self._avg_def_constants[name] = {'nelem_in_yr': nelem_in_yr,
+                                         'elem_to_avg': elem_to_avg,
+                                         'nyears': nyears}
+
+    def find_key_for_elem_list(self, elem_to_avg):
+        """Find an average definition key from the list of elements in that
+        defition"""
+        for avg_def_name, avg_def_kwargs in self._avg_def_constants.items():
+            if elem_to_avg == avg_def_kwargs['elem_to_avg']:
+                return avg_def_name
+        else:
+            return None
+
+    def create_avg_def_name(self, elem_to_avg):
+        """Create an average definition name from a list of elements being
+        averaged"""
+        avg_def_tmpl = 'proxy_seasonal_{}'
+        elem_to_avg_str = '-'.join([str(elem) for elem in elem_to_avg])
+        avg_def_name = avg_def_tmpl.format(elem_to_avg_str)
+
+        return avg_def_name
 
 
 class prior(ConfigGroup):
