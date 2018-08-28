@@ -320,7 +320,7 @@ psm:
     datatag: GISTEMP
     pre_calib_datafile: null
     psm_r_crit: 0.0
-    avg_interval: annual
+    avg_type: annual
     season_source: proxy_metadata
     min_data_req_frac: 0.0
 
@@ -330,7 +330,7 @@ psm:
     pre_calib_datafile_T: null
     pre_calib_datafile_P: null
     psm_r_crit: 0.0
-    avg_interval: annual
+    avg_type: annual
     season_source: proxy_metadata
     metric: corr
 
@@ -339,7 +339,7 @@ psm:
     datatag_P: GPCC
     pre_calib_datafile: null
     psm_r_crit: 0.0
-    avg_interval: annual
+    avg_type: annual
     season_source: proxy_metadata
 
   h_interp:

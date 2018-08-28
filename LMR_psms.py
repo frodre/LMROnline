@@ -236,7 +236,20 @@ class LinearPSM(BasePSM):
         self.nobs = None
 
         self.datatag = linear_psm_cfg.datatag
-        self.avg_interval = linear_psm_cfg.avg_interval
+        self.avg_type = linear_psm_cfg.avg_type
+
+        # Get the averaging interval information from the configuration
+        if self.avg_type == 'annual':
+            self.avg_interval = 'annual_std'
+            avg_interval_kwargs = psm_config.get_avg_def(self.avg_interval)
+        elif self.avg_type == 'seasonal':
+            elem_to_avg = proxy_obj.seasonality
+            [self.avg_interval,
+             avg_interval_kwargs] = psm_config.handle_proxy_elem_list(elem_to_avg)
+
+        # Set the averaging interval information for calibration
+        linear_psm_cfg.update_avg_interval(self.avg_interval,
+                                           avg_interval_kwargs)
 
         self.datainfo = linear_psm_cfg.datainfo
         self.psm_vartype = self.datainfo['psm_vartype']
@@ -371,10 +384,10 @@ class LinearPSM(BasePSM):
         # Calculate averages of calibration data over appropriate
         # intervals (annual or according to proxy seasonality)
         # -------------------------------------------------------
-        if self.avg_interval == 'annual':
+        if self.avg_type == 'annual':
             # Simply use annual averages
             avg_months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-        elif 'season' in self.avg_interval:
+        elif 'season' in self.avg_type:
             # Consider the seasonality of the proxy record
             avg_months = proxy.seasonality
         else:
@@ -680,7 +693,21 @@ class LinearPSM_TorP(BasePSM):
         self.datatag_T = linearTorP_cfg.datatag_T
         self.datatag_P = linearTorP_cfg.datatag_P
 
-        self.avg_interval = linearTorP_cfg.avg_interval
+        self.avg_type = linearTorP_cfg.avg_type
+
+        # Get the averaging interval information from the configuration
+        if self.avg_type == 'annual':
+            self.avg_interval = 'annual_std'
+            avg_interval_kwargs = psm_config.get_avg_def(self.avg_interval)
+        elif self.avg_type == 'seasonal':
+            elem_to_avg = proxy_obj.seasonality
+            [self.avg_interval,
+             avg_interval_kwargs] = psm_config.handle_proxy_elem_list(
+                elem_to_avg)
+
+        # Set the averaging interval information for calibration
+        linearTorP_cfg.update_avg_interval(self.avg_interval,
+                                           avg_interval_kwargs)
 
         # Try loading pre-calibrated PSM for temperature
         try:
@@ -841,7 +868,22 @@ class BilinearPSM(BasePSM):
         self.lon  = proxy_obj.lon
         self.elev = proxy_obj.elev
 
-        self.avg_interval = bilinear_cfg.avg_interval
+        self.avg_type = bilinear_cfg.avg_type
+
+        # Get the averaging interval information from the configuration
+        if self.avg_type == 'annual':
+            self.avg_interval = 'annual_std'
+            avg_interval_kwargs = psm_config.get_avg_def(self.avg_interval)
+        elif self.avg_type == 'seasonal':
+            elem_to_avg = proxy_obj.seasonality
+            [self.avg_interval,
+             avg_interval_kwargs] = psm_config.handle_proxy_elem_list(
+                elem_to_avg)
+
+        # Set the averaging interval information for calibration
+        bilinear_cfg.update_avg_interval(self.avg_interval,
+                                         avg_interval_kwargs)
+
         self.psm_vartype_T = bilinear_cfg.temperature.datainfo['psm_vartype']
         self.psm_vartype_P = bilinear_cfg.moisture.datainfo['psm_vartype']
 

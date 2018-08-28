@@ -867,8 +867,8 @@ class psm(ConfigGroup):
 
         pre_calib_datafile = None
 
-        avg_interval = 'annual'
-        # avg_interval = 'season
+        avg_type = 'annual'
+        # avg_type = 'season
 
         season_source = 'proxy_metadata'
         # season_source = 'psm_calib'
@@ -896,13 +896,18 @@ class psm(ConfigGroup):
             self.psm_r_crit = self.psm_r_crit
             self.min_data_req_frac = self.min_data_req_frac
 
-            self.avg_interval = self.avg_interval
+            self.avg_type = self.avg_type
             self.season_source = self.season_source
 
-            if 'PAGES2kv1' in proxies.use_from and 'season' in self.avg_interval:
+            if 'PAGES2kv1' in proxies.use_from and 'season' in self.avg_type:
                 raise ValueError('No seasonality information in PAGES2kv1 '
                                  'database.  Change avg_period to "annual" in '
                                  'your configuration')
+
+            # Avg_interval values will be set on a per proxy basis when
+            # calibrating
+            self.avg_interval = None
+            self.avg_interval_kwargs = None
 
             if lmr_path is None:
                 lmr_path = core.lmr_path
@@ -917,7 +922,7 @@ class psm(ConfigGroup):
                     dbversion = proxies.LMRdb.dbversion
                     filename = ('PSMs_' + proxies.use_from +
                                 '_' + dbversion +
-                                '_' + self.avg_interval+
+                                '_' + self.avg_type +
                                 '_' + self.datatag_calib +
                                 '_ref' + str(core.anom_reference_period[0]) + '-' + str(core.anom_reference_period[1]) +
                                 '_cal' + str(psm.calib_period[0]) + '-' + str(psm.calib_period[1]) +
@@ -942,6 +947,10 @@ class psm(ConfigGroup):
                                  'o choose specific variable. Switch '
                                  'datatag_calib in the config.')
             self.psm_required_variables = self.datainfo['psm_vartype']
+
+        def update_avg_interval(self, avg_interval, avg_interval_kwargs):
+            self.avg_interval = avg_interval
+            self.avg_interval_kwargs = avg_interval_kwargs
                 
     class linear_TorP(ConfigGroup):                
         """
@@ -992,8 +1001,8 @@ class psm(ConfigGroup):
 
         psm_r_crit = 0.0
 
-        avg_interval = 'annual'
-        # avg_interval = 'season
+        avg_type = 'annual'
+        # avg_type = 'season
 
         season_source = 'proxy_metadata'
         # season_source = 'psm_calib'
@@ -1009,11 +1018,11 @@ class psm(ConfigGroup):
 
             temp_kwarg = {'datatag': self.datatag_T,
                           'pre_calib_datafile': self.pre_calib_datafile_T,
-                          'avg_interval': self.avg_interval,
+                          'avg_type': self.avg_type,
                           'season_source': self.season_source}
             mois_kwarg = {'datatag': self.datatag_P,
                           'pre_calib_datafile': self.pre_calib_datafile_P,
-                          'avg_interval': self.avg_interval,
+                          'avg_type': self.avg_type,
                           'season_source': self.season_source}
 
             # Configuration for temperature and moisture psms
@@ -1022,6 +1031,12 @@ class psm(ConfigGroup):
 
             self.psm_r_crit = self.psm_r_crit
             self.metric = self.metric
+
+        def update_avg_interval(self, avg_interval, avg_interval_kwargs):
+            self.temperature.update_avg_interval(avg_interval,
+                                                 avg_interval_kwargs)
+            self.moisture.update_avg_interval(avg_interval,
+                                              avg_interval_kwargs)
                 
     class bilinear(ConfigGroup):
         """
@@ -1061,8 +1076,8 @@ class psm(ConfigGroup):
         # ---------------------------------------------
         datatag_P = 'GPCC'
 
-        avg_interval = 'annual'
-        # avg_interval = 'season
+        avg_type = 'annual'
+        # avg_type = 'season
 
         season_source = 'proxy_metadata'
         # season_source = 'psm_calib'
@@ -1077,10 +1092,10 @@ class psm(ConfigGroup):
             super(self.__class__, self).__init__(**kwargs)
 
             temp_kwarg = {'datatag': self.datatag_T,
-                          'avg_interval': self.avg_interval,
+                          'avg_type': self.avg_type,
                           'season_source': self.season_source}
             mois_kwarg = {'datatag': self.datatag_P,
-                          'avg_interval': self.avg_interval,
+                          'avg_type': self.avg_type,
                           'season_source': self.season_source}
 
             # Configuration for temperature and moisture psms
@@ -1091,7 +1106,7 @@ class psm(ConfigGroup):
                 
             if self.pre_calib_datafile is None:
                 if proxies.use_from == 'LMRdb':
-                    if self.avg_interval == 'season':
+                    if self.avg_type == 'season':
                         if self.season_source == 'proxy_metadata':
                             source = 'META'
                         elif self.season_source == 'psm_calib':
@@ -1119,6 +1134,12 @@ class psm(ConfigGroup):
                                                  filename)
             else:
                 self.pre_calib_datafile = self.pre_calib_datafile
+
+        def update_avg_interval(self, avg_interval, avg_interval_kwargs):
+            self.temperature.update_avg_interval(avg_interval,
+                                                 avg_interval_kwargs)
+            self.moisture.update_avg_interval(avg_interval,
+                                              avg_interval_kwargs)
         
     class h_interp(ConfigGroup):
         """
@@ -1275,7 +1296,7 @@ class psm(ConfigGroup):
         # Add constants instance for averaging periods
         self._avg_def_constants = Constants.get_info('avg_interval')
 
-    def add_avg_interval_kwargs(self, name, elem_to_avg, nelem_in_yr, nyears):
+    def _add_avg_interval_kwargs(self, name, elem_to_avg, nelem_in_yr, nyears):
         """Add an averaging definition to the current psm_config list of
         definitions"""
         if name in self._avg_def_constants:
@@ -1285,7 +1306,7 @@ class psm(ConfigGroup):
                                          'elem_to_avg': elem_to_avg,
                                          'nyears': nyears}
 
-    def find_key_for_elem_list(self, elem_to_avg):
+    def _find_key_for_elem_list(self, elem_to_avg):
         """Find an average definition key from the list of elements in that
         defition"""
         for avg_def_name, avg_def_kwargs in self._avg_def_constants.items():
@@ -1294,7 +1315,8 @@ class psm(ConfigGroup):
         else:
             return None
 
-    def create_avg_def_name(self, elem_to_avg):
+    @staticmethod
+    def _create_avg_def_name(elem_to_avg):
         """Create an average definition name from a list of elements being
         averaged"""
         avg_def_tmpl = 'proxy_seasonal_{}'
@@ -1302,6 +1324,28 @@ class psm(ConfigGroup):
         avg_def_name = avg_def_tmpl.format(elem_to_avg_str)
 
         return avg_def_name
+
+    def get_avg_def(self, key):
+        """Get a subannual element averaging definition from the attached
+        constant definition"""
+        return self._avg_def_constants[key]
+
+    def handle_proxy_elem_list(self, elem_to_avg, nelem_in_yr=12, nyears=1):
+        """Look for the appropriate avg_interval key for the element list and
+        add it to the definitions if not found."""
+        avg_interval = self._find_key_for_elem_list(elem_to_avg)
+
+        if avg_interval is None:
+            # No matching definition found, create a new one
+            avg_interval = self._create_avg_def_name(elem_to_avg)
+
+            self._add_avg_interval_kwargs(avg_interval, elem_to_avg,
+                                          nelem_in_yr, nyears)
+
+        avg_interval_kwargs = self.get_avg_def(avg_interval)
+
+        return avg_interval, avg_interval_kwargs
+
 
 
 class prior(ConfigGroup):
