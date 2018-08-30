@@ -33,6 +33,9 @@ NOAAGlobalTemp:
     multiple_vars: False
     template: null
     available_vars: [air]
+    cell_area: null
+    psm_vartype:
+      temperature: tas
 
   datadir: null
   datafile: NOAAGlobalTemp_air.mon.anom_V4.0.1.nc

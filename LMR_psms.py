@@ -246,6 +246,10 @@ class LinearPSM(BasePSM):
             elem_to_avg = proxy_obj.seasonality
             [self.avg_interval,
              avg_interval_kwargs] = psm_config.handle_proxy_elem_list(elem_to_avg)
+        else:
+            raise KeyError('Unrecognized average type in PSM initialization...'
+                           '\nExpected "annual" or "seasonal". Got {}'
+                           ''.format(self.avg_type))
 
         # Set the averaging interval information for calibration
         linear_psm_cfg.update_avg_interval(self.avg_interval,
@@ -266,6 +270,7 @@ class LinearPSM(BasePSM):
             self.slope = psm_site_data['PSMslope']
             self.intercept = psm_site_data['PSMintercept']
             self.R = psm_site_data['PSMmse']
+            # TODO: Set seasonality for calibration on the fly?
             self.seasonality = psm_site_data.get('Seasonality', None)
 
         except KeyError:

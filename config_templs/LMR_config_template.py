@@ -1293,8 +1293,8 @@ class psm(ConfigGroup):
             save_pre_avg_file = core.save_pre_avg_file
         self.save_pre_avg_file = save_pre_avg_file
 
-        # Add constants instance for averaging periods
-        self._avg_def_constants = Constants.get_info('avg_interval')
+        # Add constants instance for averaging periods (NOT A COPY)
+        self._avg_def_constants = Constants.data['avg_interval']
 
     def _add_avg_interval_kwargs(self, name, elem_to_avg, nelem_in_yr, nyears):
         """Add an averaging definition to the current psm_config list of
@@ -1324,6 +1324,16 @@ class psm(ConfigGroup):
         avg_def_name = avg_def_tmpl.format(elem_to_avg_str)
 
         return avg_def_name
+
+    @staticmethod
+    def decode_avg_def_name(avg_interval_name):
+
+        if 'proxy_seasonal' not in avg_interval_name:
+            raise ValueError('Input average interval name does not appear to '
+                             'be a generated seasonal proxy definition.')
+
+        elem_str = avg_interval_name.split('_')[-1]
+        elements = elem_str.split('-')
 
     def get_avg_def(self, key):
         """Get a subannual element averaging definition from the attached
@@ -1545,8 +1555,8 @@ class prior(ConfigGroup):
         #                      'core.recon_timescale!')
 
         self.avg_interval = self.avg_interval
-        avg_interval_defs = Constants.get_info('avg_interval')
-        self.avg_interval_kwargs = avg_interval_defs[self.avg_interval]
+        self.avg_interval_defs = Constants.data['avg_interval']
+        self.avg_interval_kwargs = self.avg_interval_defs[self.avg_interval]
 
         self.outputs = deepcopy(self.outputs)
 
@@ -1588,6 +1598,10 @@ class prior(ConfigGroup):
 
         return interp_method
 
+    def update_avg_interval(self, avg_interval):
+        self.avg_interval = avg_interval
+        avg_interval_kwargs = self.avg_interval_defs[avg_interval]
+        self.avg_interval_kwargs = avg_interval_kwargs
 
 class forecaster(ConfigGroup):
     """

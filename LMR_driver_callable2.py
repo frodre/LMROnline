@@ -128,6 +128,46 @@ def LMR_driver_callable(cfg=None):
     recon_times = np.arange(recon_period[0], recon_period[1]+1)
 
     # ==========================================================================
+    # Get information on proxies to assimilate ---------------------------------
+    # ==========================================================================
+
+    begin_time_proxy_load = time()
+    if verbose > 0:
+        print('')
+        print('-----------------------------------')
+        print('Uploading proxy data & PSM info ...')
+        print('-----------------------------------')
+
+    # Build dictionaries of proxy sites to assimilate and those set aside for
+    # verification
+    prox_manager = LMR_proxy2.ProxyManager(cfg.proxies, recon_period,
+                                           cfg.psm)
+    req_avg_intervals = prox_manager.avg_interval_by_psm_type
+    type_site_assim = prox_manager.assim_ids_by_group
+    # count the total number of proxies
+    assim_proxy_count = len(prox_manager.ind_assim)
+    # count the total witheld proxies
+    if prox_manager.ind_eval:
+        eval_proxy_count = len(prox_manager.ind_eval)
+    else:
+        eval_proxy_count = None
+
+    if verbose > 0:
+        print('Assimilating proxy types/sites:', type_site_assim)
+        print('--------------------------------------------------------------------')
+        print('Proxy counts for experiment:')
+        for pkey, plist in sorted(type_site_assim.items()):
+            print(('%45s : %5d' % (pkey, len(plist))))
+        print(('%45s : %5d' % ('TOTAL', assim_proxy_count)))
+        print('--------------------------------------------------------------------')
+
+    if verbose > 2:
+        proxy_load_time = time() - begin_time_proxy_load
+        print('-----------------------------------------------------')
+        print('Loading completed in ' + str(proxy_load_time) + ' seconds')
+        print('-----------------------------------------------------')
+
+    # ==========================================================================
     # Load prior data ----------------------------------------------------------
     # ==========================================================================
     if verbose > 0:
@@ -137,7 +177,8 @@ def LMR_driver_callable(cfg=None):
         print('Source for prior: ', prior_cfg.prior_source)
 
     # Create initial state vector of desired variables at smallest time res
-    Xb_one = LMR_gridded.State.from_config(prior_cfg)
+    Xb_one = LMR_gridded.State.from_config(prior_cfg,
+                                           avg_interval_map=req_avg_intervals)
     state_keys = '_'.join(Xb_one.var_keys)
     h5f_path = join(workdir, 'recon_output_' + state_keys + '.h5')
 
@@ -163,30 +204,6 @@ def LMR_driver_callable(cfg=None):
     # Keep dimension of pre-augmented version of state vector
     state_dim = Xb_one.shape[0]
 
-    # ==========================================================================
-    # Get information on proxies to assimilate ---------------------------------
-    # ==========================================================================
-
-    begin_time_proxy_load = time()
-    if verbose > 0:
-        print('')
-        print('-----------------------------------')
-        print('Uploading proxy data & PSM info ...')
-        print('-----------------------------------')
-
-    # Build dictionaries of proxy sites to assimilate and those set aside for
-    # verification
-    prox_manager = LMR_proxy2.ProxyManager(cfg.proxies, recon_period,
-                                           cfg.psm)
-    type_site_assim = prox_manager.assim_ids_by_group
-    # count the total number of proxies
-    assim_proxy_count = len(prox_manager.ind_assim)
-    # count the total witheld proxies
-    if prox_manager.ind_eval:
-        eval_proxy_count = len(prox_manager.ind_eval)
-    else:
-        eval_proxy_count = None
-
     if save_analysis_ye:
         assim_ye_path = join(workdir, 'assim_ye_ens_output.zarr')
         assim_ye_out = lmr_out.create_Ye_output(assim_ye_path,
@@ -203,21 +220,6 @@ def LMR_driver_callable(cfg=None):
     else:
         assim_ye_out = None
         eval_ye_out = None
-
-    if verbose > 0:
-        print('Assimilating proxy types/sites:', type_site_assim)
-        print('--------------------------------------------------------------------')
-        print('Proxy counts for experiment:')
-        for pkey, plist in sorted(type_site_assim.items()):
-            print(('%45s : %5d' % (pkey, len(plist))))
-        print(('%45s : %5d' % ('TOTAL', assim_proxy_count)))
-        print('--------------------------------------------------------------------')
-
-    if verbose > 2:
-        proxy_load_time = time() - begin_time_proxy_load
-        print('-----------------------------------------------------')
-        print('Loading completed in ' + str(proxy_load_time) + ' seconds')
-        print('-----------------------------------------------------')
 
     # ----------------------------------
     # Augment state vector with the Ye's

@@ -1187,12 +1187,13 @@ class PriorVariable(GriddedVariable):
 
         Returns
         -------
-        dict{str: PriorVariable}
-            A dictionary with key value pairs of the variable name and the
-            PriorVariable instance.
+        dict{tuple of str: PriorVariable}
+            A dictionary with key value pairs of the variable name/avg_interval
+            and the PriorVariable instance.
 
         """
         var_names = prior_config.state_variables
+        avg_interval = prior_config.avg_interval
 
         prior_dict = OrderedDict()
         for vname, anomaly in var_names.items():
@@ -1202,9 +1203,47 @@ class PriorVariable(GriddedVariable):
                 anomaly = False
             pobj = cls.load(prior_config, vname, anomaly=anomaly)
 
-            prior_dict[vname] = pobj
+            prior_dict[(vname, avg_interval)] = pobj
 
         return prior_dict
+
+    @classmethod
+    def load_psm_required_vars(cls, prior_config, varkey_avg_intervals):
+        """
+        Load the prior fields required for the PSM to work.
+
+        Parameters
+        ----------
+        prior_config: LMR_config.ConfigObject
+            Configuration instance for prior variables
+        varkey_avg_intervals: dict
+            Dictionary of variable name keys and associated averging interval
+            names required for the PSM
+
+        Returns
+        -------
+        dict{tuple of str: PriorVariable}
+            A dictionary with key value pairs of the variable name/avg_interval
+            and the PriorVariable instance.
+        """
+
+        orig_avg_interval = prior_config.avg_interval
+        loaded_state_vars = prior_config.state_variables
+
+        psm_req_prior_dict = OrderedDict()
+        for varkey, avg_interval_names in varkey_avg_intervals.items():
+            for avg_interval in avg_interval_names:
+                if varkey in loaded_state_vars and avg_interval == orig_avg_interval:
+                    continue
+
+                prior_config.update_avg_interval(avg_interval)
+                pobj = cls.load(prior_config, varkey, anomaly=True)
+
+                psm_req_prior_dict[(varkey, avg_interval)] = pobj
+
+        prior_config.update_avg_interval(orig_avg_interval)
+
+        return psm_req_prior_dict
 
 
 class ForecasterVariable(GriddedVariable):
@@ -1319,8 +1358,14 @@ class State(object):
         self.psm_var_map = psm_var_map
 
     @classmethod
-    def from_config(cls, prior_config):
+    def from_config(cls, prior_config, req_avg_intervals=None):
         pvars = PriorVariable.load_allvars(prior_config)
+
+        if req_avg_intervals is not None:
+            req_psm_pvars = PriorVariable.load_psm_required_vars(prior_config,
+                                                                 req_avg_intervals)
+            pvars.update(req_psm_pvars)
+
         psm_var_map = prior_config.psm_var_map
 
         return cls(pvars, psm_var_map=psm_var_map)

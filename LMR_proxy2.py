@@ -109,6 +109,14 @@ class ProxyManager:
             self.ind_eval = None
             self.assim_ids_by_group = self.all_ids_by_group
 
+        self.avg_interval_by_psm_type = defaultdict(set)
+        for proxy_obj in self.sites_assim_proxy_objs():
+            psm_type = proxy_obj.psm_obj.psm_vartype
+            avg_interval = proxy_obj.psm_obj.avg_interval
+
+            # Update set for current psm_type to include the avg_interval
+            self.avg_interval_by_psm_type[psm_type].update({avg_interval})
+
     def proxy_obj_generator(self, indexes):
         """
         Generator to iterate over proxy objects in list at specified indexes
