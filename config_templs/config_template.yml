@@ -385,10 +385,14 @@ forecaster:
   use_forecaster: lim
 
   lim:
-    datatag: ccsm4_last_millenium
-    avg_interval: annual_std
+    # Match prior variables for the forecast
+    # overrides datatag, fcast_varnames, and the avg_interval
+    match_prior: True
+
     fcast_type: 'noise_integrate'
 
+    datatag: ccsm4_last_millenium
+    avg_interval: annual_std
     fcast_varnames: [tas_sfc_Amon]
     prior_mapping:
       tas_sfc_Amon: tas_sfc_Amon

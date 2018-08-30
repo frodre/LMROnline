@@ -95,7 +95,6 @@ def LMR_driver_callable(cfg=None):
     workdir = core_cfg.datadir_output
     recon_period = core_cfg.recon_period
     online = core_cfg.online_reconstruction
-    persistence = core_cfg.persistence_forecast
     hybrid_update = core_cfg.hybrid_update
     hybrid_a_val = core_cfg.hybrid_a
     blend_prior = core_cfg.blend_prior
@@ -178,8 +177,8 @@ def LMR_driver_callable(cfg=None):
 
     # Create initial state vector of desired variables at smallest time res
     Xb_one = LMR_gridded.State.from_config(prior_cfg,
-                                           avg_interval_map=req_avg_intervals)
-    state_keys = '_'.join(Xb_one.var_keys)
+                                           req_avg_intervals=req_avg_intervals)
+    state_keys = '_'.join([varkey for varkey, avg_interval in Xb_one.var_keys])
     h5f_path = join(workdir, 'recon_output_' + state_keys + '.h5')
 
     [calc_and_store_scalars,
@@ -256,7 +255,7 @@ def LMR_driver_callable(cfg=None):
         print('\n Initializing LMR forecasting for online reconstruction')
         key = cfg.forecaster.use_forecaster
         fcastr_class = LMR_forecaster.get_forecaster_class(key)
-        forecaster = fcastr_class(cfg.forecaster)
+        forecaster = fcastr_class(cfg.forecaster, Xb_one.var_keys)
 
     # ==========================================================================
     # Loop over all years and proxies, and perform assimilation ----------------
@@ -399,23 +398,15 @@ def LMR_driver_callable(cfg=None):
 
         if online:
 
-            if not persistence:
-                # Forecast
-                fcast_out = forecaster.forecast(Xb_one)
+            forecaster.forecast(Xb_one)
 
-                # Recall orig state, any vars not forecast are climatological
-                #  sample
-                # TODO: Determine if you can get by not forecasting some data
-                # Xb_one.stash_recall_state_list('orig', copy=True)
-                Xb_one.update_var_data(fcast_out)
+            # Recalculate Ye values
+            ye_all = LMR_proxy2.calc_assim_ye_vals(prox_manager, Xb_one)
+            Xb_one.reset_augmented_ye(ye_all)
 
-                # Recalculate Ye values
-                ye_all = LMR_proxy2.calc_assim_ye_vals(prox_manager, Xb_one)
-                Xb_one.reset_augmented_ye(ye_all)
-
-                # Inflation Adjustment
-                if reg_inf:
-                    Xb_one.reg_inflate_xb(inf_factor)
+            # Inflation Adjustment
+            if reg_inf:
+                Xb_one.reg_inflate_xb(inf_factor)
 
     end_time = time() - begin_time
 

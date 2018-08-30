@@ -1254,15 +1254,32 @@ class ForecasterVariable(GriddedVariable):
     """
 
     @classmethod
-    def load_allvars(cls, forecaster_cfg):
-        var_names = forecaster_cfg.fcast_varnames
+    def load_all(cls, forecaster_cfg, load_keys):
 
         fcast_dict = OrderedDict()
-        for vname in var_names:
-            fobj = cls.load(forecaster_cfg, vname, anomaly=True)
-            fcast_dict[vname] = fobj
+        for varname, avg_inteval in load_keys:
+            forecaster_cfg.update_avg_interval(avg_inteval)
+            fobj = cls.load(forecaster_cfg, varname, anomaly=True)
+            fcast_dict[(varname, avg_inteval)] = fobj
 
         return fcast_dict
+
+    @classmethod
+    def load_all_cfg_vars_only(cls, forecaster_cfg, state_keys):
+
+        var_names = forecaster_cfg.fcast_varnames
+        prior_mapping = forecaster_cfg.prior_mapping
+
+        var_to_load = []
+        # find which avg_intervals to use for selected forecast vars
+        for var in var_names:
+            prior_var_key = prior_mapping[var]
+            matches = [(state_var, state_avg_interval)
+                       for state_var, state_avg_interval in state_keys
+                       if state_var == prior_var_key]
+            var_to_load += matches
+
+        return cls.load_all(forecaster_cfg, var_to_load)
 
 
 class AnalysisVariable(GriddedVariable):

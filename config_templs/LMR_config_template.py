@@ -1555,8 +1555,8 @@ class prior(ConfigGroup):
         #                      'core.recon_timescale!')
 
         self.avg_interval = self.avg_interval
-        self.avg_interval_defs = Constants.data['avg_interval']
-        self.avg_interval_kwargs = self.avg_interval_defs[self.avg_interval]
+        self._avg_interval_defs = Constants.data['avg_interval']
+        self.avg_interval_kwargs = self._avg_interval_defs[self.avg_interval]
 
         self.outputs = deepcopy(self.outputs)
 
@@ -1600,7 +1600,7 @@ class prior(ConfigGroup):
 
     def update_avg_interval(self, avg_interval):
         self.avg_interval = avg_interval
-        avg_interval_kwargs = self.avg_interval_defs[avg_interval]
+        avg_interval_kwargs = self._avg_interval_defs[avg_interval]
         self.avg_interval_kwargs = avg_interval_kwargs
 
 class forecaster(ConfigGroup):
@@ -1665,6 +1665,7 @@ class forecaster(ConfigGroup):
         """
         #TODO: Make this general to prior or analysis var, potentiall can remove
         #  the distinction in LMR_gridded
+        match_prior = True
         datatag = 'ccsm4_last_millenium'
 
         avg_interval = 'annual_std'
@@ -1681,11 +1682,24 @@ class forecaster(ConfigGroup):
 
         def __init__(self, lmr_path=None, save_pre_avg_file=None,
                      ignore_pre_avg_file=None, regrid_method=None,
-                     regrid_grid=None, esmpy_interp_method=None, **kwargs):
+                     regrid_grid=None, esmpy_interp_method=None,
+                     prior_config=None, **kwargs):
 
             super(ConfigGroup, self).__init__(**kwargs)
 
-            self.datatag = self.datatag
+            self.match_prior = self.match_prior
+
+            if self.match_prior:
+                self.datatag = prior_config.prior_source
+                self.fcast_varnames = list(prior.state_variables.keys())
+                self.prior_mapping = {state_var: state_var
+                                      for state_var in self.fcast_varnames}
+                self.avg_interval = prior.avg_interval
+            else:
+                self.datatag = self.datatag
+                self.fcast_varnames = list(self.fcast_varnames)
+                self.prior_mapping = deepcopy(self.prior_mapping)
+                self.avg_interval = self.avg_interval
 
             dataset_descr = _DataInfo.get_info(self.datatag)
             self.datainfo = dataset_descr['info']
@@ -1693,18 +1707,14 @@ class forecaster(ConfigGroup):
             self.datafile = dataset_descr['datafile']
             self.dataformat = dataset_descr['dataformat']
 
-            self.fcast_varnames = list(self.fcast_varnames)
-            self.prior_mapping = deepcopy(self.prior_mapping)
-
             self.fcast_lead = self.fcast_lead
             self.fcast_num_pcs = self.fcast_num_pcs
             self.dobj_num_pcs = self.dobj_num_pcs
             self.detrend = self.detrend
             self.ignore_precalib_lim = self.ignore_precalib_lim
 
-            self.avg_interval = self.avg_interval
-            avg_interval_defs = Constants.get_info('avg_interval')
-            self.avg_interval_kwargs = avg_interval_defs[self.avg_interval]
+            self._avg_interval_defs = Constants.data['avg_interval']
+            self.avg_interval_kwargs = self._avg_interval_defs[self.avg_interval]
 
             self.fcast_type = self.fcast_type
 
@@ -1745,15 +1755,22 @@ class forecaster(ConfigGroup):
                 #     raise ValueError('Could not find calibration datafile in '
                 #                      'default model or analyses directory.')
 
+        def update_avg_interval(self, avg_interval):
+            self.avg_interval = avg_interval
+            avg_kwargs = self._avg_interval_defs[avg_interval]
+            self.avg_interval_kwargs = avg_kwargs
+
     def __init__(self, lmr_path=None, save_pre_avg_file=None,
                  ignore_pre_avg_file=None, regrid_method=None,
-                 regrid_grid=None, esmpy_interp_method=None, **kwargs):
+                 regrid_grid=None, esmpy_interp_method=None,
+                 prior_config=None, **kwargs):
         self.lim = self.lim(lmr_path=lmr_path,
                             save_pre_avg_file=save_pre_avg_file,
                             ignore_pre_avg_file=ignore_pre_avg_file,
                             regrid_method=regrid_method,
                             regrid_grid=regrid_grid,
                             esmpy_interp_method=esmpy_interp_method,
+                            prior_config=prior_config,
                             **kwargs.pop('lim', {}))
 
         super(ConfigGroup, self).__init__(**kwargs)
@@ -1794,6 +1811,7 @@ class Config(ConfigGroup):
                                      regrid_method=regrid_method,
                                      regrid_grid=regrid_grid,
                                      esmpy_interp_method=esmpy_interp_method,
+                                     prior_config=self.prior,
                                      **kwargs.pop('forecaster', {}))
 
 
