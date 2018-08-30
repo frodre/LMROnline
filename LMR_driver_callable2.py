@@ -86,6 +86,7 @@ def LMR_driver_callable(cfg=None):
     # Temporary fix for old 'state usage'
     core_cfg = cfg.core
     prior_cfg = cfg.prior
+    output_avg_interval = prior_cfg.avg_interval
 
     # verbose controls print comments (0 = none; 1 = most important;
     #  2 = many; 3 = a lot; >=4 = all)
@@ -178,8 +179,10 @@ def LMR_driver_callable(cfg=None):
     # Create initial state vector of desired variables at smallest time res
     Xb_one = LMR_gridded.State.from_config(prior_cfg,
                                            req_avg_intervals=req_avg_intervals)
-    state_keys = '_'.join([varkey for varkey, avg_interval in Xb_one.var_keys])
-    h5f_path = join(workdir, 'recon_output_' + state_keys + '.h5')
+    state_vars = '_'.join([varname for varname, avg_interval in Xb_one.var_keys])
+    h5f_path = join(workdir,
+                    'recon_output_{}_{}.h5'.format(state_vars,
+                                                   output_avg_interval))
 
     [calc_and_store_scalars,
      scalar_containers] = \

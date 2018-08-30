@@ -15,19 +15,21 @@ def prepare_scalar_calculations(scalar_outdef, state, prior_cfg, ntimes, nens):
 
     func_by_var = {}
     scalar_containers_by_var = {}
-    for varkey, scalar_measures in scalar_outdef.items():
+    avg_interval = prior_cfg.avg_interval
+    for var_name, scalar_measures in scalar_outdef.items():
+        var_avg_key = (var_name, avg_interval)
         func_by_measure = {}
         scalar_containers_by_meas = {}
 
         for measure in scalar_measures:
             container = np.zeros((ntimes, nens))
             scalar_containers_by_meas[measure] = container
-            curr_func = _gen_scalar_func(measure, varkey,
+            curr_func = _gen_scalar_func(measure, var_name,
                                          state, prior_cfg)
             func_by_measure[measure] = curr_func
 
-        func_by_var[varkey] = func_by_measure
-        scalar_containers_by_var[varkey] = scalar_containers_by_meas
+        func_by_var[var_avg_key] = func_by_measure
+        scalar_containers_by_var[var_avg_key] = scalar_containers_by_meas
 
     def insert_scalars(state, idx):
 
@@ -46,8 +48,9 @@ def save_scalar_ensembles(workdir, times, containers_by_var):
 
     fname = '{}_{}_ens_output'
     for varkey, scalar_measures in containers_by_var.items():
+        var_name = varkey[0]
         for measure, container in scalar_measures.items():
-            filepath = join(workdir, fname.format(varkey, measure))
+            filepath = join(workdir, fname.format(var_name, measure))
             np.savez(filepath, scalar_ens=container, recon_times=times)
 
 
@@ -179,12 +182,12 @@ def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
     dtype = state.state.dtype
     atom = tb.Atom.from_dtype(dtype)
     ens_get_func = None
-    for varkey, sptl_shape in state.var_space_shp.items():
-        var_grp = h5f.create_group(h5f.root, varkey)
+    for var_name, sptl_shape in state.var_space_shp.items():
+        var_grp = h5f.create_group(h5f.root, var_name)
         out_shape = (ntimes, *sptl_shape)
 
-        lat = state.var_coords[varkey]['lon'].reshape(sptl_shape)
-        lon = state.var_coords[varkey]['lon'].reshape(sptl_shape)
+        lat = state.var_coords[var_name]['lon'].reshape(sptl_shape)
+        lon = state.var_coords[var_name]['lon'].reshape(sptl_shape)
 
         var_to_hdf5_carray(h5f, var_grp, 'lat', lat)
         var_to_hdf5_carray(h5f, var_grp, 'lon', lon)
@@ -245,17 +248,17 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
     return full_out_shp, grab_ens_members
 
 
-def save_field_output(idx, field_type, state, h5f,
+def save_field_output(idx, field_type, state, h5f, avg_interval,
                       output_def=None, ens_out_func=None):
 
-    for varkey, sptl_shape in state.var_space_shp.items():
+    for var_name, sptl_shape in state.var_space_shp.items():
 
-        data = state.get_var_data(varkey)
+        data = state.get_var_data((var_name, avg_interval))
 
         if field_type == 'prior' or field_type == 'posterior':
 
             for measure in output_def:
-                path = join('/', varkey, field_type, measure)
+                path = join('/', var_name, field_type, measure)
                 node = h5f.get_node(path)
 
                 output = field_output_reduction(measure, data, sptl_shape)
@@ -270,7 +273,7 @@ def save_field_output(idx, field_type, state, h5f,
 
             ens_out = ens_out_func(data)
 
-            path = join('/', varkey, field_type)
+            path = join('/', var_name, field_type)
             node = h5f.get_node(path)
 
             node[idx] = ens_out

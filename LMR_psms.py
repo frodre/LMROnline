@@ -322,7 +322,8 @@ class LinearPSM(BasePSM):
         # Get state var for psm
 
         state_var = state_object.get_psm_var_key(self.psm_vartype)
-        gridpoint_data = self._get_gridpoint_data_from_state(state_var,
+        var_avg_key = (state_var, self.avg_interval)
+        gridpoint_data = self._get_gridpoint_data_from_state(var_avg_key,
                                                              state_object)
 
         Ye = self.basic_psm(gridpoint_data)
@@ -709,6 +710,10 @@ class LinearPSM_TorP(BasePSM):
             [self.avg_interval,
              avg_interval_kwargs] = psm_config.handle_proxy_elem_list(
                 elem_to_avg)
+        else:
+            raise KeyError('Unrecognized average type in PSM initialization...'
+                           '\nExpected "annual" or "seasonal". Got {}'
+                           ''.format(self.avg_type))
 
         # Set the averaging interval information for calibration
         linearTorP_cfg.update_avg_interval(self.avg_interval,
@@ -884,6 +889,10 @@ class BilinearPSM(BasePSM):
             [self.avg_interval,
              avg_interval_kwargs] = psm_config.handle_proxy_elem_list(
                 elem_to_avg)
+        else:
+            raise KeyError('Unrecognized average type in PSM initialization...'
+                           '\nExpected "annual" or "seasonal". Got {}'
+                           ''.format(self.avg_type))
 
         # Set the averaging interval information for calibration
         bilinear_cfg.update_avg_interval(self.avg_interval,
@@ -962,10 +971,13 @@ class BilinearPSM(BasePSM):
         state_var_T = state_object.get_psm_var_key(self.psm_vartype_T)
         state_var_P = state_object.get_psm_var_key(self.psm_vartype_P)
 
-        gridpoint_data_T = self._get_gridpoint_data_from_state(state_var_T,
+        var_avg_key_T = (state_var_T, self.avg_interval)
+        var_avg_key_P = (state_var_P, self.avg_interval)
+
+        gridpoint_data_T = self._get_gridpoint_data_from_state(var_avg_key_T,
                                                                state_object)
 
-        gridpoint_data_P = self._get_gridpoint_data_from_state(state_var_P,
+        gridpoint_data_P = self._get_gridpoint_data_from_state(var_avg_key_P,
                                                                state_object)
 
         Ye = self.basic_psm(gridpoint_data_T, gridpoint_data_P)

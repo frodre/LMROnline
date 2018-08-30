@@ -1356,18 +1356,22 @@ class State(object):
         self._tmp_state = {}
 
         self.len_state = 0
-        for var, pobj in prior_vars.items():
-            self.var_keys.append(var)
-            self.var_space_shp[var] = pobj.space_shp
+        for var_key, pobj in prior_vars.items():
+            var_name, avg_interval = var_key
+            self.var_keys.append(var_key)
 
             var_start = self.len_state
             flat_data, flat_coords = pobj.flattened_spatial()
             var_end = flat_data.T.shape[0] + var_start
-            self.var_view_range[var] = (var_start, var_end)
+            self.var_view_range[var_key] = (var_start, var_end)
             self.len_state = var_end
             state.append(flat_data.T)
-            self.var_coords[var] = flat_coords
-            self.var_cell_area[var] = pobj.cell_area
+
+            if var_name not in self.var_space_shp:
+                # Haven't encountered this specific variable yet
+                self.var_space_shp[var_name] = pobj.space_shp
+                self.var_coords[var_name] = flat_coords
+                self.var_cell_area[var_name] = pobj.cell_area
 
         self.state = np.concatenate(state, axis=0)
         self.shape = self.state.shape
