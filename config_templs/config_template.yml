@@ -21,15 +21,12 @@ core:
   online_reconstruction: False
   clean_start: True
   use_precalc_ye: False
-  write_posterior_Ye: False
-  save_full_field: False
   ignore_pre_avg_file: False
   save_pre_avg_file: True
   recon_period: !!python/tuple [1870, 2000]
 #  recon_period: !!python/tuple [-120000, 2000]
   recon_timescale: 1
 #  recon_timescale: 250
-  anom_reference_period: !!python/tuple [1951, 1980]
   nens: 100
   seed: null
   loc_rad: null
@@ -43,6 +40,7 @@ core:
   reg_inflate: False
   inflation_factor: 1.1
 
+  # TODO: Left here to consider adding output options later in the prior
   # Ensemble archiving options: ens_full, ens_variance, ens_percentiles, ens_subsample
   save_archive: ens_variance
   save_archive_percentiles: !!python/tuple [5, 95]
@@ -306,15 +304,9 @@ proxies:
         ]
 
 psm:
-  all_calib_sources:
-    temperature: [GISTEMP, MLOST, NOAAGlobalTemp, HadCRUT, BerkeleyEarth]
-    moisture: [GPCC, DaiPDSI]
 
   calib_period: !!python/tuple [1850, 2015]
-#  avgPeriod: annual
-  avgPeriod: season
-  season_source: proxy_metadata
-#  season_source: psm_calib
+  anom_reference_period: !!python/tuple [1951, 1980]
 
   linear:
     datatag: GISTEMP
@@ -398,9 +390,8 @@ forecaster:
       tas_sfc_Amon: tas_sfc_Amon
 
     fcast_lead: 1
-    fcast_num_pcs: 20
+    fcast_num_pcs: 40
     dobj_num_pcs: 500
     detrend: True
     ignore_precalib_lim: True
-    use_ense_mean_fcast: False
 

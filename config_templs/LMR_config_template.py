@@ -106,8 +106,6 @@ class _ConstantDefinitions(_YamlStorage):
 # Load dataset information on configuration import
 _DataInfo = _DatasetDescriptors()
 _GridDef = _GridDefinitions()
-
-# TODO: these should probably be attached to config objects that will need them
 Constants = _ConstantDefinitions()
 
 
@@ -166,11 +164,12 @@ class core(ConfigGroup):
         Name of reconstruction experiment
     lmr_path: str
         Absolute path for the experiment
+    datadir_output: str
+        Absolute path to working directory output for LMR
+    archive_dir: str
+        Absolute path to LMR reconstruction archive directory.
     online_reconstruction: bool
         Perform reconstruction with (True) or without (False) cycling
-    persistence_forecast: bool
-        If online is True, this flag defines whether to use a persistence (True)
-        or LIM (False) forecast.
     clean_start: bool
         Delete existing files in output directory (otherwise they will be used
         as the prior!)
@@ -178,23 +177,22 @@ class core(ConfigGroup):
         Use pre-existing files for the psm Ye values.  If the file does not
         exist and the required state variables are missing the reconstruction
         will quit.
+    ignore_pre_avg_file: bool
+        Ignore pre-processed files for prior and anlaysis gridded data. This
+        slows down the initial stages of reconstruction, but is useful for
+        resetting the pre-processed data when used with save_pre_avg_file.
+    save_pre_avg_file: bool
+        Save intermediate files for loaded gridded datasets. Speeds up load
+        times during reconstructions.
     recon_period: tuple(int)
         Time period for reconstruction
     nens: int
         Ensemble size
-    loc_rad: float
-        Localization radius for DA (in km)
-    inflation_fact : float
-        Covariance inflation factor
     seed: int, None
         RNG seed.  Passed to all random function calls. (e.g. prior and proxy
         record sampling)  Overridden by wrapper.multi_seed.
-    assimilation_time_res: tup(float)
-        Which resolution to assimilate data (in years)
-    res_yr_shift: dict{float: float}
-        Mapping dictionary for each assimilation resolution to a shifting
-        coefficient in years. E.g. 0.5yr resolution could be shifted by 1/4
-        year to roughly match with growing season
+    loc_rad: float
+        Localization radius for DA (in km)
     hybrid_update: bool
         Use hybrid data assimilation technique for blending forecast and
         static information sources
@@ -209,16 +207,8 @@ class core(ConfigGroup):
         Use EnKF adaptive inflation on the prior
     reg_inflate: bool
         Use ensemble variance inflation on the prior
-    inf_factor: float
+    inflation_factor: float
         Variance inflation factor to use when ``reg_inflate`` is True
-    datadir_output: str
-        Absolute path to working directory output for LMR
-    archive_dir: str
-        Absolute path to LMR reconstruction archive directory
-    write_posterior_Ye: bool
-        Flag to indicate whether the analysis_Ye.pckl is to be generated 
-        or not (large file containing full information on the posterior 
-        proxy estimates (assimilated proxy records).
 
     """
 
@@ -233,8 +223,6 @@ class core(ConfigGroup):
     write_posterior_Ye = False
 
     online_reconstruction = False
-    # TODO: Move this to forecaster config
-    persistence_forecast = False
     clean_start = True
     use_precalc_ye = False
     ignore_pre_avg_file = False
@@ -256,20 +244,6 @@ class core(ConfigGroup):
     adaptive_inflate = False
     reg_inflate = False
     inflation_factor = 1.1
-
-    # Ensemble archiving options: ens_full, ens_variance, ens_percentiles, ens_subsample
-    save_archive = 'ens_variance'
-    # if save_archive = 'ens_percentiles', which percentiles to caclulate and save
-    save_archive_percentiles = (5,95)
-    # if save_archive = 'ens_subsample', number of members to archive
-    save_archive_ens_subsample = 10
-
-    # Possibly regrid the generated reanalysis fields to archive files.
-    # Options: None (no regridding) or 'esmpy'
-    archive_regrid_method = None
-    archive_esmpy_interp_method = 'bilinear'
-    archive_esmpy_regrid_to = 't42'
-
     
     ##** END User Parameters **##
 
@@ -285,7 +259,6 @@ class core(ConfigGroup):
         self.write_posterior_Ye = self.write_posterior_Ye
         self.save_full_field = self.save_full_field
         self.online_reconstruction = self.online_reconstruction
-        self.persistence_forecast = self.persistence_forecast
         self.clean_start = self.clean_start
         self.use_precalc_ye = self.use_precalc_ye
         self.ignore_pre_avg_file = self.ignore_pre_avg_file
@@ -295,31 +268,12 @@ class core(ConfigGroup):
         self.recon_timescale = self.recon_timescale
         self.seed = self.seed
         self.loc_rad = self.loc_rad
-        self.inflation_factor = self.inflation_factor
         self.hybrid_update = self.hybrid_update
         self.hybrid_a = self.hybrid_a
         self.blend_prior = self.blend_prior
         self.adaptive_inflate = self.adaptive_inflate
         self.reg_inflate = self.reg_inflate
         self.inflation_factor = self.inflation_factor
-        self.datadir_output = self.datadir_output
-        self.archive_dir = self.archive_dir
-        self.write_posterior_Ye = self.write_posterior_Ye
-        self.anom_reference_period = self.anom_reference_period
-
-
-        self.save_archive = self.save_archive
-        self.save_archive_percentiles = self.save_archive_percentiles
-        self.save_archive_ens_subsample = self.save_archive_ens_subsample
-
-
-        if self.archive_regrid_method is not None:
-            if self.archive_regrid_method == 'esmpy':
-                self.archive_esmpy_interp_method = self.archive_esmpy_interp_method
-                self.archive_esmpy_grid_def = _GridDef.get_info(self.archive_esmpy_regrid_to)
-            else:
-                raise ValueError('Unrecognized option for regridding to archive files!'
-                                 ' Only None or esmpy are allowed.')
 
         if curr_iter is None:
             self.curr_iter = wrapper.iter_range[0]
@@ -409,7 +363,8 @@ class proxies(ConfigGroup):
         Attributes
         ----------
         datadir_proxy: str
-            Absolute path to proxy data *or* None if using default lmr_path
+            Absolute path to proxy data directory. None defaults to proxy
+            directory in lmr_path
         datafile_proxy: str
             proxy records filename
         metafile_proxy: str
@@ -835,7 +790,24 @@ class proxies(ConfigGroup):
 class psm(ConfigGroup):
     """
     Parameters for PSM classes
+
+    Attributes
+    ----------
+    anom_reference_period: tuple of int
+        The period to use as the reference for anomalie centering when
+        calibrating PSMs. Edges are inclusive.  All reconstruction output
+        will be an anomaly relative to this time
+    calib_period: tuple of int
+        Year range to use for calibrating the PSM.  Edges are inclusive.
     """
+
+    # Period to use to center the calibration data, sets the reference period
+    #  for the reconstruction when using statistical PSMs
+    anom_reference_period = (1951, 1980)
+
+    # Period over which data is used to establish a statistical relationship
+    # between proxy and instrumental data (statistical PSMs only)
+    calib_period = (1850, 2015)
 
     class linear(ConfigGroup):
         """
@@ -845,20 +817,19 @@ class psm(ConfigGroup):
         ----------
         datatag: str
             Source key of calibration data for PSM
-        datadir: str
-            Absolute path to calibration data *or* None if using default
-            lmr_path
-        datafile: str
-            Filename for calibration data
-        dataformat: str
-            Data storage type for calibration data
-        pre_datafile: str
-            Absolute path to precalibrated Linear PSM data *or* None if using
-            default LMR path
-        varname: str
-            Variable name to use from the calibration dataset
+        pre_datafile: str, Optional
+            Absolute path to precalibrated Linear PSM data
+        avg_type: str
+            Whether to use 'annual' or 'seasonal' time average definitions
+            for calibration and use of proxy system models
+        season_source: str
+            Use seasonal information determeined from metadata (
+            'proxy_metadata') or objective PSM calibration ('psm_calib')
         psm_r_crit: float
             Usage threshold for correlation of linear PSM
+        min_data_req_frac: float
+            The fraction of data required in a given year to count as an average
+            and not NaN. TODO: Find out if this is still relevant
         """
 
         ##** BEGIN User Parameters **##
@@ -875,14 +846,12 @@ class psm(ConfigGroup):
 
         psm_r_crit = 0.0
 
-        # Period over which data is used to establish a statistical relationship
-        # between proxy and instrumental data (statistical PSMs only)
-        calib_period = (1850, 2015)
-
         min_data_req_frac = 1.0  # 0.0 no data required, 1.0 all data required
         ##** END User Parameters **##
 
-        def __init__(self, lmr_path=None, **kwargs):
+        def __init__(self, lmr_path=None, anom_reference_period=None,
+                     proxy_use_from=None, calib_period=None,
+                     **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
             self.datatag = self.datatag
@@ -898,6 +867,19 @@ class psm(ConfigGroup):
 
             self.avg_type = self.avg_type
             self.season_source = self.season_source
+
+            if proxy_use_from is None:
+                proxy_use_from = proxies.use_from
+            self.proxy_use_from = proxy_use_from
+
+            if anom_reference_period is None:
+                anom_reference_period = psm.anom_reference_period
+            self.anom_reference_period = anom_reference_period
+
+            if calib_period is None:
+                calib_period = psm.calib_period
+            self.calib_period = calib_period
+
 
             if 'PAGES2kv1' in proxies.use_from and 'season' in self.avg_type:
                 raise ValueError('No seasonality information in PAGES2kv1 '
@@ -918,24 +900,29 @@ class psm(ConfigGroup):
                 self.datadir = self.datadir
 
             if self.pre_calib_datafile is None:
-                if 'LMRdb' in proxies.use_from:
-                    dbversion = proxies.LMRdb.dbversion
-                    filename = ('PSMs_' + proxies.use_from +
-                                '_' + dbversion +
-                                '_' + self.avg_type +
-                                '_' + self.datatag_calib +
-                                '_ref' + str(core.anom_reference_period[0]) + '-' + str(core.anom_reference_period[1]) +
-                                '_cal' + str(psm.calib_period[0]) + '-' + str(psm.calib_period[1]) +
-                                '.pckl')
+
+                dbversion = proxies.LMRdb.dbversion
+                cstart, cend = self.calib_period
+                anom_start, anom_end = anom_reference_period
+
+                if self.avg_type == 'annual':
+                    season_tag = _avg_type_pre_calib_tag['annual']
                 else:
-                    filename = ('PSMs_' + '-'.join(proxies.use_from) +
-                                '_' + self.datatag_calib +
-                                '_ref' + str(core.anom_reference_period[0]) + '-' + str(core.anom_reference_period[1]) +
-                                '_cal' + str(psm.calib_period[0]) + '-' + str(psm.calib_period[1]) +
-                                '.pckl')
-                self.pre_calib_datafile = join(lmr_path,
-                                               'PSM',
-                                               filename)
+                    season_tag = _avg_type_pre_calib_tag[(self.avg_type,
+                                                          self.season_source)]
+
+                if 'LMRdb' in proxies.use_from:
+
+                    filename = (f'PSMs_{proxy_use_from}_{dbversion}_'
+                                f'{self.avg_type}{season_tag}{self.datatag}_'
+                                f'ref{anom_start}-{anom_end}_'
+                                f'cal{cstart}-{cend}.pckl')
+                else:
+                    filename = (f'PSMs_{proxy_use_from}_{self.datatag}_'
+                                f'ref{anom_start}-{anom_end}_'
+                                f'cal{cstart}-{cend}.pckl')
+
+                self.pre_calib_datafile = join(lmr_path, 'PSM', filename)
             else:
                 self.pre_calib_datafile = self.pre_calib_datafile
 
@@ -961,26 +948,24 @@ class psm(ConfigGroup):
         ----------
         datatag_T: str
             Source of temperature calibration data for linear PSM
-        datadir_T: str
-            Absolute path to temperature calibration data *or* None if using
-            default lmr_path
-        datafile_T: str
-            Filename for temperature calibration data
         datatag_P: str
             Source of precipitation calibration data for linear PSM
-        datadir_P: str
-            Absolute path to precipitation calibration data *or* None if using
-            default lmr_path
-        datafile_P: str
-            Filename for precipitation calibration data
-        dataformat: str
-            Data storage type for calibration data
-        pre_calib_datafile_T: str
+        pre_calib_datafile_T: str, Optional
             Absolute path to precalibrated Linear temperature PSM data
-        pre_calib_datafile_P: str
+        pre_calib_datafile_P: str, Optional
             Absolute path to precalibrated Linear precipitation PSM data
         psm_r_crit: float
             Usage threshold for correlation of linear PSM
+        avg_type: str
+            Whether to use 'annual' or 'seasonal' time average definitions
+            for calibration and use of proxy system models
+        season_source: str
+            Use seasonal information determeined from metadata (
+            'proxy_metadata') or objective PSM calibration ('psm_calib')
+        metric: str
+            Metric to use in determination of whether to use temperature or
+            moisture PSM. 'corr' for correlation or 'mse' for mean squared
+            error.
         """
 
         ##** BEGIN User Parameters **##
@@ -1013,7 +998,8 @@ class psm(ConfigGroup):
 
         ##** END User Parameters **##
 
-        def __init__(self, lmr_path=None, **kwargs):
+        def __init__(self, lmr_path=None, proxy_use_from=None,
+                     calib_period=None, anom_reference_period=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
             temp_kwarg = {'datatag': self.datatag_T,
@@ -1025,9 +1011,29 @@ class psm(ConfigGroup):
                           'avg_type': self.avg_type,
                           'season_source': self.season_source}
 
+            if proxy_use_from is None:
+                proxy_use_from = proxies.use_from
+            self.proxy_use_from = proxy_use_from
+
+            if anom_reference_period is None:
+                anom_reference_period = psm.anom_reference_period
+            self.anom_reference_period = anom_reference_period
+
+            if calib_period is None:
+                calib_period = psm.calib_period
+            self.calib_period = calib_period
+
             # Configuration for temperature and moisture psms
-            self.temperature = psm.linear(lmr_path=lmr_path, **temp_kwarg)
-            self.moisture = psm.linear(lmr_path=lmr_path, **mois_kwarg)
+            self.temperature = psm.linear(lmr_path=lmr_path,
+                                          proxy_use_from=proxy_use_from,
+                                          calib_period=calib_period,
+                                          anom_reference_period=anom_reference_period,
+                                          **temp_kwarg)
+            self.moisture = psm.linear(lmr_path=lmr_path,
+                                       proxy_use_from=proxy_use_from,
+                                       calib_period=calib_period,
+                                       anom_reference_period=anom_reference_period,
+                                       **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
             self.metric = self.metric
@@ -1046,22 +1052,16 @@ class psm(ConfigGroup):
         ----------
         datatag_T: str
             Source of calibration temperature data for PSM
-        datadir_T: str
-            Absolute path to calibration temperature data
-        datafile_T: str
-            Filename for calibration temperature data
-        dataformat_T: str
-            Data storage type for calibration temperature data
         datatag_P: str
             Source of calibration precipitation/moisture data for PSM
-        datadir_P: str
-            Absolute path to calibration precipitation/moisture data
-        datafile_P: str
-            Filename for calibration precipitation/moisture data
-        dataformat_P: str
-            Data storage type for calibration precipitation/moisture data
-        pre_calib_datafile: str
+        pre_calib_datafile: str, Optional
             Absolute path to precalibrated Linear PSM data
+        avg_type: str
+            Whether to use 'annual' or 'seasonal' time average definitions
+            for calibration and use of proxy system models
+        season_source: str
+            Use seasonal information determeined from metadata (
+            'proxy_metadata') or objective PSM calibration ('psm_calib')
         psm_r_crit: float
             Usage threshold for correlation of linear PSM
         """
@@ -1085,10 +1085,11 @@ class psm(ConfigGroup):
         pre_calib_datafile = None
         psm_r_crit = 0.0
 
-        
         ##** END User Parameters **##
 
-        def __init__(self, lmr_path=None, **kwargs):
+        def __init__(self, lmr_path=None, proxy_use_from=None,
+                     calib_period=None, anom_reference_period=None, **kwargs):
+
             super(self.__class__, self).__init__(**kwargs)
 
             temp_kwarg = {'datatag': self.datatag_T,
@@ -1098,40 +1099,59 @@ class psm(ConfigGroup):
                           'avg_type': self.avg_type,
                           'season_source': self.season_source}
 
+            if proxy_use_from is None:
+                proxy_use_from = proxies.use_from
+            self.proxy_use_from = proxy_use_from
+
+            if anom_reference_period is None:
+                anom_reference_period = psm.anom_reference_period
+            self.anom_reference_period = anom_reference_period
+
+            if calib_period is None:
+                calib_period = psm.calib_period
+            self.calib_period = calib_period
+
             # Configuration for temperature and moisture psms
-            self.temperature = psm.linear(lmr_path=lmr_path, **temp_kwarg)
-            self.moisture = psm.linear(lmr_path=lmr_path, **mois_kwarg)
+            self.temperature = psm.linear(lmr_path=lmr_path,
+                                          proxy_use_from=proxy_use_from,
+                                          calib_period=calib_period,
+                                          anom_reference_period=anom_reference_period,
+                                          **temp_kwarg)
+            self.moisture = psm.linear(lmr_path=lmr_path,
+                                       proxy_use_from=proxy_use_from,
+                                       calib_period=calib_period,
+                                       anom_reference_period=anom_reference_period,
+                                       **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
                 
             if self.pre_calib_datafile is None:
-                if proxies.use_from == 'LMRdb':
-                    if self.avg_type == 'season':
-                        if self.season_source == 'proxy_metadata':
-                            source = 'META'
-                        elif self.season_source == 'psm_calib':
-                            source = 'PSM'
-                    else:
-                        source = ''
-                    dbversion = proxies.LMRdb.dbversion
-                    filename = ('PSMs_'+proxies.use_from +
-                                '_' + dbversion +
-                                '_' + self.avgPeriod +
-                                '_' + self.datatag_calib_T +
-                                '_' + self.datatag_calib_P +
-                                '_ref' + str(core.anom_reference_period[0]) + '-' + str(core.anom_reference_period[1]) +
-                                '_cal' + str(psm.calib_period[0]) + '-' + str(psm.calib_period[1]) +
-                                '.pckl')
+
+                dbversion = proxies.LMRdb.dbversion
+                cstart, cend = self.calib_period
+                anom_start, anom_end = anom_reference_period
+
+                if self.avg_type == 'annual':
+                    season_tag = _avg_type_pre_calib_tag['annual']
                 else:
-                    filename = ('PSMs_'+'-'.join(proxies.use_from) +
-                                '_' + self.datatag_calib_T +
-                                '_' + self.datatag_calib_P +
-                                '_ref' + str(core.anom_reference_period[0]) + '-' + str(core.anom_reference_period[1]) +
-                                '_cal' + str(psm.calib_period[0]) + '-' + str(psm.calib_period[1]) +
-                                '.pckl')
-                self.pre_calib_datafile = join(lmr_path,
-                                                 'PSM',
-                                                 filename)
+                    season_tag = _avg_type_pre_calib_tag[(self.avg_type,
+                                                          self.season_source)]
+
+                if proxies.use_from == 'LMRdb':
+
+                    filename = (f'PSMs_{proxy_use_from}_{dbversion}_'
+                                f'{self.avg_type}{season_tag}{self.datatag_T}_'
+                                f'{self.datatag_P}_'
+                                f'ref{anom_start}-{anom_end}_'
+                                f'cal{cstart}-{cend}.pckl')
+                else:
+
+                    filename = (f'PSMs_{proxy_use_from}_{dbversion}_'
+                                f'{self.datatag_T}_{self.datatag_P}_'
+                                f'ref{anom_start}-{anom_end}_'
+                                f'cal{cstart}-{cend}.pckl')
+
+                self.pre_calib_datafile = join(lmr_path, 'PSM', filename)
             else:
                 self.pre_calib_datafile = self.pre_calib_datafile
 
@@ -1271,13 +1291,29 @@ class psm(ConfigGroup):
 
     # Initialize subclasses with all attributes 
     def __init__(self, lmr_path=None, save_pre_avg_file=None,
-                 ignore_pre_avg_file=None, **kwargs):
+                 ignore_pre_avg_file=None, proxy_use_from=None, **kwargs):
 
-        self.linear = self.linear(lmr_path=lmr_path, **kwargs.pop('linear', {}))
+        self.anom_reference_period = self.anom_reference_period
+        self.calib_period = self.calib_period
+
+        self.linear = self.linear(lmr_path=lmr_path,
+                                  proxy_use_from=proxy_use_from,
+                                  anom_reference_period=self.anom_reference_period,
+                                  calib_period=self.calib_period,
+                                  **kwargs.pop('linear', {}))
+
         self.linear_TorP = self.linear_TorP(lmr_path=lmr_path,
+                                            proxy_use_from=proxy_use_from,
+                                            anom_reference_period=self.anom_reference_period,
+                                            calib_period=self.calib_period,
                                             **kwargs.pop('linear_TorP', {}))
+
         self.bilinear = self.bilinear(lmr_path=lmr_path,
+                                      proxy_use_from=proxy_use_from,
+                                      anom_reference_period=self.anom_reference_period,
+                                      calib_period=self.calib_period,
                                       **kwargs.pop('bilinear', {}))
+
         self.h_interp = self.h_interp(**kwargs.pop('h_interp', {}))
         self.bayesreg_uk37 = self.bayesreg_uk37(**kwargs.pop('bayesreg_uk37', {}))
 
@@ -1334,6 +1370,7 @@ class psm(ConfigGroup):
 
         elem_str = avg_interval_name.split('_')[-1]
         elements = elem_str.split('-')
+        return elements
 
     def get_avg_def(self, key):
         """Get a subannual element averaging definition from the attached
@@ -1357,7 +1394,6 @@ class psm(ConfigGroup):
         return avg_interval, avg_interval_kwargs
 
 
-
 class prior(ConfigGroup):
     """
     Parameters for the ensemble DA prior
@@ -1366,38 +1402,15 @@ class prior(ConfigGroup):
     ----------
     prior_source: str
         Source of prior data
-    datadir: str
-        Absolute path to prior data *or* None if using default LMR path
-    datafile: str
-        Name of prior file to use
-    dataformat: str
-        Datatype of prior container ('NCD' for netCDF, 'TXT' for ascii files).
-        Note: Currently not used. 
-    backend_type: str
-        Which backend to use for storing prior data during updates with
-        shifted assimilation resolution.  Allowed flags are 'NPY' for numpy
-        and 'H5' for HDF5 backends.
-    state_variables: dict
-       Dict. of the form {'var1': 'kind1', 'var2':'kind2', etc.} where 'var1',
-       'var2', etc. (keys of the dict) are the names of the state variables to
-       be included in the state vector and 'kind1', 'kind2' etc. are the
-       associated "kind" for each state variable indicating whether anomalies
-       ('anom') or full field ('full') are desired.
+    state_variables: dict of str
+       State variables to be reconstructed. Formated as
+       {variable name: field type} where field type denotes whether anomaly
+       ('anom') or full field ('full') results are desired.
     detrend: bool
-        Indicates whether to detrend the prior or not. Applies to ALL state
-        variables.
-    avg_interval: dict OR list(int)
-        dict of the form {'type':value} where 'type' indicates the type of
-        averaging ('annual' or 'multiyear').
-        If type = 'annual', the corresponding value is a 
-        list of integers indficsting the months of the year over which the
-        averaging is the be performed (ex. [6,7,8] for JJA).
-        If type = 'multiyear', the list is composed of a single integer
-        indicating the length of the averaging period, in number of years
-        (ex. [100] for prior returned as 100-yr averages).
-        -OR-
-        List of integers indicating the months over which to average the annual
-        prior. (as 'annual' above).
+        Whether to detrend the prior data after averaging is performed.
+    avg_interval: str
+        The averaging interval as defined in constants.yml to average the prior
+        data to and the the average interval of the output.
     output: dict
         Output designations for fields and scalars during runtime.
     regrid_method: str
@@ -1405,7 +1418,8 @@ class prior(ConfigGroup):
         resolution.
         Allowed options are: 
         1) None : Regridding NOT performed. 
-        2) 'spherical_harmonics' : Original regridding using pyspharm library.
+        2) 'spherical_harmonics' : Original regridding using pyspharm
+           library. Cannot handle fields with masked/NaN data
         3) 'simple': Regridding through simple inverse distance averaging of
             surrounding grid points.
         4) 'esmpy': Regridding using the ESMpy package. Includes bilinear and
@@ -1420,15 +1434,9 @@ class prior(ConfigGroup):
         Currently supports:
         'bilinear':  Bilinear interpolation, good for smooth fields
         'patch': Higher order patch interpolation
-        'conserve': Conservative regridding, only use on fields where
-            conservation makes sense.  E.g. Mass or energy fields
     esmpy_regrid_to: str
         A grid defined in grid_def.yml to use as the regridding target.  
         Currently supports 't42' and 'reg_4x5deg'.
-    state_variables_info: dict
-        Defines which variables represent temperature or moisture.
-        Should be modified only if a new temperature or moisture state variable
-        is added.
     """
 
     ##** BEGIN User Parameters **##
@@ -1438,9 +1446,7 @@ class prior(ConfigGroup):
 
     # dict defining variables to be included in state vector (keys)
     # and associated "kind", i.e. as anomalies ('anom') or full field ('full')
-    state_variables = {
-        'tas_sfc_Amon'              : 'anom',
-        }
+    state_variables = {'tas_sfc_Amon': 'anom'}
 
     # Averaging interval for data defined in constants.yml
     avg_interval = 'annual_std'
@@ -1454,47 +1460,17 @@ class prior(ConfigGroup):
         'scalar_ens': {'tas_sfc_Amon': ['glob_mean']}
     }
 
-
-
-
     ## The reference period (in year CE) for calculation of anomalies
     ## ** Valid for prior ccsm3_trace21ka only for now. Use None for all others **
     ## Options: None or tuple indicating the reference period
     #anom_reference = None
 
-
-
-    
-    # boolean : detrend prior?
-    # by default, considers the entire length of the simulation
     detrend = False
 
     # In memory ('NPY') or out of memory ('H5') state handling
     backend_type = 'NPY'
 
-    # Method for regridding to lower resolution grid.
-    # Possible methods:
-    # 1) None : No regridding performed. 
-    # 2) 'spherical_harmonics': through spherical harmonics using pyspharm
-    #    library. Note: Does *NOT* handle fields with missing/masked values (
-    #    e.g. ocean variables)
-    # 3) 'simple': through simple interpolation using distance-weighted
-    #    averaging. Note: fields with missing/masked values (e.g. ocean
-    #    variables) allowed.
-    # 4) 'esmpy': regridding facilitated by ESMpy package, includes
-    #    bilinear, and higher order patch interpolation
-    regrid_method = 'simple'
-    # resolution of truncated grid, based on triangular truncation (e.g.,
-    # use 42 for T42))
-    # 2) 'spherical_harmonics': through spherical harmonics using pyspharm library.
-    #    Note: Does *NOT* handle fields with missing/masked values (e.g. ocean variables)
-    # 3) 'simple': through simple interpolation using distance-weighted averaging.
-    #    Note: fields with missing/masked values (e.g. ocean variables) allowed.
-    # 4) 'esmpy': regridding facilitated by ESMpy package, includes blinear,
-    #    and higher order patch interpolation
     regrid_method = 'esmpy'
-    # resolution of truncated grid, based on triangular truncation (e.g., use 42 for T42))
-    # note: this option applies only to 'simple' or 'spherical_harmonics' options
     regrid_resolution = 42
 
     # ESMpy regridding options
@@ -1541,18 +1517,7 @@ class prior(ConfigGroup):
         self.ignore_pre_avg_file = ignore_pre_avg_file
 
         if self.datadir is None:
-            self.datadir = join(lmr_path, 'data', 'model',
-                                      self.prior_source)
-
-        # TODO: Move these into visible configuration param, fix multiyear DADT
-        # if core.recon_timescale == 1:
-        #     self.avg_interval = {'annual': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}  # annual (calendar) as default
-        # elif core.recon_timescale > 1:
-        #     # new format for CCSM3 TraCE21ka:
-        #     self.avg_interval = {'multiyear': [core.recon_timescale]}
-        # else:
-        #     raise ValueError('ERROR in config.: unrecognized '
-        #                      'core.recon_timescale!')
+            self.datadir = join(lmr_path, 'data', 'model', self.prior_source)
 
         self.avg_interval = self.avg_interval
         self._avg_interval_defs = Constants.data['avg_interval']
@@ -1567,7 +1532,7 @@ class prior(ConfigGroup):
             self.esmpy_grid_def = None
         elif self.regrid_method == 'esmpy':
             self.regrid_resolution = None
-            self.esmpy_interp_method = self._validate_interp_method()
+            self.esmpy_interp_method = self.esmpy_interp_method
             self.esmpy_grid_def = _GridDef.get_info(self.esmpy_regrid_to)
             self.regrid_grid = self.esmpy_regrid_to
 
@@ -1603,6 +1568,7 @@ class prior(ConfigGroup):
         avg_interval_kwargs = self._avg_interval_defs[avg_interval]
         self.avg_interval_kwargs = avg_interval_kwargs
 
+
 class forecaster(ConfigGroup):
     """
     Parameters for the online DA forecasting method.
@@ -1620,15 +1586,9 @@ class forecaster(ConfigGroup):
         """
         datatag: str
             Source key of calibration data for LIM
-        datainfo: dict
-            Information about the calibration data. From the info section of
-            datasets.yml
-        datadir: str
-            Absolute path to the source data file for the LIM
-        datafile: str
-            Filename of source data for LIM
-        dataformat: str
-            Dataformat key of source data for LIM
+        match_prior: bool
+            Designates whether to forecast all variables present in the state.
+            If true, fcast_varnames and avg_interval is desregarded.
         avg_interval: str
             Average interval key as defined in constants.yml for averaging
             the calibration data.
@@ -1647,7 +1607,8 @@ class forecaster(ConfigGroup):
         prior_mapping: dict{str: str}
             Mapping of forecast variables to prior variables.
         forecast_lead: int
-            Forecast time period in units of the avg_interval
+            Forecast time period.  Units of annual or multi-annual time scale
+            depending on the averaging interval.
         fcast_num_pcs: int
             Number of principle components to retain during LIM forecast
             calibration.
@@ -1658,13 +1619,9 @@ class forecaster(ConfigGroup):
         detrend: bool
             Flag to detrend source data prior to calibration step.
         ignore_precalib: bool
-            Ignore pre-calibrated LIM files
-        use_ens_mean_fcast: bool
-            Perform a forecast on the ensemble mean rather than each ensemble
-            member
+            Currently not in use... Ignore pre-calibrated LIM files.
         """
-        #TODO: Make this general to prior or analysis var, potentiall can remove
-        #  the distinction in LMR_gridded
+
         match_prior = True
         datatag = 'ccsm4_last_millenium'
 
@@ -1796,7 +1753,9 @@ class Config(ConfigGroup):
         self.proxies = proxies(lmr_path=lmr_path,
                                seed=seed,
                                **kwargs.pop('proxies', {}))
-        self.psm = psm(lmr_path=lmr_path, **kwargs.pop('psm', {}))
+        self.psm = psm(lmr_path=lmr_path,
+                       proxy_use_from=self.proxies.use_from,
+                       **kwargs.pop('psm', {}))
         self.prior = prior(lmr_path=lmr_path,
                            seed=seed, save_pre_avg_file=save_preavg,
                            ignore_pre_avg_file=ignore_preavg,
@@ -1912,6 +1871,10 @@ def initialize_config_yaml(cfg_module, yaml_file=None):
              'desired then please change LEGACY_CONFIG to True'
              'in LMR_wrapper.py.').format(yaml_file))
 
+
+_avg_type_pre_calib_tag = {'annual': '',
+                           ('season', 'proxy_metadata'): '_season_META_',
+                           ('season', 'psm_calib'): '_season_PSM_'}
 
 
 if __name__ == "__main__":
