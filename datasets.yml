@@ -1,7 +1,10 @@
 # Holds information about the different datasets used by the LMR code.  Each
 # source is named as the tag used to designate it in the config.yml
 
-# NASA GISTEMP
+# ===============================================================
+# Analysis Datasets (useful for PSM calibration and verification)
+# ===============================================================
+
 GISTEMP:
   info:
     multiple_vars: False
@@ -116,6 +119,9 @@ SPEI:
   datafile: spei_monthly_v2.4_190001-201412.nc
   dataformat: NCD
 
+# ===============================================================
+# Model Output Datasets (used for prior information)
+# ===============================================================
 
 icesm_last_millennium:
   info:
@@ -269,6 +275,60 @@ mpi-esm-p_last_millenium:
   datafile: '[vardef_template]_MPI-ESM-P_past1000_085001-185012.nc'
   dataformat: NCD
 
+loveclim_goosse2005:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: ['tas_sfc_Amon', 'tos_sfc_Amon']
+    cell_area: null
+
+  datadir: null
+  datafile: '[vardef_template]_loveclim_expD2000.nc'
+  dataformat: NCD
+
+ihadcm3_preindustrial_control:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: ['tas_sfc_Amon', 'psl_sfc_Amon',
+                     'pr_sfc_Amon', 'd18O_sfc_Amon']
+    cell_area: null
+
+  datadir: null
+  datafile: '[vardef_template]_ihadcm3_preindustrial_control.nc'
+  dataformat: NCD
+
+ccsm3_trace21ka:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: ['tas_sfc_Amon', 'psl_sfc_Adec', 'sfcheight_sfc_Adec',
+                     'tas_sfc_Adec', 'ts_sfc_Adec', 'tsl_sfc_Adec',
+                     'prw_int_Adec', 'pr_sfc_Adec',
+                     'zg_500hPa_Adec', 'zg_850hPa_Adec', 'wap_700hPa_Adec',
+                     'ta_1000hPa_Adec', 'ta_850hPa_Adec', 'ta_700hPa_Adec', 'ta_600hPa_Adec', 'ta_500hPa_Adec', 
+                     'tos_sfc_Odec', 'sos_sfc_Odec']
+    cell_area: null
+
+  datadir: null
+  datafile: '[vardef_template]_CCSM3_TraCE21ka.nc'
+  dataformat: NCD
+
+cgenie_petm:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: ['tas_sfc_Adec', 'tos_sfc_Adec']
+    cell_area: null
+
+  datadir: null
+  datafile: '[vardef_template]_cgenie_petm.nc'
+  dataformat: NCD
+
+# =========================================================================
+# Reanalysis Output Datasets (used for prior, calibration, or verification)
+# =========================================================================
+
 20cr:
   info:
     multiple_vars: True
@@ -321,56 +381,6 @@ era20cm:
 
   datadir: null
   datafile: '[vardef_template]_ERA20CM_190001-201012.nc'
-  dataformat: NCD
-
-loveclim_goosse2005:
-  info:
-    multiple_vars: True
-    template: '[vardef_template]'
-    available_vars: ['tas_sfc_Amon', 'tos_sfc_Amon']
-    cell_area: null
-
-  datadir: null
-  datafile: '[vardef_template]_loveclim_expD2000.nc'
-  dataformat: NCD
-
-ihadcm3_preindustrial_control:
-  info:
-    multiple_vars: True
-    template: '[vardef_template]'
-    available_vars: ['tas_sfc_Amon', 'psl_sfc_Amon',
-                     'pr_sfc_Amon', 'd18O_sfc_Amon']
-    cell_area: null
-
-  datadir: null
-  datafile: '[vardef_template]_ihadcm3_preindustrial_control.nc'
-  dataformat: NCD
-
-ccsm3_trace21ka:
-  info:
-    multiple_vars: True
-    template: '[vardef_template]'
-    available_vars: ['tas_sfc_Amon', 'psl_sfc_Adec', 'sfcheight_sfc_Adec',
-                     'tas_sfc_Adec', 'ts_sfc_Adec', 'tsl_sfc_Adec',
-                     'prw_int_Adec', 'pr_sfc_Adec',
-                     'zg_500hPa_Adec', 'zg_850hPa_Adec', 'wap_700hPa_Adec',
-                     'ta_1000hPa_Adec', 'ta_850hPa_Adec', 'ta_700hPa_Adec', 'ta_600hPa_Adec', 'ta_500hPa_Adec', 
-                     'tos_sfc_Odec', 'sos_sfc_Odec']
-    cell_area: null
-
-  datadir: null
-  datafile: '[vardef_template]_CCSM3_TraCE21ka.nc'
-  dataformat: NCD
-
-cgenie_petm:
-  info:
-    multiple_vars: True
-    template: '[vardef_template]'
-    available_vars: ['tas_sfc_Adec', 'tos_sfc_Adec']
-    cell_area: null
-
-  datadir: null
-  datafile: '[vardef_template]_cgenie_petm.nc'
   dataformat: NCD
 
 
