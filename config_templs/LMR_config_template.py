@@ -809,6 +809,10 @@ class psm(ConfigGroup):
     # between proxy and instrumental data (statistical PSMs only)
     calib_period = (1850, 2015)
 
+    regrid_method = None
+    regrid_grid = 'reg_2x2deg'
+    esmpy_interp_method = 'bilinear'
+
     class linear(ConfigGroup):
         """
         Parameters for the linear fit PSM.
@@ -851,7 +855,8 @@ class psm(ConfigGroup):
 
         def __init__(self, lmr_path=None, anom_reference_period=None,
                      proxy_use_from=None, calib_period=None,
-                     **kwargs):
+                     regrid_method=None, regrid_grid=None,
+                     esmpy_interp_method=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
             self.datatag = self.datatag
@@ -935,6 +940,25 @@ class psm(ConfigGroup):
                                  'datatag_calib in the config.')
             self.psm_required_variables = self.datainfo['psm_vartype']
 
+            if regrid_method is None:
+                regrid_method = psm.regrid_method
+            self.regrid_method = regrid_method
+
+            if regrid_grid is None:
+                regrid_grid = psm.regrid_grid
+            self.regrid_grid = regrid_grid
+
+            if esmpy_interp_method is None:
+                esmpy_interp_method = psm.esmpy_interp_method
+            self.esmpy_interp_method = esmpy_interp_method
+
+            if self.regrid_method != 'esmpy':
+                self.regrid_resolution = self.regrid_grid
+                self.esmpy_grid_def = None
+            elif self.regrid_method == 'esmpy':
+                self.regrid_resolution = None
+                self.esmpy_grid_def = _GridDef.get_info(self.regrid_grid)
+
         def update_avg_interval(self, avg_interval, avg_interval_kwargs):
             self.avg_interval = avg_interval
             self.avg_interval_kwargs = avg_interval_kwargs
@@ -999,7 +1023,9 @@ class psm(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, proxy_use_from=None,
-                     calib_period=None, anom_reference_period=None, **kwargs):
+                     calib_period=None, anom_reference_period=None,
+                     regrid_method=None, regrid_grid=None,
+                     esmpy_interp_method=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
             temp_kwarg = {'datatag': self.datatag_T,
@@ -1028,11 +1054,17 @@ class psm(ConfigGroup):
                                           proxy_use_from=proxy_use_from,
                                           calib_period=calib_period,
                                           anom_reference_period=anom_reference_period,
+                                          regrid_method=regrid_method,
+                                          regrid_grid=regrid_grid,
+                                          esmpy_interp_method=esmpy_interp_method,
                                           **temp_kwarg)
             self.moisture = psm.linear(lmr_path=lmr_path,
                                        proxy_use_from=proxy_use_from,
                                        calib_period=calib_period,
                                        anom_reference_period=anom_reference_period,
+                                       regrid_method=regrid_method,
+                                       regrid_grid=regrid_grid,
+                                       esmpy_interp_method=esmpy_interp_method,
                                        **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
@@ -1088,7 +1120,10 @@ class psm(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, proxy_use_from=None,
-                     calib_period=None, anom_reference_period=None, **kwargs):
+                     calib_period=None, anom_reference_period=None,
+                     regrid_method=None, regrid_grid=None,
+                     esmpy_interp_method=None,
+                     **kwargs):
 
             super(self.__class__, self).__init__(**kwargs)
 
@@ -1116,11 +1151,17 @@ class psm(ConfigGroup):
                                           proxy_use_from=proxy_use_from,
                                           calib_period=calib_period,
                                           anom_reference_period=anom_reference_period,
+                                          regrid_method=regrid_method,
+                                          regrid_grid=regrid_grid,
+                                          esmpy_interp_method=esmpy_interp_method,
                                           **temp_kwarg)
             self.moisture = psm.linear(lmr_path=lmr_path,
                                        proxy_use_from=proxy_use_from,
                                        calib_period=calib_period,
                                        anom_reference_period=anom_reference_period,
+                                       regrid_method=regrid_method,
+                                       regrid_grid=regrid_grid,
+                                       esmpy_interp_method=esmpy_interp_method,
                                        **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
@@ -1291,7 +1332,9 @@ class psm(ConfigGroup):
 
     # Initialize subclasses with all attributes 
     def __init__(self, lmr_path=None, save_pre_avg_file=None,
-                 ignore_pre_avg_file=None, proxy_use_from=None, **kwargs):
+                 ignore_pre_avg_file=None, proxy_use_from=None,
+                 regrid_method=None, regrid_grid=None,
+                 esmpy_interp_method=None, **kwargs):
 
         self.anom_reference_period = self.anom_reference_period
         self.calib_period = self.calib_period
@@ -1300,18 +1343,27 @@ class psm(ConfigGroup):
                                   proxy_use_from=proxy_use_from,
                                   anom_reference_period=self.anom_reference_period,
                                   calib_period=self.calib_period,
+                                  regrid_method=regrid_method,
+                                  regrid_grid=regrid_grid,
+                                  esmpy_interp_method=esmpy_interp_method,
                                   **kwargs.pop('linear', {}))
 
         self.linear_TorP = self.linear_TorP(lmr_path=lmr_path,
                                             proxy_use_from=proxy_use_from,
                                             anom_reference_period=self.anom_reference_period,
                                             calib_period=self.calib_period,
+                                            regrid_method=regrid_method,
+                                            regrid_grid=regrid_grid,
+                                            esmpy_interp_method=esmpy_interp_method,
                                             **kwargs.pop('linear_TorP', {}))
 
         self.bilinear = self.bilinear(lmr_path=lmr_path,
                                       proxy_use_from=proxy_use_from,
                                       anom_reference_period=self.anom_reference_period,
                                       calib_period=self.calib_period,
+                                      regrid_method=regrid_method,
+                                      regrid_grid=regrid_grid,
+                                      esmpy_interp_method=esmpy_interp_method,
                                       **kwargs.pop('bilinear', {}))
 
         self.h_interp = self.h_interp(**kwargs.pop('h_interp', {}))
@@ -1753,9 +1805,6 @@ class Config(ConfigGroup):
         self.proxies = proxies(lmr_path=lmr_path,
                                seed=seed,
                                **kwargs.pop('proxies', {}))
-        self.psm = psm(lmr_path=lmr_path,
-                       proxy_use_from=self.proxies.use_from,
-                       **kwargs.pop('psm', {}))
         self.prior = prior(lmr_path=lmr_path,
                            seed=seed, save_pre_avg_file=save_preavg,
                            ignore_pre_avg_file=ignore_preavg,
@@ -1764,6 +1813,14 @@ class Config(ConfigGroup):
         regrid_method = self.prior.regrid_method
         regrid_grid = self.prior.regrid_grid
         esmpy_interp_method = self.prior.esmpy_interp_method
+        self.psm = psm(lmr_path=lmr_path,
+                       save_pre_avg_file=save_preavg,
+                       ignore_pre_avg_file=ignore_preavg,
+                       regrid_method=regrid_method,
+                       regrid_grid=regrid_grid,
+                       esmpy_interp_method=esmpy_interp_method,
+                       proxy_use_from=self.proxies.use_from,
+                       **kwargs.pop('psm', {}))
         self.forecaster = forecaster(lmr_path=lmr_path,
                                      save_pre_avg_file=save_preavg,
                                      ignore_pre_avg_file=ignore_preavg,
