@@ -211,8 +211,9 @@ class BaseProxyObject(metaclass=ABCMeta):
     class.
     """
 
-    def __init__(self, psm_config, psm_type, pid, prox_type, start_yr, end_yr,
-                 lat, lon, elev, seasonality, values, time, load_psm_obj=True):
+    def __init__(self, psm_config, regrid_config, psm_type, pid, prox_type,
+                 start_yr, end_yr, lat, lon, elev, seasonality, values, time,
+                 load_psm_obj=True, on_the_fly_calib=False):
 
         if (values is None) or len(values) == 0:
             raise ValueError('No proxy data given for object initialization')
@@ -236,8 +237,12 @@ class BaseProxyObject(metaclass=ABCMeta):
         self.psm_config = psm_config
         if load_psm_obj:
             psm_obj = LMR_psms.get_psm_class(psm_type)
-            self.psm_obj = psm_obj(psm_config, self)
+            self.psm_obj = psm_obj(psm_config, regrid_config, self,
+                                   on_the_fly_calib=on_the_fly_calib)
             self.psm = self.psm_obj.psm
+        else:
+            self.psm_obj = None
+            self.psm = None
 
     def _constrain_to_date_range(self, date_range):
         start, end = date_range
@@ -256,7 +261,7 @@ class BaseProxyObject(metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def load_site(cls,  config, site, psm_config,
+    def load_site(cls,  config, psm_config, regrid_config, site,
                   data_range=None, meta_src=None,
                   data_src=None):
         """
@@ -266,6 +271,11 @@ class BaseProxyObject(metaclass=ABCMeta):
         ----------
         config: LMR_config
             Configuration for current LMR run
+        psm_config: LMR_config.psm
+            Configuration for all psm types that may be attached to proxies
+        regrid_config: LMR_config.general_gridded
+            Configuration for fields that may have to be loaded for PSM
+            calibration
         site: str
             Key to identify which site to load from source data
         meta_src: optional
@@ -274,8 +284,6 @@ class BaseProxyObject(metaclass=ABCMeta):
             Source for proxy record data (might be same as meta_src)
         data_range: iterable
             Two-item container holding beginning and end date of reconstruction
-        psm_kwargs: dict(unpacked)
-            Keyword arguments to be passed to the psm.
 
         Returns
         -------
@@ -291,20 +299,25 @@ class BaseProxyObject(metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def load_all(cls, proxy_config, data_range, psm_config):
+    def load_all(cls, proxy_config, psm_config, regrid_config, data_range):
         """
         Load proxy objects from all sites matching filter criterion.
 
         Parameters
         ----------
-        proxy_config: LMR_config
-            Configuration for current LMR run
+        proxy_config: LMR_config.proxies.ProxyConfigGroup
+            Configuration for current LMR proxies
+        psm_config: LMR_config.psm
+            Configuration for all psm types that may be attached to proxies
+        regrid_config: LMR_config.general_gridded
+            Configuration for fields that may have to be loaded for PSM
+            calibration
+        data_range: iterable
+            Two-item container holding beginning and end date of reconstruction
         meta_src: optional
             Source for proxy metadata
         data_src: optional
             Source for proxy record data (might be same as meta_src)
-        data_range: iterable
-            Two-item container holding beginning and end date of reconstruction
         psm_kwargs: dict(unpacked)
             Keyword arguments to be passed to the psm.
 
@@ -340,10 +353,9 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_site(cls, pages2kv1_cfg, site, psm_config,
-                  data_range=None,
-                  meta_src=None,
-                  data_src=None, load_psm=True):
+    def load_site(cls, pages2kv1_cfg, psm_config, regrid_config, site,
+                  data_range=None, meta_src=None,
+                  data_src=None, load_psm=True, on_the_fly_calib=False):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.
@@ -391,9 +403,9 @@ class ProxyPAGES2kv1(BaseProxyObject):
             values = values - values.mean()
 
         # Send full proxy timeseries in case calibration is necessary
-        proxy_obj = cls(psm_config, psm_type, pid, proxy_type, start_yr,
-                        end_yr, lat, lon, elev, seasonality, values, times,
-                        load_psm_obj=load_psm)
+        proxy_obj = cls(psm_config, regrid_config,psm_type, pid, proxy_type,
+                        start_yr, end_yr, lat, lon, elev, seasonality, values,
+                        times, load_psm_obj=load_psm)
 
         proxy_obj._constrain_to_date_range(data_range)
 
@@ -404,7 +416,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_all(cls, proxy_config, data_range, psm_config,
+    def load_all(cls, proxy_config, psm_config, regrid_config, data_range,
                  meta_src=None, data_src=None):
         """%%aug%%
 
@@ -413,6 +425,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
         pages2kv1_cfg = proxy_config.PAGES2kv1
         load_psm = proxy_config.load_psm_with_proxies
+        on_the_fly = proxy_config.on_the_fly_calib
 
         # Load source data files
         if meta_src is None:
@@ -500,10 +513,12 @@ class ProxyPAGES2kv1(BaseProxyObject):
         all_proxies = []
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(pages2kv1_cfg, site, psm_config,
+                pobj = cls.load_site(pages2kv1_cfg, psm_config,
+                                     regrid_config, site,
                                      data_range=data_range,
                                      meta_src=meta_src, data_src=data_src,
-                                     load_psm=load_psm)
+                                     load_psm=load_psm,
+                                     on_the_fly_calib=on_the_fly)
                 all_proxies.append(pobj)
             except ValueError as e:
                 # Proxy had no obs or didn't meet psm r crit
@@ -515,8 +530,9 @@ class ProxyPAGES2kv1(BaseProxyObject):
         return proxy_id_by_type, all_proxies
 
     @classmethod
-    def load_all_annual_no_filtering(cls, proxy_config, meta_src=None,
-                                     data_src=None):
+    def load_all_annual_no_filtering(cls, proxy_config, psm_config,
+                                     regrid_config,
+                                     meta_src=None, data_src=None):
         """
         Method created to facilitate the loading of all possible proxy records
         that can be calibrated with annual resolution.
@@ -533,6 +549,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
         pages2kv1_cfg = proxy_config.PAGES2kv1
         # TODO: What should psm loading do in this case?
         load_psm = proxy_config.load_psm_with_proxies
+        on_the_fly = proxy_config.on_the_fly_calib
 
         # Load source data files
         if meta_src is None:
@@ -549,9 +566,11 @@ class ProxyPAGES2kv1(BaseProxyObject):
         proxy_objs = []
         for site in proxy_ids:
             try:
-                pobj = cls.load_site(proxy_config, site,
+                pobj = cls.load_site(proxy_config, psm_config, regrid_config,
+                                     site,
                                      meta_src=meta_src, data_src=data_src,
-                                     load_psm=False)
+                                     load_psm=load_psm,
+                                     on_the_fly_calib=on_the_fly)
                 proxy_objs.append(pobj)
             except ValueError as e:
                 print(e)
@@ -571,8 +590,10 @@ class ProxyLMRdb(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_site(cls, lmr_db_cfg, site, psm_config, data_range=None,
-                  meta_src=None, data_src=None, load_psm=True, anomly=False):
+    def load_site(cls, lmr_db_cfg, psm_config, regrid_config, site,
+                  data_range=None,
+                  meta_src=None, data_src=None, load_psm=True, anomaly=False,
+                  on_the_fly_calib=False):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.
@@ -602,8 +623,8 @@ class ProxyLMRdb(BaseProxyObject):
         site_data = data_src[site]
         seasonality = site_meta['Seasonality'].iloc[0]
         # make sure a list is returned
-        if type(seasonality) is not list: seasonality = ast.literal_eval(
-            seasonality)
+        if type(seasonality) is not list:
+            seasonality = list(seasonality)
 
         if data_range is not None:
             start, finish = data_range
@@ -617,20 +638,21 @@ class ProxyLMRdb(BaseProxyObject):
         times = values.index.values
 
         # transform in "anomalies" (time-mean removed) if option activated
-        if anomly:
+        if anomaly:
             values = values - values.mean()
 
         if len(values) == 0:
             raise ValueError('No observations in specified time range.')
 
-        return cls(psm_config, psm_type,
+        return cls(psm_config, regrid_config, psm_type,
                    pid, proxy_type, start_yr, end_yr, lat, lon,
-                   elev, seasonality, values, times, load_psm_obj=load_psm)
+                   elev, seasonality, values, times, load_psm_obj=load_psm,
+                   on_the_fly_calib=on_the_fly_calib)
 
     @classmethod
     @augment_docstr
-    def load_all(cls, proxy_config, data_range, psm_config, meta_src=None,
-                 data_src=None):
+    def load_all(cls, proxy_config, psm_config, regrid_config, data_range,
+                 meta_src=None, data_src=None):
         """%%aug%%
 
         Expects meta_src, data_src to be pickled pandas DataFrame objects.
@@ -638,6 +660,7 @@ class ProxyLMRdb(BaseProxyObject):
 
         lmr_db_cfg = proxy_config.LMRdb
         load_psm = proxy_config.load_psm_with_proxies
+        on_the_fly = proxy_config.on_the_fly_calib
         if proxy_config.proxy_timeseries_kind == 'anom':
             convert_anomly = True
         else:
@@ -768,10 +791,12 @@ class ProxyLMRdb(BaseProxyObject):
         all_proxies = []
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(lmr_db_cfg, site, psm_config,
+                pobj = cls.load_site(lmr_db_cfg, psm_config, regrid_config,
+                                     site,
                                      data_range=data_range,
                                      meta_src=meta_src, data_src=data_src,
-                                     load_psm=load_psm, anomly=convert_anomly)
+                                     load_psm=load_psm, anomaly=convert_anomly,
+                                     on_the_fly_calib=on_the_fly)
                 all_proxies.append(pobj)
             except ValueError as e:
                 # Proxy had no obs or didn't meet psm r crit
@@ -783,8 +808,9 @@ class ProxyLMRdb(BaseProxyObject):
         return proxy_id_by_type, all_proxies
 
     @classmethod
-    def load_all_annual_no_filtering(cls, proxy_config, meta_src=None,
-                                     data_src=None):
+    def load_all_annual_no_filtering(cls, proxy_config, psm_config,
+                                     regrid_config,
+                                     meta_src=None, data_src=None):
         """
         Method created to facilitate the loading of all possible proxy records
         that can be calibrated with annual resolution.
@@ -799,6 +825,8 @@ class ProxyLMRdb(BaseProxyObject):
         """
 
         lmr_db_cfg = proxy_config.LMRdb
+        load_psm = proxy_config.load_psm_with_proxies
+        on_the_fly = proxy_config.on_the_fly_calib
 
         # Load source data files
         if meta_src is None:
@@ -814,8 +842,11 @@ class ProxyLMRdb(BaseProxyObject):
         proxy_objs = []
         for site in proxy_ids:
             try:
-                pobj = cls.load_site(proxy_config, site,
-                                     meta_src=meta_src, data_src=data_src)
+                pobj = cls.load_site(lmr_db_cfg, psm_config, regrid_config,
+                                     site,
+                                     meta_src=meta_src, data_src=data_src,
+                                     load_psm=load_psm,
+                                     on_the_fly_calib=on_the_fly)
                 proxy_objs.append(pobj)
             except ValueError as e:
                 print(e)
@@ -1083,22 +1114,6 @@ class ProxyNCDCdtda(BaseProxyObject):
     def error(self):
         # Constant error for now
         return 0.1
-
-
-
-
-def fix_lon(lon):
-    """
-    Fixes negative longitude values.
-
-    Parameters
-    ----------
-    lon: ndarray like or value
-        Input longitude array or single value
-    """
-    if lon < 0:
-        lon += 360.
-    return lon
 
 
 _proxy_classes = {'PAGES2kv1': ProxyPAGES2kv1,

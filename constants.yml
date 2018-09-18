@@ -43,7 +43,7 @@ avg_interval:
     elem_to_avg: [9, 10, 11]
     nyears: 1
   decadal:
-    nelem_in_yr: 1
+    nelem_in_yr: 12
     elem_to_avg: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     nyears: 10
 

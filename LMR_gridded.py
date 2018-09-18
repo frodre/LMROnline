@@ -60,7 +60,8 @@ class GriddedVariable(object):
                  lev=None, lat=None, lon=None, fill_val=None,
                  sampled=None, avg_interval=None, regrid_method=None,
                  regrid_grid=None, esmpy_interp=None, lat_grid=None,
-                 lon_grid=None, climo=None, rotated_pole=False, cell_area=None):
+                 lon_grid=None, climo=None, rotated_pole=False,
+                 cell_area=None, ref_period=None):
         """
 
         Parameters
@@ -105,6 +106,9 @@ class GriddedVariable(object):
             certain operations.
         climo: ndarray, optional
             Climatology used to center the data
+        ref_period: tuple
+            Start and end of time interval used to calculate the climatology
+            and center the data
         rotated_pole: bool, optional
             Indication of whether or not the data is on a rotated pole grid
         cell_area: ndarray, optional
@@ -140,6 +144,7 @@ class GriddedVariable(object):
         self.lon_grid = _cnvt_to_float64(lon_grid)
         self.rotated_pole = rotated_pole
         self.cell_area = cell_area
+        self.ref_period = ref_period
 
         self._fill_val = fill_val
         self._idx_used_for_sample = sampled
@@ -502,7 +507,52 @@ class GriddedVariable(object):
         else:
             return True
 
-    def convert_to_anomaly(self, climo=None):
+    @staticmethod
+    def _get_time_range_idx(time, start, end):
+
+        try:
+            # Handle datetime
+            range_mask = [start <= dt.year <= end for dt in time]
+        except AttributeError:
+            # Assume array of year integers
+            time = np.array(time)
+            range_mask = (time >= start) & (time <= end)
+
+        for i, mask_val in enumerate(range_mask):
+            if mask_val:
+                begin_idx = i
+                break
+        else:
+            raise ValueError('No values are within the specified time range:'
+                             '{}-{}'.format(start, end))
+
+        for i in range(len(range_mask))[::-1]:
+            if range_mask[i]:
+                end_idx = i
+                break
+
+        return begin_idx, end_idx
+
+    def reduce_to_time_period(self, time_range):
+        """
+        Reduces available data to be within the specified time range.
+
+        Parameters
+        ----------
+        time_range: tuple of int
+            Time range as a tuple of length 2 with the start and end year
+        """
+
+        time = self.time
+
+        range_idx = self._get_time_range_idx(time, *time_range)
+        r_start, r_end = range_idx
+
+        self.time = self.time[r_start:r_end]
+        self.data = self.data[r_start:r_end]
+        self.nsamples = len(self.time)
+
+    def convert_to_anomaly(self, climo=None, ref_period=None):
         """
         Center data by removing climatological mean.
 
@@ -512,13 +562,23 @@ class GriddedVariable(object):
             Climatological reference to center data to.  If not provided,
             the climatology is determined across the entire sampling
             dimension.
+        ref_period:  tuple of int, optional
+            Time range as a tuple of length 2 with the start and end year
 
         Returns
         -------
         None
         """
-        print('Removing temporal mean for every gridpoint...')
-        if climo is None:
+
+        if ref_period is not None:
+            print(f'Calculating anomaly relative to years: {ref_period}')
+            center_idx = self._get_time_range_idx(self.time, *ref_period)
+            c_start, c_end = center_idx
+            self.climo = np.nanmean(self.data[c_start:c_end], axis=0,
+                                    keepdims=True)
+            self.ref_period = ref_period
+        elif climo is None:
+            print('Calculating gridpoint anomalies over entire dataset.')
             self.climo = self.data[:].mean(axis=0, keepdims=True)
         else:
             self.climo = climo
@@ -581,8 +641,8 @@ class GriddedVariable(object):
         return new_dobj
 
     @classmethod
-    def load(cls, gridded_config, varname, anomaly=False, sample=None,
-             **kwargs):
+    def load(cls, gridded_config, regrid_config, varname=None,
+             anomaly=False, sample=None, **kwargs):
         """
         Load a single variable as a GriddedVariable
 
@@ -590,8 +650,11 @@ class GriddedVariable(object):
         ----------
         gridded_config: LMR_Config.prior
             Configuration definition object for prior variable
-        varname: str
-            The name of the variable to load
+        regrid_config: LMR_Config.regrid
+            Configuration definition object for regridding the field
+        varname: str, optional
+            The name of the variable to load. If None and there are multiple
+            variables an error is raised.
         anomaly: bool, Optional
             Whether to convert data to an anomaly format.
         sample: list[int], Optional
@@ -614,19 +677,29 @@ class GriddedVariable(object):
         file_dir = gridded_config.datadir
         file_name = gridded_config.datafile
         file_type = gridded_config.dataformat
-        save = gridded_config.save_pre_avg_file
-        ignore_pre_avg = gridded_config.ignore_pre_avg_file
+        datainfo = gridded_config.datainfo
         avg_interval = gridded_config.avg_interval
         avg_interval_kwargs = gridded_config.avg_interval_kwargs
-        regrid_method = gridded_config.regrid_method
-        regrid_grid = gridded_config.regrid_grid
+        save = regrid_config.save_pre_avg_file
+        ignore_pre_avg = regrid_config.ignore_pre_avg_file
+        regrid_method = regrid_config.regrid_method
+        regrid_grid = regrid_config.regrid_grid
 
-        if isinstance(gridded_config.esmpy_interp_method, dict):
-            interp_method = gridded_config.esmpy_interp_method[varname]
+        if varname is None:
+            if datainfo['multiple_vars']:
+                raise ValueError('Selected dataset has multiple available '
+                                 'variables and none were specified to load.  '
+                                 'Please input a specific variable name in the '
+                                 'load function.')
+            else:
+                varname = datainfo['available_vars'][0]
+
+        if isinstance(regrid_config.esmpy_interp_method, dict):
+            interp_method = regrid_config.esmpy_interp_method[varname]
         else:
-            interp_method = gridded_config.esmpy_interp_method
+            interp_method = regrid_config.esmpy_interp_method
 
-        esmpy_kwargs = {'grid_def': gridded_config.esmpy_grid_def,
+        esmpy_kwargs = {'grid_def': regrid_config.esmpy_grid_def,
                         'interp_method': interp_method}
 
         unique_cfg_kwargs = cls._load_unique_cfg_kwargs(gridded_config)
@@ -637,7 +710,6 @@ class GriddedVariable(object):
                 raise KeyError('Unrecognized keyword argument provided '
                                'to load function: {}'.format(key))
 
-        datainfo = gridded_config.datainfo
         if 'rotated_pole' in list(datainfo.keys()):
             rotated_pole = varname in datainfo['rotated_pole']
         else:
@@ -707,7 +779,8 @@ class GriddedVariable(object):
                           data_req_frac=0.0, save=True,
                           ignore_pre_avg=False, rotated_pole=False,
                           anomaly=True, detrend=False,
-                          cell_area_file=None):
+                          cell_area_file=None,
+                          anom_reference_period=None, calib_period=None):
 
         """
         Main helper for deciding which loading function to use based on the
@@ -737,7 +810,9 @@ class GriddedVariable(object):
                                             nens=nens,
                                             sample=sample,
                                             seed=seed,
-                                            interp_method=interp_method)
+                                            interp_method=interp_method,
+                                            anom_ref=anom_reference_period,
+                                            calib_period=calib_period)
         except (IOError, tb.exceptions.NoSuchNodeError):
             print(('No pre-averaged file found ({}) or '
                    'ignore specified ... '.format(varname)))
@@ -748,7 +823,9 @@ class GriddedVariable(object):
                                    rotated_pole=rotated_pole,
                                    anomaly=anomaly,
                                    detrend=detrend,
-                                   cell_area_file=cell_area_file)
+                                   cell_area_file=cell_area_file,
+                                   anom_ref=anom_reference_period,
+                                   calib_period=calib_period)
             print('Loaded from file: {}/{}'.format(file_dir, file_name))
 
         var_obj.fill_val_to_nan()
@@ -797,7 +874,8 @@ class GriddedVariable(object):
     def _load_pre_avg_obj(cls, dir_name, filename, varname, avg_interval=None,
                           regrid_method=None, regrid_grid=None,
                           anomaly=False, nens=None, sample=None,
-                          seed=None, interp_method=None):
+                          seed=None, interp_method=None, anom_ref=None,
+                          calib_period=None):
         """
         General structure for load pre-averaged:
         1. Load data
@@ -856,8 +934,12 @@ class GriddedVariable(object):
 
             obj.data = obj_data
 
-            if anomaly and obj.climo is None:
-                obj.convert_to_anomaly()
+            if (anomaly and obj.climo is None) or anom_ref is not None:
+                if not obj.ref_period == anom_ref:
+                    obj.convert_to_anomaly(ref_period=anom_ref)
+
+            if calib_period is not None:
+                obj.reduce_to_time_period(calib_period)
 
             # Sampling done to pre-average data to take advantage of lazy
             # loading.  Sampling will be ignored by the main loader in this
@@ -877,7 +959,8 @@ class GriddedVariable(object):
     def _load_from_netcdf(cls, dir_name, filename, varname, avg_interval=None,
                           avg_interval_kwargs=None, save=False,
                           data_req_frac=None, rotated_pole=False,
-                          anomaly=False, detrend=False, cell_area_file=None):
+                          anomaly=False, detrend=False, cell_area_file=None,
+                          anom_ref=None, calib_period=None):
         """
         General structure for from netCDF:
         1. Load data and information about dimensions
@@ -991,7 +1074,10 @@ class GriddedVariable(object):
                            cell_area=cell_area, **dim_vals)
 
             if anomaly:
-                grid_obj.convert_to_anomaly()
+                grid_obj.convert_to_anomaly(ref_period=anom_ref)
+
+            if calib_period is not None:
+                grid_obj.reduce_to_time_period(calib_period)
 
             if detrend:
                 # TODO Detrend
@@ -1017,7 +1103,7 @@ class GriddedVariable(object):
         :return:
         """
         if not hasattr(time_var, 'calendar'):
-            cal = 'ISO8601'  # Default CDM calendar
+            cal = 'proleptic_gregorian'  # Default CDM calendar
         else:
             cal = time_var.calendar
 
@@ -1025,7 +1111,7 @@ class GriddedVariable(object):
             time = num2date(time_var[:], units=time_var.units,
                             calendar=cal)
             return time
-        except ValueError:
+        except ValueError as e:
             # num2date needs calendar year start >= 0001 C.E. but some fields
             # start at year 0000 C.E. (bug submitted to unidata about this)
             warnings.warn('Detected invalid unit specification for num2date'
@@ -1176,7 +1262,7 @@ class PriorVariable(GriddedVariable):
         return unique_kwargs
 
     @classmethod
-    def load_allvars(cls, prior_config):
+    def load_allvars(cls, prior_config, regrid_config):
         """
         Load all variables specified in the prior configuration
 
@@ -1184,6 +1270,8 @@ class PriorVariable(GriddedVariable):
         ----------
         prior_config: LMR_Config.prior
             Configuration definition object for prior variables
+        regrid_config: LMR_Config.regrid
+            Configuration definition object for regridding the field
 
         Returns
         -------
@@ -1201,14 +1289,15 @@ class PriorVariable(GriddedVariable):
                 anomaly = True
             else:
                 anomaly = False
-            pobj = cls.load(prior_config, vname, anomaly=anomaly)
+            pobj = cls.load(prior_config, regrid_config, vname, anomaly=anomaly)
 
             prior_dict[(vname, avg_interval)] = pobj
 
         return prior_dict
 
     @classmethod
-    def load_psm_required_vars(cls, prior_config, varkey_avg_intervals):
+    def load_psm_required_vars(cls, prior_config, regrid_config,
+                               varkey_avg_intervals):
         """
         Load the prior fields required for the PSM to work.
 
@@ -1237,7 +1326,8 @@ class PriorVariable(GriddedVariable):
                     continue
 
                 prior_config.update_avg_interval(avg_interval)
-                pobj = cls.load(prior_config, varkey, anomaly=True)
+                pobj = cls.load(prior_config, regrid_config, varkey,
+                                anomaly=True)
 
                 psm_req_prior_dict[(varkey, avg_interval)] = pobj
 
@@ -1300,7 +1390,9 @@ class AnalysisVariable(GriddedVariable):
         cfg_kwargs:
             Special keyword arguments for the current gridded class.
         """
-        unique_kwargs = {'detrend': config.detrend}
+        unique_kwargs = {'detrend': config.detrend,
+                         'anom_reference_period': config.anom_reference_period,
+                         'calib_period': config.calib_period}
         return unique_kwargs
 
     @classmethod
@@ -1379,11 +1471,12 @@ class State(object):
         self.psm_var_map = psm_var_map
 
     @classmethod
-    def from_config(cls, prior_config, req_avg_intervals=None):
-        pvars = PriorVariable.load_allvars(prior_config)
+    def from_config(cls, prior_config, regrid_config, req_avg_intervals=None):
+        pvars = PriorVariable.load_allvars(prior_config, regrid_config)
 
         if req_avg_intervals is not None:
             req_psm_pvars = PriorVariable.load_psm_required_vars(prior_config,
+                                                                 regrid_config,
                                                                  req_avg_intervals)
             pvars.update(req_psm_pvars)
 

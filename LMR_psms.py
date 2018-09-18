@@ -218,8 +218,9 @@ class LinearPSM(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, psm_config, proxy_obj, psm_data=None, calib_obj=None,
-                 diag_out=None, diag_fig=None, on_the_fly_calib=False):
+    def __init__(self, psm_config, regrid_config, proxy_obj, psm_data=None,
+                 calib_obj=None, diag_out=None, diag_fig=None,
+                 on_the_fly_calib=False):
 
         self.psm_key = 'linear'
         linear_psm_cfg = psm_config.linear
@@ -232,7 +233,6 @@ class LinearPSM(BasePSM):
         self.elev = proxy_obj.elev
 
         # Variable is used temporarily
-        self._calib_object = None
         self.nobs = None
 
         self.datatag = linear_psm_cfg.datatag
@@ -287,9 +287,8 @@ class LinearPSM(BasePSM):
                 if calib_obj is None:
                     source = linear_psm_cfg.datatag
                     calib_class = LMR_gridded.get_analysis_var_class(source)
-                    calib_obj = calib_class.load(linear_psm_cfg)
-
-                    self._calib_object = calib_obj
+                    calib_obj = calib_class.load(linear_psm_cfg, regrid_config,
+                                                 anomaly=True)
 
                 self.calibrate(calib_obj, proxy_obj,
                                diag_output=diag_out, diag_output_figs=diag_fig)
@@ -637,6 +636,7 @@ class LinearPSM(BasePSM):
 
 class LinearPSM_TorP(BasePSM):
     """
+    TODO: FIX
     PSM based on linear regression w.r.t. temperature or precipitation
     
     **Important note: This class assumes that all linear PSMs have been 
@@ -683,7 +683,9 @@ class LinearPSM_TorP(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, psm_config, proxy_obj, psm_data_T=None, psm_data_P=None):
+    def __init__(self, psm_config, regrid_config, proxy_obj, psm_data_T=None,
+                 psm_data_P=None, diag_out=None, diag_fig=None,
+                 on_the_fly_calib=False):
 
         self.psm_key = 'linear_TorP'
         linearTorP_cfg = psm_config.linear_TorP
@@ -719,23 +721,21 @@ class LinearPSM_TorP(BasePSM):
         linearTorP_cfg.update_avg_interval(self.avg_interval,
                                            avg_interval_kwargs)
 
-        # Try loading pre-calibrated PSM for temperature
         try:
-            psm_obj_T = LinearPSM(linearTorP_cfg.tempearature, proxy_obj,
-                                  psm_data=psm_data_T)
-        except (KeyError, IOError) as e:
-            # No precalibration found for temperature
-            print(' PSM(temperature) not calibrated for:' +
-                  str((proxy, site)))
+            psm_obj_T = LinearPSM(linearTorP_cfg.tempearature, regrid_config,
+                                  proxy_obj, psm_data=psm_data_T,
+                                  diag_out=diag_out, diag_fig=diag_fig,
+                                  on_the_fly_calib=on_the_fly_calib)
+        except (IOError, ValueError) as e:
+            psm_obj_T = None
 
-        # Try loading pre-calibrated PSM for moisture
         try:
             psm_obj_P = LinearPSM(linearTorP_cfg.moisture, proxy_obj,
-                                  psm_data=psm_data_P)
-        except (KeyError, IOError) as e:
-            # No precalibration found for moisture
-            print(' PSM(moisture) not calibrated for:' +
-                  str((proxy, site)))
+                                  psm_data=psm_data_P,
+                                  diag_out=diag_out, diag_fig=diag_fig,
+                                  on_the_fly_calib=on_the_fly_calib)
+        except (IOError, ValueError) as e:
+            psm_obj_P = None
 
         if psm_obj_T is not None and psm_obj_P is not None:
             if metric == 'corr':
@@ -745,24 +745,17 @@ class LinearPSM_TorP(BasePSM):
                 compare_T = psm_obj_T.R
                 compare_P = psm_obj_P.R
 
-        # Now check about temperature vs. moisture ...
-        if (proxy, site) in psm_data_T.keys() and (proxy, site) in psm_data_P.keys():
-            # calibrated for temperature AND for precipitation, check relative goodness of fit 
-            # and assign "sensitivity" & corresponding PSM parameters according to best fit.x
-            # ... based on PSM R^2
-            if abs(psm_site_data_T['PSMcorrel']) >= abs(psm_site_data_P['PSMcorrel']):
-                # better fit w.r.t. temperature
+            if abs(compare_T) >= abs(compare_P):
                 self.sensitivity = 'temperature'
             else:
-                # better fit w.r.t. precipitation/moisture
                 self.sensitivity = 'moisture'
         elif psm_obj_T is not None:
             self.sensitivity = 'temperature'
         elif psm_obj_P is not None:
             self.sensitivity = 'moisture'
         else:
-            raise ValueError('Proxy in database but not found in pre-calibration files... '
-                             'Skipping: {}'.format(proxy_obj.id))
+            raise ValueError('Proxy PSM could not be calibrated... Skipping: '
+                             '{}'.format(proxy_obj.id))
 
         if self.sensitivity == 'temperature':
             self.psm_obj = psm_obj_T
@@ -771,11 +764,19 @@ class LinearPSM_TorP(BasePSM):
             self.psm_obj = psm_obj_P
             self.psm = psm_obj_P.psm
 
+        self.datainfo = self.psm_obj.datainfo
+        self.psm_vartype = self.datainfo['psm_vartype']
+        self.corr = self.psm_obj.corr
+        self.slope = self.psm_obj.slope
+        self.intercept = self.psm_obj.intercept
+        self.R = self.psm_obj.R
+        self.seasonality = self.psm_obj.seasonality
+
         # Raise exception if critical correlation value not met
         if abs(self.psm_obj.corr) < r_crit:
-            raise ValueError(('Proxy model correlation ({:.2f}) does not meet '
-                              'critical threshold ({:.2f}).'
-                              ).format(self.corr, r_crit))
+            raise ValueError('Proxy model correlation ({:.2f}) does not meet '
+                             'critical threshold '
+                             '({:.2f}).'.format(self.corr, r_crit))
 
     # Define the error model for this proxy
     def error(self):
@@ -799,36 +800,10 @@ class LinearPSM_TorP(BasePSM):
         print('Calibration not performed in this psm class!')
         pass
 
-    @staticmethod
-    def get_kwargs(config):
-        try:
-            psm_data_T = LinearPSM_TorP._load_psm_data(config,calib_var='temperature')
-            psm_data_P = LinearPSM_TorP._load_psm_data(config,calib_var='moisture')
-
-            return {'psm_data_T': psm_data_T, 'psm_data_P': psm_data_P}
-        except IOError as e:
-            print(e)
-            return {}
-
-    @staticmethod
-    def _load_psm_data(psm_config, calib_var):
-        """Helper method for loading from dataframe"""
-        if calib_var == 'temperature':
-            pre_calib_file = psm_config.psm.linear_TorP.pre_calib_datafile_T
-        elif calib_var == 'moisture':
-            pre_calib_file = psm_config.psm.linear_TorP.pre_calib_datafile_P
-        else:
-            raise ValueError('Unrecognized calibration variable'
-                             ' to calibrate psm.')
-
-        with open(pre_calib_file, mode='r') as f:
-            data = pickle.load(f)
-
-        return data
-
 
 class BilinearPSM(BasePSM):
     """
+    TODO: FIX
     PSM based on bivariate linear regression w.r.t. temperature AND precipitation/moisture
     
 
@@ -865,8 +840,8 @@ class BilinearPSM(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, psm_config, proxy_obj, psm_data=None, calib_obj_T=None,
-                 calib_obj_P=None, on_the_fly_calib=False):
+    def __init__(self, psm_config, regrid_config, proxy_obj, psm_data=None,
+                 calib_obj_T=None, calib_obj_P=None, on_the_fly_calib=False):
 
         self.psm_key = 'bilinear'
         bilinear_cfg = psm_config.bilinear
@@ -934,7 +909,21 @@ class BilinearPSM(BasePSM):
             if not on_the_fly_calib:
                 raise e
             else:
-                print (' ... calibrating on the fly')
+                print(' ... calibrating on the fly')
+
+                if calib_obj_T is None:
+                    source = bilinear_cfg.temperature.datatag
+                    calib_class = LMR_gridded.get_analysis_var_class(source)
+                    calib_obj_T = calib_class.load(bilinear_cfg.temperature,
+                                                   regrid_config,
+                                                   anomaly=True)
+
+                if calib_obj_P is None:
+                    source = bilinear_cfg.moisture.datatag
+                    calib_class = LMR_gridded.get_analysis_var_class(source)
+                    calib_obj_P = calib_class.load(bilinear_cfg.moisture,
+                                                   regrid_config,
+                                                   anomaly=True)
 
             self.calibrate(calib_obj_T, calib_obj_P, proxy_obj)
 

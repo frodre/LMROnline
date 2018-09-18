@@ -116,17 +116,14 @@ pages_psm_map = {proxy_type: psm_type for proxy_type in pages_proxy_types}
 proxy_kwargs = {'use_from': use_from,
                 'proxy_frac': 1.0,
                 'load_psm_with_proxies': load_psm_with_proxies,
+                'on_the_fly_calib': True,
                 'proxy_availability_filter': False,
 
                 'PAGES2kv1': {'proxy_psm_type': pages_psm_map},
                 'LMRdb': {'proxy_psm_type': lmrdb_psm_map}}
 
-psm_kwargs = {'avg_type': avg_type,
-              'calib_period': calib_period,
+psm_kwargs = {'calib_period': calib_period,
               'anom_reference_period': anom_reference_period,
-              'regrid_method': regrid_method,
-              'regrid_grid': regrid_grid,
-              'esmpy_interp_method': esmpy_interp_method,
 
               'linear': {'datatag': linear_datatag,
                          'avg_type': avg_type,
@@ -138,10 +135,14 @@ psm_kwargs = {'avg_type': avg_type,
                            'season_source': season_source,
                            'psm_r_crit': 0.0}}
 
-psm_config = LMR_config.psm(lmr_path=lmr_path, save_pre_avg_file=True,
-                            ignore_pre_avg_file=False, proxy_use_from=use_from,
+regrid_kwargs = {'regrid_method': regrid_method,
+                 'esmpy_regrid_to': regrid_grid,
+                 'esmpy_interp_method': esmpy_interp_method}
+
+psm_config = LMR_config.psm(lmr_path=lmr_path, proxy_use_from=use_from,
                             **psm_kwargs)
 proxy_config = LMR_config.proxies(lmr_path=lmr_path, **proxy_kwargs)
+regrid_config = LMR_config.regrid(**regrid_kwargs)
 
 proxy_psm_seasonality_pages = {
     'Tree ring_Width': {'flag': True,
@@ -344,7 +345,9 @@ def main():
             os.system(command)
 
     proxy_class = LMR_proxy.get_proxy_class(use_from[0])
-    proxies = proxy_class.load_all_annual_no_filtering(proxy_config)
+    proxies = proxy_class.load_all_annual_no_filtering(proxy_config,
+                                                       psm_config,
+                                                       regrid_config)
 
     save_calib_no_testing(proxies, psm_file, psm_file_diag)
 
