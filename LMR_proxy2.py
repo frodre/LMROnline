@@ -34,7 +34,9 @@ Revisions:
 
 import LMR_psms
 from LMR_utils2 import (augment_docstr, class_docs_fixer, fix_lon,
-                        get_averaging_period)
+                        get_averaging_period, ProxyTypeNotMappedError,
+                        PSMFitThresholdError, PSMTooFewObsError,
+                        PSMTorPCalibrationError)
 
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
@@ -375,9 +377,10 @@ class ProxyPAGES2kv1(BaseProxyObject):
             proxy_type = pages2kv1_cfg.proxy_type_mapping[(pages2kv1_type,
                                                            pmeasure)]
             psm_type = pages2kv1_cfg.proxy_psm_type[proxy_type]
-        except (KeyError, ValueError) as e:
-            print('Proxy type/measurement not found in mapping: {}'.format(e))
-            raise ValueError(e)
+        except KeyError as e:
+            print('Proxy type/measurement not found in mapping: {}'
+                  ''.format(e))
+            raise ProxyTypeNotMappedError(e)
 
         start_yr = site_meta['Youngest (C.E.)'].iloc[0]
         end_yr = site_meta['Oldest (C.E.)'].iloc[0]
@@ -520,7 +523,8 @@ class ProxyPAGES2kv1(BaseProxyObject):
                                      load_psm=load_psm,
                                      on_the_fly_calib=on_the_fly)
                 all_proxies.append(pobj)
-            except ValueError as e:
+            except (PSMFitThresholdError, PSMTooFewObsError,
+                    PSMTorPCalibrationError, ProxyTypeNotMappedError) as e:
                 # Proxy had no obs or didn't meet psm r crit
                 for group in list(proxy_id_by_type.values()):
                     if site in group:
@@ -572,7 +576,8 @@ class ProxyPAGES2kv1(BaseProxyObject):
                                      load_psm=load_psm,
                                      on_the_fly_calib=on_the_fly)
                 proxy_objs.append(pobj)
-            except ValueError as e:
+            except (PSMFitThresholdError, PSMTooFewObsError,
+                    PSMTorPCalibrationError, ProxyTypeNotMappedError) as e:
                 print(e)
 
         return proxy_objs
@@ -611,9 +616,10 @@ class ProxyLMRdb(BaseProxyObject):
         try:
             proxy_type = lmr_db_cfg.proxy_type_mapping[(LMRdb_type, pmeasure)]
             psm_type = lmr_db_cfg.proxy_psm_type[proxy_type]
-        except (KeyError, ValueError) as e:
-            print('Proxy type/measurement not found in mapping: {}'.format(e))
-            raise ValueError(e)
+        except KeyError as e:
+            print('Proxy type/measurement not found in mapping: {}'
+                  ''.format(e))
+            raise ProxyTypeNotMappedError(e)
 
         start_yr = site_meta['Youngest (C.E.)'].iloc[0]
         end_yr = site_meta['Oldest (C.E.)'].iloc[0]
@@ -798,7 +804,9 @@ class ProxyLMRdb(BaseProxyObject):
                                      load_psm=load_psm, anomaly=convert_anomly,
                                      on_the_fly_calib=on_the_fly)
                 all_proxies.append(pobj)
-            except ValueError as e:
+            except (ProxyTypeNotMappedError, PSMFitThresholdError,
+                    PSMTorPCalibrationError, PSMTooFewObsError) as e:
+
                 # Proxy had no obs or didn't meet psm r crit
                 for group in list(proxy_id_by_type.values()):
                     if site in group:
@@ -848,8 +856,9 @@ class ProxyLMRdb(BaseProxyObject):
                                      load_psm=load_psm,
                                      on_the_fly_calib=on_the_fly)
                 proxy_objs.append(pobj)
-            except ValueError as e:
-                print(e)
+            except (ProxyTypeNotMappedError, PSMFitThresholdError,
+                    PSMTorPCalibrationError, PSMTooFewObsError) as e:
+                print('Proxy Error [{}]: '.format(site) + str(e))
 
         return proxy_objs
 
