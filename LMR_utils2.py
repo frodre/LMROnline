@@ -2386,6 +2386,45 @@ class FlagError(ValueError):
     pass
 
 
+class ReqDataFractionMismatchError(AttributeError):
+    """
+    Error to raise when the pre-averaged data was creating using a different
+    minimum data requirement.
+    """
+    pass
+
+
+class ProxyTypeNotMappedError(KeyError):
+    """
+    Error raised when proxy type loaded is not in the configuration mapping and
+    is therefore unusable.
+    """
+    pass
+
+
+class PSMFitThresholdError(ValueError):
+    """
+    Error raised when the PSM fit (correlation) is below the specified
+    threshold.
+    """
+    pass
+
+
+class PSMTooFewObsError(ValueError):
+    """
+    Error raised when PSM calibration has too few overlapping values with the
+    reference data to fit.
+    """
+    pass
+
+
+class PSMTorPCalibrationError(ValueError):
+    """
+    Error raised when moisture and temperutre failed to have calibrated PSMs.
+    """
+    pass
+
+
 def regional_mask(lat, lon, southlat, northlat, westlon, eastlon):
     """
     Given vectors for lat and lon, and lat-lon boundaries for a regional domain, 
