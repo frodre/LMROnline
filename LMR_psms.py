@@ -55,11 +55,14 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy.io import loadmat
 from functools import lru_cache
 
-from LMR_utils import (haversine, get_distance, smooth2D,
-                       get_data_closest_gridpt, class_docs_fixer)
+from LMR_utils2 import (haversine, get_distance, smooth2D,
+                        get_data_closest_gridpt, class_docs_fixer,
+                        PSMFitThresholdError, PSMTooFewObsError,
+                        PSMTorPCalibrationError)
 
 # Logging output utility, configuration controlled by driver
 logger = logging.getLogger(__name__)
+REQ_NOBS = 25
 
 
 class BasePSM(metaclass=ABCMeta):
@@ -259,6 +262,19 @@ class LinearPSM(BasePSM):
         self.psm_vartype = self.datainfo['psm_vartype']
         self.sensitivity = list(self.psm_vartype.keys())[0]
 
+        # PSM Model Info
+        self.SSE = None
+        self.AIC = None
+        self.BIC = None
+        self.R2 = None
+        self.R2adj = None
+
+        # For diagnostics
+        self.calib_time = None
+        self.calib_refer_values = None
+        self.calib_proxy_values = None
+        self.calib_proxy_fit = None
+
         try:
             # Try using pre-calibrated psm_data
             if psm_data is None:
@@ -274,7 +290,7 @@ class LinearPSM(BasePSM):
             self.seasonality = psm_site_data.get('Seasonality', None)
 
         except KeyError:
-            raise ValueError('Proxy in database but not found in '
+            raise KeyError('Proxy in database but not found in '
                              'pre-calibration file... Skipping: '
                              '{}'.format(proxy_obj.id))
         except IOError as e:
@@ -295,9 +311,9 @@ class LinearPSM(BasePSM):
 
         # Raise exception if critical correlation value not met
         if abs(self.corr) < r_crit:
-            raise ValueError(('Proxy model correlation ({:.2f}) does not meet '
-                              'critical threshold ({:.2f}).'
-                              ).format(self.corr, r_crit))
+            raise PSMFitThresholdError('Proxy model correlation ({:.2f}) does '
+                                       'not meet critical threshold ({:.2f}).'
+                                       ''.format(self.corr, r_crit))
 
     def psm(self, state_object):
         """
@@ -376,198 +392,70 @@ class LinearPSM(BasePSM):
         # Use linear model (regression) as default PSM
         # --------------------------------------------
 
-        nbmaxnan = 0
+        calvals = self.get_close_grid_point_data(calib_obj.data,
+                                                 calib_obj.lon,
+                                                 calib_obj.lat)
+        cyears = np.array([t.year for t in calib_obj.time])
 
-        # Look for indices of calibration grid point closest in space (in 2D)
-        # to proxy site
-        dist = get_distance(proxy.lon, proxy.lat, calib_obj.lon, calib_obj.lat)
-        # indices of nearest grid pt.
-        jind, kind = np.unravel_index(dist.argmin(), dist.shape)
-        calvals = calib_obj.temp_anomaly[:, jind, kind]
-
-        # -------------------------------------------------------
-        # Calculate averages of calibration data over appropriate
-        # intervals (annual or according to proxy seasonality)
-        # -------------------------------------------------------
-        if self.avg_type == 'annual':
-            # Simply use annual averages
-            avg_months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-        elif 'season' in self.avg_type:
-            # Consider the seasonality of the proxy record
-            avg_months = proxy.seasonality
-        else:
-            raise ValueError('Unrecognized value for avg_interval for PSM '
-                             'calibration!')
-
-        nbmonths = len(avg_months)
-        tmp = [calib_obj.time[k].year for k in range(len(calib_obj.time))]
-        cyears = np.asarray(list(set())) # 'set' is used to get unique values
-        nbcyears = len(cyears)
-        reg_x = np.zeros(shape=[nbcyears])
-        reg_x[:] = np.nan # initialize with nan's
-
-        for i in range(nbcyears):
-            # monthly data from current year
-            indsyr = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] and v.month in avg_months]
-            # check if data from previous year is to be included
-            indsyrm1 = []
-            if any(m < 0 for m in avg_months):
-                year_before = [abs(m) for m in avg_months if m < 0]
-                indsyrm1 = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] - 1. and v.month in year_before]
-            # check if data from following year is to be included
-            indsyrp1 = []
-            if any(m > 12 for m in avg_months):
-                year_follow = [m-12 for m in avg_months if m > 12]
-                indsyrp1 = [j for j,v in enumerate(calib_obj.time) if v.year == cyears[i] + 1. and v.month in year_follow]
-
-            inds = indsyrm1 + indsyr + indsyrp1
-            if len(inds) == nbmonths: # all months are in the data
-                tmp = np.nanmean(calvals[inds],axis=0)
-                nancount = np.isnan(calvals[inds]).sum(axis=0)
-                if nancount > nbmaxnan: tmp = np.nan
-            else:
-                tmp = np.nan
-            reg_x[i] = tmp
+        valid_idx = np.isfinite(calvals)
+        calvals = calvals[valid_idx]
+        cyears = cyears[valid_idx]
 
         # ------------------------
         # Set-up linear regression
         # ------------------------
         # Use pandas DataFrame to store proxy & calibration data side-by-side
-        header = ['variable', 'y']
         # Fill-in proxy data
-        df = pd.DataFrame({'time':proxy.time, 'y': proxy.values})
-        df.columns = header
+        df = pd.DataFrame({'time': proxy.time, 'y': proxy.values})
         # Add calibration data
-        frame = pd.DataFrame({'variable':cyears, 'Calibration':reg_x})
-        df = df.merge(frame, how='outer', on='variable')
+        frame = pd.DataFrame({'time': cyears, 'Calibration': calvals})
+        df = df.merge(frame, how='inner', on='time')
 
-        col0 = df.columns[0]
-        df.set_index(col0, drop=True, inplace=True)
-        df.index.name = 'time'
+        df.set_index('time', drop=True, inplace=True)
         df.sort_index(inplace=True)
 
         # ensure all df entries are floats: if not, sm.ols gives garbage
         df = df.astype(np.float)
 
+        nobs = len(df.index)
+        if nobs < REQ_NOBS:  # skip rest if insufficient overlapping data
+            raise PSMTooFewObsError('Less than {:d} overlapping observations '
+                                    'available to calibrate PSM. Nobs={:d}'
+                                    ''.format(REQ_NOBS, nobs))
 
         # Perform the regression
-        try:
-            regress = sm.ols(formula="y ~ Calibration", data=df).fit()
-            # number of data points used in the regression
-            nobs = int(regress.nobs)
-
-        except:
-            nobs = 0
-
-
-        if nobs < 25:  # skip rest if insufficient overlapping data
-            raise ValueError
-
-
-        # START NEW (GH) 21 June 2015... RT edit June 2016
-        # detrend both the proxy and the calibration data
-        #
-        # RT: This code is old and not fully compatible with more recent modifications
-        # (use of pandas and sm.OLS for calculation of regression...)
-        # The following few lines of code ensures better management and compatibility
-
-        detrend_proxy = False
-        detrend_calib = False
-        standardize_proxy = False
-
-        # This block is to ensure compatibility with GH's code below
-        y_ok =  df['y'][ df['y'].notnull()]
-        calib_ok =  df['Calibration'][ df['Calibration'].notnull()]
-        time_common = np.intersect1d(y_ok.index.values, calib_ok.index.values)
-        reg_ya = df['y'][time_common].values
-        reg_xa = df['Calibration'][time_common].values
-
-
-        # if any of the flags above are activated, run the following code. Otherwise, just ignore it all.
-        if detrend_proxy or detrend_calib or standardize_proxy:
-
-            # save copies of the original data for residual estimates later
-            reg_xa_all = np.copy(reg_xa)
-            reg_ya_all = np.copy(reg_ya)
-
-            if detrend_proxy:
-                # proxy detrend: (1) linear regression, (2) fit, (3) detrend
-                xvar = list(range(len(reg_ya)))
-                proxy_slope, proxy_intercept, r_value, p_value, std_err = \
-                            linregress(xvar, reg_ya)
-                proxy_fit = proxy_slope*np.squeeze(xvar) + proxy_intercept
-                reg_ya = reg_ya - proxy_fit # detrend for proxy
-
-            if detrend_calib:
-                # calibration detrend: (1) linear regression, (2) fit, (3) detrend
-                xvar = list(range(len(reg_xa)))
-                calib_slope, calib_intercept, r_value, p_value, std_err = \
-                            linregress(xvar, reg_xa)
-                calib_fit = calib_slope*np.squeeze(xvar) + calib_intercept
-                reg_xa = reg_xa - calib_fit
-
-            if standardize_proxy:
-                print('Calib stats (x)              [min, max, mean, std]:', np.nanmin(
-                    reg_xa), np.nanmax(reg_xa), np.nanmean(reg_xa), np.nanstd(reg_xa))
-                print('Proxy stats (y:original)     [min, max, mean, std]:', np.nanmin(
-                    reg_ya), np.nanmax(reg_ya), np.nanmean(reg_ya), np.nanstd(reg_ya))
-
-                # standardize proxy values over period of overlap with calibration data
-                reg_ya = (reg_ya - np.nanmean(reg_ya))/np.nanstd(reg_ya)
-                print('Proxy stats (y:standardized) [min, max, mean, std]:', np.nanmin(
-                    reg_ya), np.nanmax(reg_ya), np.nanmean(reg_ya), np.nanstd(reg_ya))
-                # GH: note that std_err pertains to the slope, not the residuals!!!
-
-
-            # Build new pandas DataFrame that contains the modified data:
-            # Use pandas DataFrame to store proxy & calibration data side-by-side
-            header = ['variable', 'y']
-            # Fill-in proxy data
-            dfmod = pd.DataFrame({'time':common_time, 'y': reg_ya})
-            dfmod.columns = header
-            # Add calibration data
-            frame = pd.DataFrame({'variable':common_time, 'Calibration':reg_xa})
-            dfmod = dfmod.merge(frame, how='outer', on='variable')
-
-            col0 = dfmod.columns[0]
-            dfmod.set_index(col0, drop=True, inplace=True)
-            dfmod.index.name = 'time'
-            dfmod.sort_index(inplace=True)
-
-            # Perform the regression using updated arrays
-            regress = sm.ols(formula="y ~ Calibration", data=dfmod).fit()
-
-
-        # END NEW (GH) 21 June 2015 ... RT edit June 2016
-
+        regress = sm.ols(formula="y ~ Calibration", data=df).fit()
+        # number of data points used in the regression
 
         # Assign PSM calibration attributes
         # Extract the needed regression parameters
-        self.intercept         = regress.params[0]
-        self.slope             = regress.params[1]
-        self.NbPts             = nobs
-        self.corr              = np.sqrt(regress.rsquared)
-        if self.slope < 0: self.corr = -self.corr
+        self.intercept = regress.params[0]
+        self.slope = regress.params[1]
+        self.NbPts = nobs
+        self.corr = np.sqrt(regress.rsquared)
+        if self.slope < 0:
+            self.corr = -self.corr
 
         # Stats on fit residuals
-        MSE = np.mean((regress.resid) ** 2)
+        MSE = np.mean(regress.resid ** 2)
         self.R = MSE
-        SSE = np.sum((regress.resid) ** 2)
+        SSE = np.sum(regress.resid ** 2)
         self.SSE = SSE
 
         # Model information
-        self.AIC   = regress.aic
-        self.BIC   = regress.bic
-        self.R2    = regress.rsquared
+        self.AIC = regress.aic
+        self.BIC = regress.bic
+        self.R2 = regress.rsquared
         self.R2adj = regress.rsquared_adj
 
         # Extra diagnostics
-        self.calib_time = time_common
+        reg_xa = df['Calibration'].values
+        reg_ya = df['y'].values
+        self.calib_time = df.index.values
         self.calib_refer_values = reg_xa
-        self.calib_proxy_values = reg_ya
-        fit = self.slope * reg_xa + self.intercept
+        self.calib_proxy_values = reg_xa
+        fit = self.slope * self.calib_refer_values + self.intercept
         self.calib_proxy_fit = fit
-
 
         if diag_output:
             # Diagnostic output
@@ -754,8 +642,8 @@ class LinearPSM_TorP(BasePSM):
         elif psm_obj_P is not None:
             self.sensitivity = 'moisture'
         else:
-            raise ValueError('Proxy PSM could not be calibrated... Skipping: '
-                             '{}'.format(proxy_obj.id))
+            raise PSMTorPCalibrationError('Proxy PSM could not be calibrated...'
+                                          ' Skipping: {}'.format(proxy_obj.id))
 
         if self.sensitivity == 'temperature':
             self.psm_obj = psm_obj_T
@@ -774,9 +662,9 @@ class LinearPSM_TorP(BasePSM):
 
         # Raise exception if critical correlation value not met
         if abs(self.psm_obj.corr) < r_crit:
-            raise ValueError('Proxy model correlation ({:.2f}) does not meet '
-                             'critical threshold '
-                             '({:.2f}).'.format(self.corr, r_crit))
+            raise PSMFitThresholdError('Proxy model correlation ({:.2f}) does '
+                                       'not meet critical threshold ({:.2f}).'
+                                       ''.format(self.corr, r_crit))
 
     # Define the error model for this proxy
     def error(self):
@@ -879,6 +767,19 @@ class BilinearPSM(BasePSM):
         # Assign sensitivity as temperature_moisture
         self.sensitivity = 'temperature_moisture'
 
+        # PSM Model Info
+        self.SSE = None
+        self.AIC = None
+        self.BIC = None
+        self.R2 = None
+        self.R2adj = None
+
+        # For diagnostics
+        self.calib_time = None
+        self.calib_refer_values = None
+        self.calib_proxy_values = None
+        self.calib_proxy_fit = None
+
         # Try using pre-calibrated psm_data
         try:
             if psm_data is None:
@@ -900,8 +801,8 @@ class BilinearPSM(BasePSM):
                 self.seasonality = psm_site_data['Seasonality']
 
         except KeyError as e:
-            raise ValueError('Proxy in database but not found in pre-calibration file... '
-                             'Skipping: {}'.format(proxy_obj.id))
+            raise KeyError('Proxy in database but not found in pre-calibration '
+                           'file... Skipping: {}'.format(proxy_obj.id))
         except IOError as e:
             # No precalibration found, have to do it for this proxy
             print('No pre-calibration found for {}:{}'.format(proxy_obj.id,
@@ -929,9 +830,9 @@ class BilinearPSM(BasePSM):
 
         # Raise exception if critical correlation value not met
         if abs(self.corr) < r_crit:
-            raise ValueError(('Proxy model correlation ({:.2f}) does not meet '
-                              'critical threshold ({:.2f}).'
-                              ).format(self.corr, r_crit))
+            raise PSMFitThresholdError('Proxy model correlation ({:.2f}) does '
+                                       'not meet critical threshold ({:.2f}).'
+                                       ''.format(self.corr, r_crit))
 
 
     # TODO: Ideally prior state info and coordinates should all be in single obj
@@ -985,16 +886,16 @@ class BilinearPSM(BasePSM):
         return 0.1
 
     # TODO: Simplify a lot of the actions in the calibration
-    def calibrate(self, C_T, C_P, proxy, diag_output=False, diag_output_figs=False):
+    def calibrate(self, cobj_T, cobj_P, proxy, diag_output=False, diag_output_figs=False):
         """
         Calibrate given proxy record against observation data and set relevant
         PSM attributes.
 
         Parameters
         ----------
-        C_T: calibration_master like
+        cobj_T: calibration_master like
             Calibration object containing temperature data, time, lat, lon info
-        C_P: calibration_master like
+        cobj_P: calibration_master like
             Calibration object containing precipitation/moisture data, time, lat, lon info
         proxy: BaseProxyObject like
             Proxy object to fit to the calibration data
@@ -1002,214 +903,89 @@ class BilinearPSM(BasePSM):
             Diagnostic output flags for calibration method
         """
 
-        calib_spatial_avg = False
-        Npts = 9  # nb of neighboring pts used in smoothing
-
-        #print 'Calibrating: ', '{:25}'.format(proxy.id), '{:35}'.format(proxy.type)
-
         # ----------------------------------------------
         # Use bilinear model (regression) as default PSM
         # ----------------------------------------------
 
-        nbmaxnan = 0
+        calvals_T = self.get_close_grid_point_data(cobj_T.data,
+                                                   cobj_T.lon,
+                                                   cobj_T.lat)
+        cyears_T = np.array([t.year for t in cobj_T.time])
 
-        # Look for indices of calibration grid point closest in space (in 2D)
-        # to proxy site
-        # For temperature calibration dataset
-        dist_T = get_distance(proxy.lon, proxy.lat, C_T.lon, C_T.lat)
-        # indices of nearest grid pt.
-        jind_T, kind_T = np.unravel_index(dist_T.argmin(), dist_T.shape)
-        # For precipitation/moisture calibration dataset
-        dist_P = get_distance(proxy.lon, proxy.lat, C_P.lon, C_P.lat)
-        # indices of nearest grid pt.
-        jind_P, kind_P = np.unravel_index(dist_P.argmin(), dist_P.shape)
+        valid_idx = np.isfinite(calvals_T)
+        calvals_T = calvals_T[valid_idx]
+        cyears_T = cyears_T[valid_idx]
 
-        # Apply spatial smoother to calibration gridded data, if option is activated
-        if calib_spatial_avg:
-            # temperature
-            C2Dsmooth = np.zeros([C_T.time.shape[0], C_T.lat.shape[0], C_T.lon.shape[0]])
-            for m in range(C_T.time.shape[0]):
-                C2Dsmooth[m, :, :] = smooth2D(C_T.temp_anomaly[m, :, :], n=Npts)
-            calvals_T = C2Dsmooth[:, jind_T, kind_T]
+        calvals_P = self.get_close_grid_point_data(cobj_P.data,
+                                                   cobj_P.lon,
+                                                   cobj_P.lat)
+        cyears_P = np.array([t.year for t in cobj_P.time])
 
-            # precipitation/moisture
-            C2Dsmooth = np.zeros([C_P.time.shape[0], C_P.lat.shape[0], C_P.lon.shape[0]])
-            for m in range(C_P.time.shape[0]):
-                C2Dsmooth[m, :, :] = smooth2D(C_P.temp_anomaly[m, :, :], n=Npts)
-            calvals_P = C2Dsmooth[:, jind_P, kind_P]
-
-        else:
-            calvals_T = C_T.temp_anomaly[:, jind_T, kind_T]
-            calvals_P = C_P.temp_anomaly[:, jind_P, kind_P]
-
-
-        # -------------------------------------------------------
-        # Calculate averages of calibration data over appropriate
-        # intervals (annual or according to proxy seasonality
-        # -------------------------------------------------------
-        if self.avg_interval == 'annual':
-            # Simply use annual averages
-            avgMonths_T = [1,2,3,4,5,6,7,8,9,10,11,12]
-            avgMonths_P = [1,2,3,4,5,6,7,8,9,10,11,12]
-        elif 'season' in self.avg_interval:
-
-            # Distinction btw temperature & moisture seasonalities?
-            if hasattr(proxy,'seasonality_T') and  hasattr(proxy,'seasonality_P'):
-                avgMonths_T =  proxy.seasonality_T
-                avgMonths_P =  proxy.seasonality_P
-            else:
-                # Revert to the seasonality of the proxy record from the
-                # original metadata
-                avgMonths_T =  proxy.seasonality
-                avgMonths_P =  proxy.seasonality
-
-        else:
-            print ('ERROR: Unrecognized value for avgPeriod! Exiting!' )
-            exit(1)
-
-        nbmonths_T = len(avgMonths_T)
-        nbmonths_P = len(avgMonths_P)
-
-        # Temperature data
-        cyears_T = np.asarray(list(set([C_T.time[k].year for k in range(len(C_T.time))]))) # 'set' is used to get unique values
-        nbcyears_T = len(cyears_T)
-        reg_x_T = np.zeros(shape=[nbcyears_T])
-        reg_x_T[:] = np.nan # initialize with nan's
-
-        for i in range(nbcyears_T):
-            # monthly data from current year
-            indsyr = [j for j,v in enumerate(C_T.time) if v.year == cyears_T[i] and v.month in avgMonths_T]
-            # check if data from previous year is to be included
-            indsyrm1 = []
-            if any(m < 0 for m in avgMonths_T):
-                year_before = [abs(m) for m in avgMonths_T if m < 0]
-                indsyrm1 = [j for j,v in enumerate(C_T.time) if v.year == cyears_T[i]-1. and v.month in year_before]
-            # check if data from following year is to be included
-            indsyrp1 = []
-            if any(m > 12 for m in avgMonths_T):
-                year_follow = [m-12 for m in avgMonths_T if m > 12]
-                indsyrp1 = [j for j,v in enumerate(C_T.time) if v.year == cyears_T[i]+1. and v.month in year_follow]
-
-            inds = indsyrm1 + indsyr + indsyrp1
-            if len(inds) == nbmonths_T: # all months are in the data
-                tmp = np.nanmean(calvals_T[inds],axis=0)
-                nancount = np.isnan(calvals_T[inds]).sum(axis=0)
-                if nancount > nbmaxnan: tmp = np.nan
-            else:
-                tmp = np.nan
-            reg_x_T[i] = tmp
-
-
-        # Moisture data
-        cyears_P = np.asarray(list(set([C_P.time[k].year for k in range(len(C_P.time))]))) # 'set' is used to get unique values
-        nbcyears_P = len(cyears_P)
-        reg_x_P = np.zeros(shape=[nbcyears_P])
-        reg_x_P[:] = np.nan # initialize with nan's
-
-        for i in range(nbcyears_P):
-            # monthly data from current year
-            indsyr = [j for j,v in enumerate(C_P.time) if v.year == cyears_P[i] and v.month in avgMonths_P]
-            # check if data from previous year is to be included
-            indsyrm1 = []
-            if any(m < 0 for m in avgMonths_P):
-                year_before = [abs(m) for m in avgMonths_P if m < 0]
-                indsyrm1 = [j for j,v in enumerate(C_P.time) if v.year == cyears_P[i]-1. and v.month in year_before]
-            # check if data from following year is to be included
-            indsyrp1 = []
-            if any(m > 12 for m in avgMonths_P):
-                year_follow = [m-12 for m in avgMonths_P if m > 12]
-                indsyrp1 = [j for j,v in enumerate(C_P.time) if v.year == cyears_P[i]+1. and v.month in year_follow]
-
-            inds = indsyrm1 + indsyr + indsyrp1
-            if len(inds) == nbmonths_P: # all months are in the data
-                tmp = np.nanmean(calvals_P[inds],axis=0)
-                nancount = np.isnan(calvals_P[inds]).sum(axis=0)
-                if nancount > nbmaxnan: tmp = np.nan
-            else:
-                tmp = np.nan
-            reg_x_P[i] = tmpq
+        valid_idx = np.isfinite(calvals_P)
+        calvals_P = calvals_P[valid_idx]
+        cyears_P = cyears_P[valid_idx]
 
         # ---------------------------
         # Perform bilinear regression
         # ---------------------------
 
         # Use panda DataFrame to store proxy & calibration data side-by-side
-        header = ['variable', 'y']
         # Fill-in proxy data
-        df = pd.DataFrame({'time':proxy.time, 'y': proxy.values})
-        df.columns = header
+        df = pd.DataFrame({'time': proxy.time, 'y': proxy.values})
         # Add temperature calibration data
-        frameT = pd.DataFrame({'variable':cyears_T, 'Temperature':reg_x_T})
-        df = df.merge(frameT, how='outer', on='variable')
+        frameT = pd.DataFrame({'time': cyears_T, 'Temperature': calvals_T})
+        df = df.merge(frameT, how='inner', on='time')
         # Add precipitation/moisture calibration data
-        frameP = pd.DataFrame({'variable':cyears_P, 'Moisture':reg_x_P})
-        df = df.merge(frameP, how='outer', on='variable')
-        col0 = df.columns[0]
-        df.set_index(col0, drop=True, inplace=True)
-        df.index.name = 'Time'
+        frameP = pd.DataFrame({'time': cyears_P, 'Moisture': calvals_P})
+        df = df.merge(frameP, how='inner', on='time')
+
+        df.set_index('time', drop=True, inplace=True)
         df.sort_index(inplace=True)
 
         # ensure all df entries are floats: if not, sm.ols gives garbage
         df = df.astype(np.float)
 
+        nobs = len(df.index)
+        if nobs < REQ_NOBS:  # skip rest if insufficient overlapping data
+            raise PSMTooFewObsError('Less than {:d} overlapping observations '
+                                    'available to calibrate PSM. Nobs={:d}'
+                                    ''.format(REQ_NOBS, nobs))
+
         # Perform the regression
-        try:
-            regress = sm.ols(formula="y ~ Temperature + Moisture", data=df).fit()
-            #regress = sm.ols(formula="y ~ Temperature * Moisture", data=df).fit() # w/ interaction term
-            #regress = sm.ols(formula="y ~ Temperature + Moisture +Temperature:Moisture", data=df).fit() # w/ interaction term
-            # number of data points used in the regression
-            nobs = int(regress.nobs)
-        except:
-            nobs = 0
-
-        if nobs < 25:  # skip rest if insufficient overlapping data
-            raise ValueError('Insufficent observation/calibration overlap'
-                             ' to calibrate psm.')
-
+        regress = sm.ols(formula="y ~ Temperature + Moisture", data=df).fit()
+        #regress = sm.ols(formula="y ~ Temperature * Moisture", data=df).fit() # w/ interaction term
+        #regress = sm.ols(formula="y ~ Temperature + Moisture +Temperature:Moisture", data=df).fit() # w/ interaction term
 
         # extract the needed regression parameters
-        self.intercept         = regress.params[0]
+        self.intercept = regress.params[0]
         self.slope_temperature = regress.params[1]
-        self.slope_moisture    = regress.params[2]
+        self.slope_moisture = regress.params[2]
 
         self.NbPts = nobs
-        self.corr  = np.sqrt(regress.rsquared)
+        self.corr = np.sqrt(regress.rsquared)
 
         # Stats on fit residuals
-        MSE = np.mean((regress.resid) ** 2)
+        MSE = np.mean(regress.resid ** 2)
         self.R = MSE
-        SSE = np.sum((regress.resid) ** 2)
+        SSE = np.sum(regress.resid ** 2)
         self.SSE = SSE
 
         # Model information
-        self.AIC   = regress.aic
-        self.BIC   = regress.bic
-        self.R2    = regress.rsquared
+        self.AIC = regress.aic
+        self.BIC = regress.bic
+        self.R2 = regress.rsquared
         self.R2adj = regress.rsquared_adj
 
-        # Extra diagnostics
-        # ... add here ...
+        reg_xa_T = df['Temperature'].values
+        reg_xa_P = df['Moisture'].values
+        reg_ya = df['y'].values
 
-        y_ok =  df['y'][ df['y'].notnull()]
-        calib_T_ok =  df['Temperature'][ df['Temperature'].notnull()]
-        calib_P_ok =  df['Moisture'][ df['Moisture'].notnull()]
-        calib_ok =  np.intersect1d(calib_T_ok.index.values,calib_P_ok.index.values)
-        time_common = np.intersect1d(y_ok.index.values, calib_ok)
-
-        reg_ya = df['y'][time_common].values
-        reg_xa_T = df['Temperature'][time_common].values
-        reg_xa_P = df['Moisture'][time_common].values
-
-        self.calib_time = time_common
+        self.calib_time = df.index.values
         self.calib_proxy_values = reg_ya
         self.calib_temperature_refer_values = reg_xa_T
         self.calib_moisture_refer_values = reg_xa_P
         fit = self.slope_temperature * reg_xa_T + self.slope_moisture * reg_xa_P + self.intercept
         self.calib_proxy_fit = fit
-
-
-        diag_output = False
-        diag_output_figs = False
 
         if diag_output:
             # Diagnostic output
@@ -1436,7 +1212,8 @@ class h_interpPSM(BasePSM):
             return {'R_data': R_data}
         except IOError as e:
             print(e)
-            print('In "h_interpPSM" class: Cannot find PSM calibration file: %s. Exiting!' % pre_calib_file)
+            print('In "h_interpPSM" class: Cannot find PSM calibration file: '
+                  '%s. Exiting!' % pre_calib_file)
             raise SystemExit
     
     @staticmethod
@@ -1649,8 +1426,9 @@ class BayesRegUK37PSM(BasePSM):
 # Mapping dict to PSM object type, this is where proxy_type/psm relations
 # should be specified (I think.) - AP
 _psm_classes = {'linear': LinearPSM, 'linear_TorP': LinearPSM_TorP,
-                'bilinear': BilinearPSM,'h_interp': h_interpPSM,
+                'bilinear': BilinearPSM, 'h_interp': h_interpPSM,
                 'bayesreg_uk37': BayesRegUK37PSM}
+
 
 def get_psm_class(psm_type):
     """
