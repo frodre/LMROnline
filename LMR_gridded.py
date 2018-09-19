@@ -18,8 +18,8 @@ import tables as tb
 import pylim.DataTools as DT
 
 import LMR_config
-from LMR_utils2 import regrid_sphere_gridded_object, var_to_hdf5_carray, \
-    empty_hdf5_carray, regrid_esmpy_grid_object
+from LMR_utils2 import (regrid_sphere_gridded_object, var_to_hdf5_carray,
+    empty_hdf5_carray, regrid_esmpy_grid_object, ReqDataFractionMismatchError)
 from LMR_utils2 import fix_lon, regular_cov_infl
 # import pylim.DataTools as DT
 
@@ -61,7 +61,7 @@ class GriddedVariable(object):
                  sampled=None, avg_interval=None, regrid_method=None,
                  regrid_grid=None, esmpy_interp=None, lat_grid=None,
                  lon_grid=None, climo=None, rotated_pole=False,
-                 cell_area=None, ref_period=None):
+                 cell_area=None, ref_period=None, data_req_frac=None):
         """
 
         Parameters
@@ -113,6 +113,10 @@ class GriddedVariable(object):
             Indication of whether or not the data is on a rotated pole grid
         cell_area: ndarray, optional
             Grid array describing the area of each grid cell.
+        data_req_frac: float, optional
+            The fraction of required data over the average interval to qualify
+            as a valid data point. Used as a reference for pre-averaged data
+            loading to check equivalince with what is requested.
 
         Attributes
         ----------
@@ -148,6 +152,7 @@ class GriddedVariable(object):
 
         self._fill_val = fill_val
         self._idx_used_for_sample = sampled
+        self._data_req_frac = data_req_frac
 
         self._dim_coord_map = {_TIME: self.time,
                                _LEV: self.lev,
@@ -335,6 +340,7 @@ class GriddedVariable(object):
             raise ValueError('Unrecognized regridding method: {}'.format(regrid_method))
 
         # Rotated pole omitted for regridded data
+        # TODO: Figure out how to transfer cell area
         return class_obj(self.name, self.dim_order, regrid_data,
                          time=self.time,
                          lev=self.lev,
@@ -348,7 +354,9 @@ class GriddedVariable(object):
                          esmpy_interp=interp_method,
                          lat_grid=new_lat,
                          lon_grid=new_lon,
-                         climo=climo)
+                         climo=climo,
+                         data_req_frac=self._data_req_frac,
+                         ref_period=self.ref_period)
 
     def fill_val_to_nan(self):
         """
@@ -743,7 +751,6 @@ class GriddedVariable(object):
                                      ignore_pre_avg=ignore_pre_avg,
                                      avg_interval=avg_interval,
                                      avg_interval_kwargs=avg_interval_kwargs,
-                                     data_req_frac=1.0,
                                      regrid_method=regrid_method,
                                      regrid_grid=regrid_grid,
                                      esmpy_kwargs=esmpy_kwargs,
@@ -776,7 +783,7 @@ class GriddedVariable(object):
                           avg_interval=None, avg_interval_kwargs=None,
                           regrid_method=None, regrid_grid=None,
                           esmpy_kwargs=None,
-                          data_req_frac=0.0, save=True,
+                          data_req_frac=1.0, save=True,
                           ignore_pre_avg=False, rotated_pole=False,
                           anomaly=True, detrend=False,
                           cell_area_file=None,
@@ -812,9 +819,12 @@ class GriddedVariable(object):
                                             seed=seed,
                                             interp_method=interp_method,
                                             anom_ref=anom_reference_period,
-                                            calib_period=calib_period)
-        except (IOError, tb.exceptions.NoSuchNodeError):
-            print(('No pre-averaged file found ({}) or '
+                                            calib_period=calib_period,
+                                            data_req_frac=data_req_frac)
+        except (IOError, tb.exceptions.NoSuchNodeError,
+                ReqDataFractionMismatchError) as e:
+            print(e)
+            print(('No equivalent pre-averaged file found ({}) or '
                    'ignore specified ... '.format(varname)))
             var_obj = ftype_loader(file_dir, file_name, varname, save=save,
                                    data_req_frac=data_req_frac,
@@ -875,7 +885,7 @@ class GriddedVariable(object):
                           regrid_method=None, regrid_grid=None,
                           anomaly=False, nens=None, sample=None,
                           seed=None, interp_method=None, anom_ref=None,
-                          calib_period=None):
+                          calib_period=None, data_req_frac=None):
         """
         General structure for load pre-averaged:
         1. Load data
@@ -906,6 +916,13 @@ class GriddedVariable(object):
             obj = h5f.get_node(obj_dir, name=obj_node_name)[0]
             obj_data = h5f.get_node(obj_dir, name=data_node_name)
             print(('Found node for avg_interval path: {}'.format(obj_dir)))
+
+            if data_req_frac is not None and obj._data_req_frac != data_req_frac:
+                raise ReqDataFractionMismatchError(
+                    'Requested minimum data fraction is not equivalent to '
+                    'the pre-averaged object. obj{:1.2f} != req{:1.2f}'
+                    ''.format(obj._data_req_frac, data_req_frac)
+                )
 
             # Look for pre-regridded data if specified
             do_sample = True
@@ -950,7 +967,11 @@ class GriddedVariable(object):
                 elif nens is not None:
                     obj = obj.random_sample(nens, seed)
                 else:
-                    obj.data = obj.data.read()
+                    try:
+                        obj.data = obj.data.read()
+                    except AttributeError as e:
+                        # Probably a numpy array
+                        pass
 
         print('Loaded pre-averaged file: {}'.format(path))
         return obj
@@ -1071,7 +1092,8 @@ class GriddedVariable(object):
             grid_obj = cls(varname, dims, avg_data, fill_val=fill_val,
                            avg_interval=avg_interval, rotated_pole=rotated_pole,
                            lat_grid=lat_grid, lon_grid=lon_grid,
-                           cell_area=cell_area, **dim_vals)
+                           cell_area=cell_area, data_req_frac=data_req_frac,
+                           ref_period=anom_ref, **dim_vals)
 
             if anomaly:
                 grid_obj.convert_to_anomaly(ref_period=anom_ref)
@@ -1392,7 +1414,8 @@ class AnalysisVariable(GriddedVariable):
         """
         unique_kwargs = {'detrend': config.detrend,
                          'anom_reference_period': config.anom_reference_period,
-                         'calib_period': config.calib_period}
+                         'calib_period': config.calib_period,
+                         'data_req_frac': config.min_data_req_frac}
         return unique_kwargs
 
     @classmethod
