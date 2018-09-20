@@ -99,6 +99,7 @@ class _ConstantDefinitions(_YamlStorage):
             avg_indices = get_averaging_period(avg_indices, nelem_in_yr)
 
             avg_indices = np.array(avg_indices, dtype=np.int16)
+            avg_indices = tuple(avg_indices)
 
             val['elem_to_avg'] = avg_indices
 
@@ -177,13 +178,6 @@ class core(ConfigGroup):
         Use pre-existing files for the psm Ye values.  If the file does not
         exist and the required state variables are missing the reconstruction
         will quit.
-    ignore_pre_avg_file: bool
-        Ignore pre-processed files for prior and anlaysis gridded data. This
-        slows down the initial stages of reconstruction, but is useful for
-        resetting the pre-processed data when used with save_pre_avg_file.
-    save_pre_avg_file: bool
-        Save intermediate files for loaded gridded datasets. Speeds up load
-        times during reconstructions.
     recon_period: tuple(int)
         Time period for reconstruction
     nens: int
@@ -225,8 +219,6 @@ class core(ConfigGroup):
     online_reconstruction = False
     clean_start = True
     use_precalc_ye = False
-    ignore_pre_avg_file = False
-    save_pre_avg_file = True
     recon_period = [1950, 1960]
     nens = 10
     recon_timescale = 1  # annual
@@ -261,8 +253,6 @@ class core(ConfigGroup):
         self.online_reconstruction = self.online_reconstruction
         self.clean_start = self.clean_start
         self.use_precalc_ye = self.use_precalc_ye
-        self.ignore_pre_avg_file = self.ignore_pre_avg_file
-        self.save_pre_avg_file = self.save_pre_avg_file
         self.recon_period = tuple(self.recon_period)
         self.nens = self.nens
         self.recon_timescale = self.recon_timescale
@@ -328,6 +318,7 @@ class proxies(ConfigGroup):
     proxy_timeseries_kind = 'asis'
 
     load_psm_with_proxies = True
+    on_the_fly_calib = False
 
     # Filtering proxy records on conditions of data availability during
     # the reconstruction period.
@@ -779,6 +770,7 @@ class proxies(ConfigGroup):
         self.proxy_frac = self.proxy_frac
         self.proxy_timeseries_kind = self.proxy_timeseries_kind
         self.load_psm_with_proxies = self.load_psm_with_proxies
+        self.on_the_fly_calib = self.on_the_fly_calib
         self.proxy_availability_filter = self.proxy_availability_filter
         self.proxy_availability_fraction = self.proxy_availability_fraction
 
@@ -808,10 +800,6 @@ class psm(ConfigGroup):
     # Period over which data is used to establish a statistical relationship
     # between proxy and instrumental data (statistical PSMs only)
     calib_period = (1850, 2015)
-
-    regrid_method = None
-    regrid_grid = 'reg_2x2deg'
-    esmpy_interp_method = 'bilinear'
 
     class linear(ConfigGroup):
         """
@@ -848,6 +836,8 @@ class psm(ConfigGroup):
         season_source = 'proxy_metadata'
         # season_source = 'psm_calib'
 
+        detrend = False
+
         psm_r_crit = 0.0
 
         min_data_req_frac = 1.0  # 0.0 no data required, 1.0 all data required
@@ -855,8 +845,7 @@ class psm(ConfigGroup):
 
         def __init__(self, lmr_path=None, anom_reference_period=None,
                      proxy_use_from=None, calib_period=None,
-                     regrid_method=None, regrid_grid=None,
-                     esmpy_interp_method=None, **kwargs):
+                     **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
             self.datatag = self.datatag
@@ -869,6 +858,11 @@ class psm(ConfigGroup):
 
             self.psm_r_crit = self.psm_r_crit
             self.min_data_req_frac = self.min_data_req_frac
+            if self.min_data_req_frac < 0 or self.min_data_req_frac > 1:
+                raise ValueError('Minimum fraction of data required must be '
+                                 'between 0.0 and 1.0.')
+
+            self.detrend = self.detrend
 
             self.avg_type = self.avg_type
             self.season_source = self.season_source
@@ -886,7 +880,7 @@ class psm(ConfigGroup):
             self.calib_period = calib_period
 
 
-            if 'PAGES2kv1' in proxies.use_from and 'season' in self.avg_type:
+            if 'PAGES2kv1' in self.proxy_use_from and 'season' in self.avg_type:
                 raise ValueError('No seasonality information in PAGES2kv1 '
                                  'database.  Change avg_period to "annual" in '
                                  'your configuration')
@@ -900,7 +894,7 @@ class psm(ConfigGroup):
                 lmr_path = core.lmr_path
 
             if self.datadir is None:
-                self.datadir = join(lmr_path, 'data', 'analyses')
+                self.datadir = join(lmr_path, 'data', 'analyses', self.datatag)
             else:
                 self.datadir = self.datadir
 
@@ -916,14 +910,14 @@ class psm(ConfigGroup):
                     season_tag = _avg_type_pre_calib_tag[(self.avg_type,
                                                           self.season_source)]
 
-                if 'LMRdb' in proxies.use_from:
+                if 'LMRdb' in proxy_use_from:
 
-                    filename = (f'PSMs_{proxy_use_from}_{dbversion}_'
-                                f'{self.avg_type}{season_tag}{self.datatag}_'
+                    filename = (f'PSMs_{proxy_use_from[0]}_{dbversion}_'
+                                f'{self.avg_type}{season_tag}_{self.datatag}_'
                                 f'ref{anom_start}-{anom_end}_'
                                 f'cal{cstart}-{cend}.pckl')
                 else:
-                    filename = (f'PSMs_{proxy_use_from}_{self.datatag}_'
+                    filename = (f'PSMs_{proxy_use_from[0]}_{self.datatag}_'
                                 f'ref{anom_start}-{anom_end}_'
                                 f'cal{cstart}-{cend}.pckl')
 
@@ -939,25 +933,6 @@ class psm(ConfigGroup):
                                  'o choose specific variable. Switch '
                                  'datatag_calib in the config.')
             self.psm_required_variables = self.datainfo['psm_vartype']
-
-            if regrid_method is None:
-                regrid_method = psm.regrid_method
-            self.regrid_method = regrid_method
-
-            if regrid_grid is None:
-                regrid_grid = psm.regrid_grid
-            self.regrid_grid = regrid_grid
-
-            if esmpy_interp_method is None:
-                esmpy_interp_method = psm.esmpy_interp_method
-            self.esmpy_interp_method = esmpy_interp_method
-
-            if self.regrid_method != 'esmpy':
-                self.regrid_resolution = self.regrid_grid
-                self.esmpy_grid_def = None
-            elif self.regrid_method == 'esmpy':
-                self.regrid_resolution = None
-                self.esmpy_grid_def = _GridDef.get_info(self.regrid_grid)
 
         def update_avg_interval(self, avg_interval, avg_interval_kwargs):
             self.avg_interval = avg_interval
@@ -1019,23 +994,27 @@ class psm(ConfigGroup):
         metric = 'corr'
         # metric = 'mse'
 
+        min_data_req_frac = 1.0
+
 
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, proxy_use_from=None,
-                     calib_period=None, anom_reference_period=None,
-                     regrid_method=None, regrid_grid=None,
-                     esmpy_interp_method=None, **kwargs):
+                     calib_period=None, anom_reference_period=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
+
+            self.min_data_req_frac = self.min_data_req_frac
 
             temp_kwarg = {'datatag': self.datatag_T,
                           'pre_calib_datafile': self.pre_calib_datafile_T,
                           'avg_type': self.avg_type,
-                          'season_source': self.season_source}
+                          'season_source': self.season_source,
+                          'min_data_req_frac': self.min_data_req_frac}
             mois_kwarg = {'datatag': self.datatag_P,
                           'pre_calib_datafile': self.pre_calib_datafile_P,
                           'avg_type': self.avg_type,
-                          'season_source': self.season_source}
+                          'season_source': self.season_source,
+                          'min_data_req_frac': self.min_data_req_frac}
 
             if proxy_use_from is None:
                 proxy_use_from = proxies.use_from
@@ -1054,17 +1033,11 @@ class psm(ConfigGroup):
                                           proxy_use_from=proxy_use_from,
                                           calib_period=calib_period,
                                           anom_reference_period=anom_reference_period,
-                                          regrid_method=regrid_method,
-                                          regrid_grid=regrid_grid,
-                                          esmpy_interp_method=esmpy_interp_method,
                                           **temp_kwarg)
             self.moisture = psm.linear(lmr_path=lmr_path,
                                        proxy_use_from=proxy_use_from,
                                        calib_period=calib_period,
                                        anom_reference_period=anom_reference_period,
-                                       regrid_method=regrid_method,
-                                       regrid_grid=regrid_grid,
-                                       esmpy_interp_method=esmpy_interp_method,
                                        **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
@@ -1117,22 +1090,25 @@ class psm(ConfigGroup):
         pre_calib_datafile = None
         psm_r_crit = 0.0
 
+        min_data_req_frac = 1.0
+
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, proxy_use_from=None,
-                     calib_period=None, anom_reference_period=None,
-                     regrid_method=None, regrid_grid=None,
-                     esmpy_interp_method=None,
-                     **kwargs):
+                     calib_period=None, anom_reference_period=None, **kwargs):
 
             super(self.__class__, self).__init__(**kwargs)
 
+            self.min_data_req_frac = self.min_data_req_frac
+
             temp_kwarg = {'datatag': self.datatag_T,
                           'avg_type': self.avg_type,
-                          'season_source': self.season_source}
+                          'season_source': self.season_source,
+                          'min_data_req_frac': self.min_data_req_frac}
             mois_kwarg = {'datatag': self.datatag_P,
                           'avg_type': self.avg_type,
-                          'season_source': self.season_source}
+                          'season_source': self.season_source,
+                          'min_data_req_frac': self.min_data_req_frac}
 
             if proxy_use_from is None:
                 proxy_use_from = proxies.use_from
@@ -1151,17 +1127,11 @@ class psm(ConfigGroup):
                                           proxy_use_from=proxy_use_from,
                                           calib_period=calib_period,
                                           anom_reference_period=anom_reference_period,
-                                          regrid_method=regrid_method,
-                                          regrid_grid=regrid_grid,
-                                          esmpy_interp_method=esmpy_interp_method,
                                           **temp_kwarg)
             self.moisture = psm.linear(lmr_path=lmr_path,
                                        proxy_use_from=proxy_use_from,
                                        calib_period=calib_period,
                                        anom_reference_period=anom_reference_period,
-                                       regrid_method=regrid_method,
-                                       regrid_grid=regrid_grid,
-                                       esmpy_interp_method=esmpy_interp_method,
                                        **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
@@ -1180,14 +1150,14 @@ class psm(ConfigGroup):
 
                 if proxies.use_from == 'LMRdb':
 
-                    filename = (f'PSMs_{proxy_use_from}_{dbversion}_'
-                                f'{self.avg_type}{season_tag}{self.datatag_T}_'
+                    filename = (f'PSMs_{proxy_use_from[0]}_{dbversion}_'
+                                f'{self.avg_type}{season_tag}_{self.datatag_T}_'
                                 f'{self.datatag_P}_'
                                 f'ref{anom_start}-{anom_end}_'
                                 f'cal{cstart}-{cend}.pckl')
                 else:
 
-                    filename = (f'PSMs_{proxy_use_from}_{dbversion}_'
+                    filename = (f'PSMs_{proxy_use_from[0]}_{dbversion}_'
                                 f'{self.datatag_T}_{self.datatag_P}_'
                                 f'ref{anom_start}-{anom_end}_'
                                 f'cal{cstart}-{cend}.pckl')
@@ -1331,10 +1301,7 @@ class psm(ConfigGroup):
 
 
     # Initialize subclasses with all attributes 
-    def __init__(self, lmr_path=None, save_pre_avg_file=None,
-                 ignore_pre_avg_file=None, proxy_use_from=None,
-                 regrid_method=None, regrid_grid=None,
-                 esmpy_interp_method=None, **kwargs):
+    def __init__(self, lmr_path=None, proxy_use_from=None, **kwargs):
 
         self.anom_reference_period = self.anom_reference_period
         self.calib_period = self.calib_period
@@ -1343,43 +1310,24 @@ class psm(ConfigGroup):
                                   proxy_use_from=proxy_use_from,
                                   anom_reference_period=self.anom_reference_period,
                                   calib_period=self.calib_period,
-                                  regrid_method=regrid_method,
-                                  regrid_grid=regrid_grid,
-                                  esmpy_interp_method=esmpy_interp_method,
                                   **kwargs.pop('linear', {}))
 
         self.linear_TorP = self.linear_TorP(lmr_path=lmr_path,
                                             proxy_use_from=proxy_use_from,
                                             anom_reference_period=self.anom_reference_period,
                                             calib_period=self.calib_period,
-                                            regrid_method=regrid_method,
-                                            regrid_grid=regrid_grid,
-                                            esmpy_interp_method=esmpy_interp_method,
                                             **kwargs.pop('linear_TorP', {}))
 
         self.bilinear = self.bilinear(lmr_path=lmr_path,
                                       proxy_use_from=proxy_use_from,
                                       anom_reference_period=self.anom_reference_period,
                                       calib_period=self.calib_period,
-                                      regrid_method=regrid_method,
-                                      regrid_grid=regrid_grid,
-                                      esmpy_interp_method=esmpy_interp_method,
                                       **kwargs.pop('bilinear', {}))
 
         self.h_interp = self.h_interp(**kwargs.pop('h_interp', {}))
         self.bayesreg_uk37 = self.bayesreg_uk37(**kwargs.pop('bayesreg_uk37', {}))
 
         super(self.__class__, self).__init__(**kwargs)
-
-        # TODO: Find out if this is the right level to have the save
-        # TODO:   info (should it be in PSM-specific config
-        if ignore_pre_avg_file is None:
-            ignore_pre_avg_file = core.ignore_pre_avg_file
-        self.ignore_pre_avg_file = ignore_pre_avg_file
-
-        if save_pre_avg_file is None:
-            save_pre_avg_file = core.save_pre_avg_file
-        self.save_pre_avg_file = save_pre_avg_file
 
         # Add constants instance for averaging periods (NOT A COPY)
         self._avg_def_constants = Constants.data['avg_interval']
@@ -1465,30 +1413,6 @@ class prior(ConfigGroup):
         data to and the the average interval of the output.
     output: dict
         Output designations for fields and scalars during runtime.
-    regrid_method: str
-        String indicating the method used to regrid the prior to lower spatial
-        resolution.
-        Allowed options are: 
-        1) None : Regridding NOT performed. 
-        2) 'spherical_harmonics' : Original regridding using pyspharm
-           library. Cannot handle fields with masked/NaN data
-        3) 'simple': Regridding through simple inverse distance averaging of
-            surrounding grid points.
-        4) 'esmpy': Regridding using the ESMpy package. Includes bilinear and
-           higher-order patch fit regridding.
-    regrid_resolution: int
-        Integer representing the triangular truncation of the lower resolution
-        grid (e.g. 42 for T42). Not used for 'esmpy' regrid_method.
-    esmpy_interp_method: str or dict of str
-        Which ESMpy regridding method to use. A single string will be apply
-        this method to all fields, or a dict of mappings from prior variables
-        to interpolation methods allows for specification.
-        Currently supports:
-        'bilinear':  Bilinear interpolation, good for smooth fields
-        'patch': Higher order patch interpolation
-    esmpy_regrid_to: str
-        A grid defined in grid_def.yml to use as the regridding target.  
-        Currently supports 't42' and 'reg_4x5deg'.
     """
 
     ##** BEGIN User Parameters **##
@@ -1522,17 +1446,9 @@ class prior(ConfigGroup):
     # In memory ('NPY') or out of memory ('H5') state handling
     backend_type = 'NPY'
 
-    regrid_method = 'esmpy'
-    regrid_resolution = 42
-
-    # ESMpy regridding options
-    esmpy_interp_method = 'bilinear'
-    esmpy_regrid_to = 't42'
-
     ##** END User Parameters **##
 
     def __init__(self, lmr_path=None, seed=None, nens=None,
-                 save_pre_avg_file=None, ignore_pre_avg_file=None,
                  **kwargs):
         super(self.__class__, self).__init__(**kwargs)
 
@@ -1547,7 +1463,6 @@ class prior(ConfigGroup):
 
         self.state_variables = deepcopy(self.state_variables)
         self.detrend = self.detrend
-        self.regrid_method = self.regrid_method
 
         if nens is None:
             nens = core.nens
@@ -1560,14 +1475,6 @@ class prior(ConfigGroup):
         if lmr_path is None:
             lmr_path = core.lmr_path
 
-        if save_pre_avg_file is None:
-            save_pre_avg_file = core.save_pre_avg_file
-        self.save_pre_avg_file = save_pre_avg_file
-
-        if ignore_pre_avg_file is None:
-            ignore_pre_avg_file = core.ignore_pre_avg_file
-        self.ignore_pre_avg_file = ignore_pre_avg_file
-
         if self.datadir is None:
             self.datadir = join(lmr_path, 'data', 'model', self.prior_source)
 
@@ -1577,17 +1484,6 @@ class prior(ConfigGroup):
 
         self.outputs = deepcopy(self.outputs)
 
-        if self.regrid_method != 'esmpy':
-            self.regrid_resolution = int(self.regrid_resolution)
-            self.regrid_grid = self.regrid_resolution
-            self.esmpy_interp_method = None
-            self.esmpy_grid_def = None
-        elif self.regrid_method == 'esmpy':
-            self.regrid_resolution = None
-            self.esmpy_interp_method = self.esmpy_interp_method
-            self.esmpy_grid_def = _GridDef.get_info(self.esmpy_regrid_to)
-            self.regrid_grid = self.esmpy_regrid_to
-
         # Is variable requested in list of those specified as available?
         var_mismat = [varname for varname in self.state_variables
                       if varname not in self.datainfo['available_vars']]
@@ -1595,25 +1491,6 @@ class prior(ConfigGroup):
             raise SystemExit(('Could not find requested variable(s) {} in the '
                               'list of available variables for the {} '
                               'dataset').format(var_mismat, self.prior_source))
-
-    def _validate_interp_method(self):
-
-        interp_method = self.esmpy_interp_method
-
-        if isinstance(interp_method, dict):
-            state_keys = self.state_variables.keys()
-            for key in interp_method.keys():
-                if key not in state_keys:
-                    raise KeyError('ESMPy interpolation method mapping key '
-                                   'not found in state variable list: '
-                                   '{} ... Please fix '
-                                   'configuration'.format(key))
-        else:
-            if not isinstance(interp_method, str):
-                raise ValueError('Incorrect ESMPy interpolation method '
-                                 'specified in the configuration.')
-
-        return interp_method
 
     def update_avg_interval(self, avg_interval):
         self.avg_interval = avg_interval
@@ -1689,10 +1566,7 @@ class forecaster(ConfigGroup):
         detrend = True
         ignore_precalib_lim = False
 
-        def __init__(self, lmr_path=None, save_pre_avg_file=None,
-                     ignore_pre_avg_file=None, regrid_method=None,
-                     regrid_grid=None, esmpy_interp_method=None,
-                     prior_config=None, **kwargs):
+        def __init__(self, lmr_path=None, prior_config=None, **kwargs):
 
             super(ConfigGroup, self).__init__(**kwargs)
 
@@ -1727,26 +1601,8 @@ class forecaster(ConfigGroup):
 
             self.fcast_type = self.fcast_type
 
-            self.regrid_method = regrid_method
-            self.regrid_grid = regrid_grid
-            self.esmpy_interp_method = esmpy_interp_method
-            if self.regrid_method != 'esmpy':
-                self.regrid_resolution = self.regrid_grid
-                self.esmpy_grid_def = None
-            elif self.regrid_method == 'esmpy':
-                self.regrid_resolution = None
-                self.esmpy_grid_def = _GridDef.get_info(self.regrid_grid)
-
             if lmr_path is None:
                 lmr_path = core.lmr_path
-
-            if save_pre_avg_file is None:
-                save_pre_avg_file = core.save_pre_avg_file
-            self.save_pre_avg_file = save_pre_avg_file
-
-            if ignore_pre_avg_file is None:
-                ignore_pre_avg_file = core.ignore_pre_avg_file
-            self.ignore_pre_avg_file = ignore_pre_avg_file
 
             if self.datadir is None:
                 model_dir = join(lmr_path, 'data', 'model', self.datatag)
@@ -1769,21 +1625,102 @@ class forecaster(ConfigGroup):
             avg_kwargs = self._avg_interval_defs[avg_interval]
             self.avg_interval_kwargs = avg_kwargs
 
-    def __init__(self, lmr_path=None, save_pre_avg_file=None,
-                 ignore_pre_avg_file=None, regrid_method=None,
-                 regrid_grid=None, esmpy_interp_method=None,
+    def __init__(self, lmr_path=None,
                  prior_config=None, **kwargs):
         self.lim = self.lim(lmr_path=lmr_path,
-                            save_pre_avg_file=save_pre_avg_file,
-                            ignore_pre_avg_file=ignore_pre_avg_file,
-                            regrid_method=regrid_method,
-                            regrid_grid=regrid_grid,
-                            esmpy_interp_method=esmpy_interp_method,
                             prior_config=prior_config,
                             **kwargs.pop('lim', {}))
 
         super(ConfigGroup, self).__init__(**kwargs)
         self.use_forecaster = self.use_forecaster
+
+
+class regrid(ConfigGroup):
+    """
+    Parameters for regridding of gridded fields
+
+    Attributes
+    ----------
+    ignore_pre_avg_file: bool
+        Ignore pre-processed files for prior and anlaysis gridded data. This
+        slows down the initial stages of reconstruction, but is useful for
+        resetting the pre-processed data when used with save_pre_avg_file.
+    save_pre_avg_file: bool
+        Save intermediate files for loaded gridded datasets. Speeds up load
+        times during reconstructions.
+    regrid_method: str
+        String indicating the method used to regrid the prior to lower spatial
+        resolution.
+        Allowed options are:
+        1) None : Regridding NOT performed.
+        2) 'spherical_harmonics' : Original regridding using pyspharm
+           library. Cannot handle fields with masked/NaN data
+        3) 'simple': Regridding through simple inverse distance averaging of
+            surrounding grid points.
+        4) 'esmpy': Regridding using the ESMpy package. Includes bilinear and
+           higher-order patch fit regridding.
+    regrid_resolution: int
+        Integer representing the triangular truncation of the lower resolution
+        grid (e.g. 42 for T42). Not used for 'esmpy' regrid_method.
+    esmpy_interp_method: str or dict of str
+        Which ESMpy regridding method to use. A single string will be apply
+        this method to all fields, or a dict of mappings from prior variables
+        to interpolation methods allows for specification.
+        Currently supports:
+        'bilinear':  Bilinear interpolation, good for smooth fields
+        'patch': Higher order patch interpolation
+    esmpy_regrid_to: str
+        A grid defined in grid_def.yml to use as the regridding target.
+        Currently supports 't42' and 'reg_4x5deg'.
+    """
+
+    ignore_pre_avg_file = False
+    save_pre_avg_file = True
+
+    regrid_method = 'esmpy'
+    regrid_resolution = 42
+
+    # ESMpy regridding options
+    esmpy_interp_method = 'bilinear'
+    esmpy_regrid_to = 't42'
+
+    def __init__(self, **kwargs):
+        super(self.__class__, self).__init__(**kwargs)
+
+        self.ignore_pre_avg_file = self.ignore_pre_avg_file
+        self.save_pre_avg_file = self.save_pre_avg_file
+
+        self.regrid_method = self.regrid_method
+
+        if self.regrid_method != 'esmpy':
+            self.regrid_resolution = int(self.regrid_resolution)
+            self.regrid_grid = self.regrid_resolution
+            self.esmpy_interp_method = None
+            self.esmpy_grid_def = None
+        elif self.regrid_method == 'esmpy':
+            self.regrid_resolution = None
+            self.esmpy_interp_method = self.esmpy_interp_method
+            self.esmpy_grid_def = _GridDef.get_info(self.esmpy_regrid_to)
+            self.regrid_grid = self.esmpy_regrid_to
+
+    def _validate_interp_method(self):
+
+        interp_method = self.esmpy_interp_method
+
+        if isinstance(interp_method, dict):
+            state_keys = self.state_variables.keys()
+            for key in interp_method.keys():
+                if key not in state_keys:
+                    raise KeyError('ESMPy interpolation method mapping key '
+                                   'not found in state variable list: '
+                                   '{} ... Please fix '
+                                   'configuration'.format(key))
+        else:
+            if not isinstance(interp_method, str):
+                raise ValueError('Incorrect ESMPy interpolation method '
+                                 'specified in the configuration.')
+
+        return interp_method
 
 
 class Config(ConfigGroup):
@@ -1800,33 +1737,19 @@ class Config(ConfigGroup):
         self.core = core(**kwargs.pop('core', {}))
         lmr_path = self.core.lmr_path
         seed = self.core.seed
-        save_preavg = self.core.save_pre_avg_file
-        ignore_preavg = self.core.ignore_pre_avg_file
+
+        self.regrid = regrid(**kwargs.pop('regrid', {}))
         self.proxies = proxies(lmr_path=lmr_path,
                                seed=seed,
                                **kwargs.pop('proxies', {}))
-        self.prior = prior(lmr_path=lmr_path,
-                           seed=seed, save_pre_avg_file=save_preavg,
-                           ignore_pre_avg_file=ignore_preavg,
-                           **kwargs.pop('prior', {}))
-
-        regrid_method = self.prior.regrid_method
-        regrid_grid = self.prior.regrid_grid
-        esmpy_interp_method = self.prior.esmpy_interp_method
         self.psm = psm(lmr_path=lmr_path,
-                       save_pre_avg_file=save_preavg,
-                       ignore_pre_avg_file=ignore_preavg,
-                       regrid_method=regrid_method,
-                       regrid_grid=regrid_grid,
-                       esmpy_interp_method=esmpy_interp_method,
                        proxy_use_from=self.proxies.use_from,
                        **kwargs.pop('psm', {}))
+        self.prior = prior(lmr_path=lmr_path,
+                           seed=seed,
+                           **kwargs.pop('prior', {}))
+
         self.forecaster = forecaster(lmr_path=lmr_path,
-                                     save_pre_avg_file=save_preavg,
-                                     ignore_pre_avg_file=ignore_preavg,
-                                     regrid_method=regrid_method,
-                                     regrid_grid=regrid_grid,
-                                     esmpy_interp_method=esmpy_interp_method,
                                      prior_config=self.prior,
                                      **kwargs.pop('forecaster', {}))
 
@@ -1930,8 +1853,8 @@ def initialize_config_yaml(cfg_module, yaml_file=None):
 
 
 _avg_type_pre_calib_tag = {'annual': '',
-                           ('season', 'proxy_metadata'): '_season_META_',
-                           ('season', 'psm_calib'): '_season_PSM_'}
+                           ('seasonal', 'proxy_metadata'): 'META',
+                           ('seasonal', 'psm_calib'): 'PSM'}
 
 
 if __name__ == "__main__":

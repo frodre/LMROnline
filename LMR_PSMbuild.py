@@ -46,8 +46,12 @@ psm_type = 'linear'
 # psm_type = 'bilinear'
 
 # Use annual or seasonal distinctions to calibrate PSMs
-avg_type = 'annual'
-# avg_type = 'seasonal'
+# avg_type = 'annual'
+avg_type = 'seasonal'
+
+# Fraction of data required over the averaging interval to be a valid average
+# 1.0 requires all data be non-NaN, 0.0 means no requirements
+min_data_req_frac = 1.0
 
 # Perform a series of calibrations using pre-defined seasons in order to
 # determine an objective proxy seasonality definition.  Only used when
@@ -128,12 +132,14 @@ psm_kwargs = {'calib_period': calib_period,
               'linear': {'datatag': linear_datatag,
                          'avg_type': avg_type,
                          'season_source': season_source,
-                         'psm_r_crit': 0.0},
+                         'psm_r_crit': 0.0,
+                         'min_data_req_frac': min_data_req_frac},
               'bilinear': {'datatag_T': bilinear_datatag_T,
                            'datatag_P': bilinear_datatag_P,
                            'avg_type': avg_type,
                            'season_source': season_source,
-                           'psm_r_crit': 0.0}}
+                           'psm_r_crit': 0.0,
+                           'min_data_req_frac': min_data_req_frac}}
 
 regrid_kwargs = {'regrid_method': regrid_method,
                  'esmpy_regrid_to': regrid_grid,
@@ -220,14 +226,6 @@ def save_calib_no_testing(proxies, psm_file, psm_file_diag):
 
         curr_psm = proxy.psm_obj
 
-        print('=>',
-              "{:45s}".format(curr_psm.avg_interval),
-              "{:12.4f}".format(curr_psm.slope),
-              "{:12.4f}".format(curr_psm.intercept),
-              "{:12.4f}".format(curr_psm.corr),
-              "{:12.4f}".format(curr_psm.R),
-              '(', "{:10.5f}".format(curr_psm.R2adj), ')')
-
         sitetag = (proxy.type, proxy.id)
         site_psm = psm_dict[sitetag]
         site_psm['lat'] = curr_psm.lat
@@ -244,11 +242,29 @@ def save_calib_no_testing(proxies, psm_file, psm_file_diag):
         if psm_type == 'linear':
             site_psm['calib'] = linear_datatag
             site_psm['PSMslope'] = curr_psm.slope
+
+            print('=>',
+                  "{:20s}\t".format(curr_psm.avg_interval),
+                  "a={:12.4f}\t".format(curr_psm.slope),
+                  "b={:12.4f}\t".format(curr_psm.intercept),
+                  "corr={:12.4f}\t".format(curr_psm.corr),
+                  "MSE={:12.4f}\t".format(curr_psm.R),
+                  '(', "{:10.5f}".format(curr_psm.R2adj), ')')
+
         elif psm_type == 'bilinear':
             site_psm['calib_temperature'] = bilinear_datatag_T
             site_psm['calib_moisture'] = bilinear_datatag_P
             site_psm['PSMslope_temperature'] = curr_psm.slope_temperature
             site_psm['PSMslope_moisture'] = curr_psm.slope_moisture
+
+            print('=>',
+                  "{:20s}\t".format(curr_psm.avg_interval),
+                  "a1={:12.4f}\t".format(curr_psm.slope_temperature),
+                  "a2={:12.4f}\t".format(curr_psm.slope_moisture),
+                  "b={:12.4f}\t".format(curr_psm.intercept),
+                  "corr={:12.4f}\t".format(curr_psm.corr),
+                  "MSE={:12.4f}\t".format(curr_psm.R),
+                  '(', "{:10.5f}".format(curr_psm.R2adj), ')')
         else:
             raise KeyError('Unrecognized psm type key: {}'.format(psm_type))
 
@@ -320,7 +336,7 @@ def main():
         raise KeyError(f'Proxy database, {proxy_database}, is not a '
                        f'valid database key.')
 
-    if psm_type == 'bilnear':
+    if psm_type == 'bilinear':
         psm_file = psm_config.bilinear.pre_calib_datafile
     elif psm_type == 'linear':
         psm_file = psm_config.linear.pre_calib_datafile
