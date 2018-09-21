@@ -35,15 +35,15 @@ import LMR_config
 lmr_path = '/home/katabatic/wperkins/data/LMR'
 
 # Which proxy database to use for calibrating PSMs
-use_from = ['LMRdb']
-# use_from = ['PAGES2kv1']
+use_from = 'LMRdb'
+# use_from = 'PAGES2kv1'
 
 # Where to output the pre-calibrated PSM file
 output_dir = '/home/katabatic/wperkins/data/LMR/PSM/'
 
 # Which type of PSM to create pre-calibrated data for
-psm_type = 'linear'
-# psm_type = 'bilinear'
+# psm_type = 'linear'
+psm_type = 'bilinear'
 
 # Use annual or seasonal distinctions to calibrate PSMs
 # avg_type = 'annual'
@@ -144,11 +144,6 @@ psm_kwargs = {'calib_period': calib_period,
 regrid_kwargs = {'regrid_method': regrid_method,
                  'esmpy_regrid_to': regrid_grid,
                  'esmpy_interp_method': esmpy_interp_method}
-
-psm_config = LMR_config.psm(lmr_path=lmr_path, proxy_use_from=use_from,
-                            **psm_kwargs)
-proxy_config = LMR_config.proxies(lmr_path=lmr_path, **proxy_kwargs)
-regrid_config = LMR_config.regrid(**regrid_kwargs)
 
 proxy_psm_seasonality_pages = {
     'Tree ring_Width': {'flag': True,
@@ -309,6 +304,7 @@ def save_calib_no_testing(proxies, psm_file, psm_file_diag):
 
     # Dump dictionaries to pickle files
     psm_path = os.path.join(output_dir, psm_file)
+    print('Saving pre-calibrated psm file to: {}'.format(psm_path))
     with open(psm_path, 'wb') as f:
         pickle.dump(psm_dict, f, protocol=4)
 
@@ -322,10 +318,16 @@ def calib_seasonality_test(proxies):
 
 
 def main():
+    regrid_config = LMR_config.regrid(**regrid_kwargs)
+    psm_config = LMR_config.psm(regrid_config, lmr_path=lmr_path,
+                                proxy_use_from=use_from,
+                                **psm_kwargs)
+    proxy_config = LMR_config.proxies(lmr_path=lmr_path,
+                                      **proxy_kwargs)
 
     begin_time = time()
 
-    proxy_database = proxy_config.use_from[0]
+    proxy_database = proxy_config.use_from
 
     print('Proxies             :', proxy_database)
     print('PSM type            :', psm_type)
@@ -360,10 +362,9 @@ def main():
                                                 nowstr)
             os.system(command)
 
-    proxy_class = LMR_proxy.get_proxy_class(use_from[0])
+    proxy_class = LMR_proxy.get_proxy_class(use_from)
     proxies = proxy_class.load_all_annual_no_filtering(proxy_config,
-                                                       psm_config,
-                                                       regrid_config)
+                                                       psm_config)
 
     save_calib_no_testing(proxies, psm_file, psm_file_diag)
 

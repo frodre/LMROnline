@@ -182,8 +182,12 @@ def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
     dtype = state.state.dtype
     atom = tb.Atom.from_dtype(dtype)
     ens_get_func = None
-    for var_name, sptl_shape in state.var_space_shp.items():
-        var_grp = h5f.create_group(h5f.root, var_name)
+    for var_key in state.base_prior_keys:
+
+        var_name, avg_interval = var_key
+        sptl_shape = state.var_space_shp[var_name]
+        var_grp = h5f.create_group('/' + var_name, avg_interval,
+                                   createparents=True)
         out_shape = (ntimes, *sptl_shape)
 
         lat = state.var_coords[var_name]['lon'].reshape(sptl_shape)
@@ -251,14 +255,15 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
 def save_field_output(idx, field_type, state, h5f, avg_interval,
                       output_def=None, ens_out_func=None):
 
-    for var_name, sptl_shape in state.var_space_shp.items():
+    for var_key in state.base_prior_keys:
 
-        data = state.get_var_data((var_name, avg_interval))
+        data = state.get_var_data(var_key)
+        sptl_shape = state.var_space_shp[var_key]
 
         if field_type == 'prior' or field_type == 'posterior':
 
             for measure in output_def:
-                path = join('/', var_name, field_type, measure)
+                path = join('/', *var_key, field_type, measure)
                 node = h5f.get_node(path)
 
                 output = field_output_reduction(measure, data, sptl_shape)
@@ -273,7 +278,7 @@ def save_field_output(idx, field_type, state, h5f, avg_interval,
 
             ens_out = ens_out_func(data)
 
-            path = join('/', var_name, field_type)
+            path = join('/', *var_key, field_type)
             node = h5f.get_node(path)
 
             node[idx] = ens_out

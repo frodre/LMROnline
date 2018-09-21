@@ -21,9 +21,7 @@ core:
   online_reconstruction: False
   clean_start: True
   use_precalc_ye: False
-  ignore_pre_avg_file: False
-  save_pre_avg_file: True
-  recon_period: !!python/tuple [1870, 2000]
+  recon_period: !!python/tuple [1850, 1860]
 #  recon_period: !!python/tuple [-120000, 2000]
   recon_timescale: 1
 #  recon_timescale: 250
@@ -51,9 +49,9 @@ core:
 #  archive_esmpy_regrid_to: t42
 
 proxies:
-#  use_from: [PAGES2kv1]
-  use_from: [LMRdb]
-#  use_from: [NCDCdtda]  
+#  use_from: PAGES2kv1
+  use_from: LMRdb
+#  use_from: NCDCdtda
   proxy_frac: 0.75
   proxy_timeseries_kind: asis
   load_psm_with_proxies: True
@@ -360,14 +358,14 @@ prior:
 
   avg_interval: annual_std
 
-  output:
+  outputs:
     prior: [ens_var]
     posterior: [ens_var]
     field_ens_output: null
     analysis_Ye: False
     scalar_ens:
       tas_sfc_Amon: [glob_mean]
-      tos_sfc_Amon: [glob_mean, enso, pdo]
+      tos_sfc_Omon: [glob_mean, enso34, pdo]
 
   detrend: False
 

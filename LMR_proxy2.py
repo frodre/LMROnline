@@ -36,7 +36,7 @@ import LMR_psms
 from LMR_utils2 import (augment_docstr, class_docs_fixer, fix_lon,
                         get_averaging_period, ProxyTypeNotMappedError,
                         PSMFitThresholdError, PSMTooFewObsError,
-                        PSMTorPCalibrationError)
+                        PSMTorPCalibrationError, NoProxyObsError)
 
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
@@ -71,7 +71,7 @@ class ProxyManager:
         reconstruction
     """
 
-    def __init__(self, proxy_config, data_range, psm_config):
+    def __init__(self, proxy_config, psm_config, data_range):
 
         self.all_ids_by_group = defaultdict(list)
 
@@ -79,8 +79,8 @@ class ProxyManager:
 
         # Load proxies for current class
         ids_by_grp, proxies = pclass.load_all(proxy_config,
-                                              data_range,
-                                              psm_config)
+                                              psm_config,
+                                              data_range)
 
         self.all_proxies = proxies
         self.all_ids_by_group = ids_by_grp
@@ -113,11 +113,12 @@ class ProxyManager:
 
         self.avg_interval_by_psm_type = defaultdict(set)
         for proxy_obj in self.sites_assim_proxy_objs():
-            psm_type = proxy_obj.psm_obj.psm_vartype
-            avg_interval = proxy_obj.psm_obj.avg_interval
+            for psm_type in proxy_obj.psm_obj.psm_req_types:
+                psm_type = tuple(psm_type.items())[0]
+                avg_interval = proxy_obj.psm_obj.avg_interval
 
-            # Update set for current psm_type to include the avg_interval
-            self.avg_interval_by_psm_type[psm_type].update({avg_interval})
+                # Update set for current psm_type to include the avg_interval
+                self.avg_interval_by_psm_type[psm_type].update({avg_interval})
 
     def proxy_obj_generator(self, indexes):
         """
@@ -213,12 +214,13 @@ class BaseProxyObject(metaclass=ABCMeta):
     class.
     """
 
-    def __init__(self, psm_config, regrid_config, psm_type, pid, prox_type,
+    def __init__(self, psm_config, psm_type, pid, prox_type,
                  start_yr, end_yr, lat, lon, elev, seasonality, values, time,
                  load_psm_obj=True, on_the_fly_calib=False):
 
         if (values is None) or len(values) == 0:
-            raise ValueError('No proxy data given for object initialization')
+            raise NoProxyObsError('No proxy data given for object '
+                                  'initialization: {}'.format(pid))
 
         assert len(values) == len(time), 'Time and value dimensions must match'
 
@@ -239,7 +241,7 @@ class BaseProxyObject(metaclass=ABCMeta):
         self.psm_config = psm_config
         if load_psm_obj:
             psm_obj = LMR_psms.get_psm_class(psm_type)
-            self.psm_obj = psm_obj(psm_config, regrid_config, self,
+            self.psm_obj = psm_obj(psm_config, self,
                                    on_the_fly_calib=on_the_fly_calib)
             self.psm = self.psm_obj.psm
         else:
@@ -263,7 +265,7 @@ class BaseProxyObject(metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def load_site(cls,  config, psm_config, regrid_config, site,
+    def load_site(cls,  config, psm_config, site,
                   data_range=None, meta_src=None,
                   data_src=None):
         """
@@ -275,9 +277,6 @@ class BaseProxyObject(metaclass=ABCMeta):
             Configuration for current LMR run
         psm_config: LMR_config.psm
             Configuration for all psm types that may be attached to proxies
-        regrid_config: LMR_config.general_gridded
-            Configuration for fields that may have to be loaded for PSM
-            calibration
         site: str
             Key to identify which site to load from source data
         meta_src: optional
@@ -301,7 +300,7 @@ class BaseProxyObject(metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def load_all(cls, proxy_config, psm_config, regrid_config, data_range):
+    def load_all(cls, proxy_config, psm_config, data_range):
         """
         Load proxy objects from all sites matching filter criterion.
 
@@ -311,9 +310,6 @@ class BaseProxyObject(metaclass=ABCMeta):
             Configuration for current LMR proxies
         psm_config: LMR_config.psm
             Configuration for all psm types that may be attached to proxies
-        regrid_config: LMR_config.general_gridded
-            Configuration for fields that may have to be loaded for PSM
-            calibration
         data_range: iterable
             Two-item container holding beginning and end date of reconstruction
         meta_src: optional
@@ -355,7 +351,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_site(cls, pages2kv1_cfg, psm_config, regrid_config, site,
+    def load_site(cls, pages2kv1_cfg, psm_config, site,
                   data_range=None, meta_src=None,
                   data_src=None, load_psm=True, on_the_fly_calib=False):
         """%%aug%%
@@ -406,20 +402,22 @@ class ProxyPAGES2kv1(BaseProxyObject):
             values = values - values.mean()
 
         # Send full proxy timeseries in case calibration is necessary
-        proxy_obj = cls(psm_config, regrid_config,psm_type, pid, proxy_type,
+        proxy_obj = cls(psm_config, psm_type, pid, proxy_type,
                         start_yr, end_yr, lat, lon, elev, seasonality, values,
                         times, load_psm_obj=load_psm)
 
         proxy_obj._constrain_to_date_range(data_range)
 
         if len(proxy_obj.values) == 0:
-            raise ValueError('No observations in specified time range.')
+            raise NoProxyObsError('No proxy observations in time '
+                                  'range {:4d}-{:4d}: {}'
+                                  ''.format(start_yr, end_yr, pid))
 
         return proxy_obj
 
     @classmethod
     @augment_docstr
-    def load_all(cls, proxy_config, psm_config, regrid_config, data_range,
+    def load_all(cls, proxy_config, psm_config, data_range,
                  meta_src=None, data_src=None):
         """%%aug%%
 
@@ -516,15 +514,15 @@ class ProxyPAGES2kv1(BaseProxyObject):
         all_proxies = []
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(pages2kv1_cfg, psm_config,
-                                     regrid_config, site,
+                pobj = cls.load_site(pages2kv1_cfg, psm_config, site,
                                      data_range=data_range,
                                      meta_src=meta_src, data_src=data_src,
                                      load_psm=load_psm,
                                      on_the_fly_calib=on_the_fly)
                 all_proxies.append(pobj)
             except (PSMFitThresholdError, PSMTooFewObsError,
-                    PSMTorPCalibrationError, ProxyTypeNotMappedError) as e:
+                    PSMTorPCalibrationError, ProxyTypeNotMappedError,
+                    KeyError, NoProxyObsError) as e:
                 # Proxy had no obs or didn't meet psm r crit
                 for group in list(proxy_id_by_type.values()):
                     if site in group:
@@ -535,7 +533,6 @@ class ProxyPAGES2kv1(BaseProxyObject):
 
     @classmethod
     def load_all_annual_no_filtering(cls, proxy_config, psm_config,
-                                     regrid_config,
                                      meta_src=None, data_src=None):
         """
         Method created to facilitate the loading of all possible proxy records
@@ -570,14 +567,15 @@ class ProxyPAGES2kv1(BaseProxyObject):
         proxy_objs = []
         for site in proxy_ids:
             try:
-                pobj = cls.load_site(proxy_config, psm_config, regrid_config,
+                pobj = cls.load_site(proxy_config, psm_config,
                                      site,
                                      meta_src=meta_src, data_src=data_src,
                                      load_psm=load_psm,
                                      on_the_fly_calib=on_the_fly)
                 proxy_objs.append(pobj)
             except (PSMFitThresholdError, PSMTooFewObsError,
-                    PSMTorPCalibrationError, ProxyTypeNotMappedError) as e:
+                    PSMTorPCalibrationError, ProxyTypeNotMappedError,
+                    KeyError, NoProxyObsError) as e:
                 print(e)
 
         return proxy_objs
@@ -595,7 +593,7 @@ class ProxyLMRdb(BaseProxyObject):
 
     @classmethod
     @augment_docstr
-    def load_site(cls, lmr_db_cfg, psm_config, regrid_config, site,
+    def load_site(cls, lmr_db_cfg, psm_config, site,
                   data_range=None,
                   meta_src=None, data_src=None, load_psm=True, anomaly=False,
                   on_the_fly_calib=False):
@@ -648,16 +646,18 @@ class ProxyLMRdb(BaseProxyObject):
             values = values - values.mean()
 
         if len(values) == 0:
-            raise ValueError('No observations in specified time range.')
+            raise NoProxyObsError('No proxy observations in time '
+                                  'range {:04d}-{:04d}: {}'
+                                  ''.format(start, finish, pid))
 
-        return cls(psm_config, regrid_config, psm_type,
+        return cls(psm_config, psm_type,
                    pid, proxy_type, start_yr, end_yr, lat, lon,
                    elev, seasonality, values, times, load_psm_obj=load_psm,
                    on_the_fly_calib=on_the_fly_calib)
 
     @classmethod
     @augment_docstr
-    def load_all(cls, proxy_config, psm_config, regrid_config, data_range,
+    def load_all(cls, proxy_config, psm_config, data_range,
                  meta_src=None, data_src=None):
         """%%aug%%
 
@@ -797,7 +797,7 @@ class ProxyLMRdb(BaseProxyObject):
         all_proxies = []
         for site in all_proxy_ids:
             try:
-                pobj = cls.load_site(lmr_db_cfg, psm_config, regrid_config,
+                pobj = cls.load_site(lmr_db_cfg, psm_config,
                                      site,
                                      data_range=data_range,
                                      meta_src=meta_src, data_src=data_src,
@@ -805,7 +805,10 @@ class ProxyLMRdb(BaseProxyObject):
                                      on_the_fly_calib=on_the_fly)
                 all_proxies.append(pobj)
             except (ProxyTypeNotMappedError, PSMFitThresholdError,
-                    PSMTorPCalibrationError, PSMTooFewObsError) as e:
+                    PSMTorPCalibrationError, PSMTooFewObsError,
+                    KeyError, NoProxyObsError) as e:
+
+                print(e)
 
                 # Proxy had no obs or didn't meet psm r crit
                 for group in list(proxy_id_by_type.values()):
@@ -817,7 +820,6 @@ class ProxyLMRdb(BaseProxyObject):
 
     @classmethod
     def load_all_annual_no_filtering(cls, proxy_config, psm_config,
-                                     regrid_config,
                                      meta_src=None, data_src=None):
         """
         Method created to facilitate the loading of all possible proxy records
@@ -850,14 +852,15 @@ class ProxyLMRdb(BaseProxyObject):
         proxy_objs = []
         for site in proxy_ids:
             try:
-                pobj = cls.load_site(lmr_db_cfg, psm_config, regrid_config,
+                pobj = cls.load_site(lmr_db_cfg, psm_config,
                                      site,
                                      meta_src=meta_src, data_src=data_src,
                                      load_psm=load_psm,
                                      on_the_fly_calib=on_the_fly)
                 proxy_objs.append(pobj)
             except (ProxyTypeNotMappedError, PSMFitThresholdError,
-                    PSMTorPCalibrationError, PSMTooFewObsError) as e:
+                    PSMTorPCalibrationError, PSMTooFewObsError,
+                    KeyError, NoProxyObsError) as e:
                 print('Proxy Error [{}]: '.format(site) + str(e))
 
         return proxy_objs

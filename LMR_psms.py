@@ -177,8 +177,9 @@ class BasePSM(metaclass=ABCMeta):
 
     def _get_gridpoint_data_from_state(self, var_key, state_object):
         var_data = state_object.get_var_data(var_key)
-        var_lat = state_object.var_coords[var_key]['lat']
-        var_lon = state_object.var_coords[var_key]['lon']
+        var_name, avg_interval = var_key
+        var_lat = state_object.var_coords[var_name]['lat']
+        var_lon = state_object.var_coords[var_name]['lon']
 
         return self.get_close_grid_point_data(var_data.T, var_lon, var_lat)
 
@@ -221,7 +222,7 @@ class LinearPSM(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, psm_config, regrid_config, proxy_obj, psm_data=None,
+    def __init__(self, psm_config, proxy_obj, psm_data=None,
                  calib_obj=None, diag_out=None, diag_fig=None,
                  on_the_fly_calib=False):
 
@@ -259,7 +260,14 @@ class LinearPSM(BasePSM):
                                            avg_interval_kwargs)
 
         self.datainfo = linear_psm_cfg.datainfo
+        # Variable mapping connected to state information set in the
+        # configuration
+        # TODO: switch to a tuple format in the config
         self.psm_vartype = self.datainfo['psm_vartype']
+
+        # all required types for the PSM
+        self.psm_req_types = (self.psm_vartype,)
+
         self.sensitivity = list(self.psm_vartype.keys())[0]
 
         # PSM Model Info
@@ -303,8 +311,7 @@ class LinearPSM(BasePSM):
                 if calib_obj is None:
                     source = linear_psm_cfg.datatag
                     calib_class = LMR_gridded.get_analysis_var_class(source)
-                    calib_obj = calib_class.load(linear_psm_cfg, regrid_config,
-                                                 anomaly=True)
+                    calib_obj = calib_class.load(linear_psm_cfg, anomaly=True)
 
                 self.calibrate(calib_obj, proxy_obj,
                                diag_output=diag_out, diag_output_figs=diag_fig)
@@ -571,7 +578,7 @@ class LinearPSM_TorP(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, psm_config, regrid_config, proxy_obj, psm_data_T=None,
+    def __init__(self, psm_config, proxy_obj, psm_data_T=None,
                  psm_data_P=None, diag_out=None, diag_fig=None,
                  on_the_fly_calib=False):
 
@@ -610,7 +617,7 @@ class LinearPSM_TorP(BasePSM):
                                            avg_interval_kwargs)
 
         try:
-            psm_obj_T = LinearPSM(linearTorP_cfg.tempearature, regrid_config,
+            psm_obj_T = LinearPSM(linearTorP_cfg.tempearature,
                                   proxy_obj, psm_data=psm_data_T,
                                   diag_out=diag_out, diag_fig=diag_fig,
                                   on_the_fly_calib=on_the_fly_calib)
@@ -653,7 +660,13 @@ class LinearPSM_TorP(BasePSM):
             self.psm = psm_obj_P.psm
 
         self.datainfo = self.psm_obj.datainfo
+
+        # Variable mapping connected to state information
         self.psm_vartype = self.datainfo['psm_vartype']
+
+        # All variable types required to use the psm
+        self.psm_req_types = (self.psm_vartype,)
+
         self.corr = self.psm_obj.corr
         self.slope = self.psm_obj.slope
         self.intercept = self.psm_obj.intercept
@@ -728,7 +741,7 @@ class BilinearPSM(BasePSM):
         If PSM is below critical correlation threshold.
     """
 
-    def __init__(self, psm_config, regrid_config, proxy_obj, psm_data=None,
+    def __init__(self, psm_config, proxy_obj, psm_data=None,
                  calib_obj_T=None, calib_obj_P=None, on_the_fly_calib=False):
 
         self.psm_key = 'bilinear'
@@ -763,6 +776,8 @@ class BilinearPSM(BasePSM):
 
         self.psm_vartype_T = bilinear_cfg.temperature.datainfo['psm_vartype']
         self.psm_vartype_P = bilinear_cfg.moisture.datainfo['psm_vartype']
+
+        self.psm_req_types = (self.psm_vartype_T, self.psm_vartype_P)
 
         # Assign sensitivity as temperature_moisture
         self.sensitivity = 'temperature_moisture'
@@ -803,7 +818,7 @@ class BilinearPSM(BasePSM):
         except KeyError as e:
             raise KeyError('Proxy in database but not found in pre-calibration '
                            'file... Skipping: {}'.format(proxy_obj.id))
-        except IOError as e:
+        except (IOError, FileNotFoundError) as e:
             # No precalibration found, have to do it for this proxy
             print('No pre-calibration found for {}:{}'.format(proxy_obj.id,
                                                               proxy_obj.type))
@@ -816,14 +831,12 @@ class BilinearPSM(BasePSM):
                     source = bilinear_cfg.temperature.datatag
                     calib_class = LMR_gridded.get_analysis_var_class(source)
                     calib_obj_T = calib_class.load(bilinear_cfg.temperature,
-                                                   regrid_config,
                                                    anomaly=True)
 
                 if calib_obj_P is None:
                     source = bilinear_cfg.moisture.datatag
                     calib_class = LMR_gridded.get_analysis_var_class(source)
                     calib_obj_P = calib_class.load(bilinear_cfg.moisture,
-                                                   regrid_config,
                                                    anomaly=True)
 
             self.calibrate(calib_obj_T, calib_obj_P, proxy_obj)
@@ -1050,6 +1063,7 @@ class BilinearPSM(BasePSM):
             return {}
 
     @staticmethod
+    @lru_cache(maxsize=16)
     def _load_psm_data(bilinear_psm_cfg):
         """Helper method for loading from dataframe"""
 
@@ -1058,7 +1072,7 @@ class BilinearPSM(BasePSM):
         if pre_calib_file is None:
             raise IOError('No pre-calibration file specified.')
 
-        with open(pre_calib_file, mode='r') as f:
+        with open(pre_calib_file, mode='rb') as f:
             data = pickle.load(f)
 
         return data

@@ -86,7 +86,6 @@ def LMR_driver_callable(cfg=None):
     # Temporary fix for old 'state usage'
     core_cfg = cfg.core
     prior_cfg = cfg.prior
-    regrid_cfg = cfg.regrid
     output_avg_interval = prior_cfg.avg_interval
 
     # verbose controls print comments (0 = none; 1 = most important;
@@ -141,9 +140,18 @@ def LMR_driver_callable(cfg=None):
 
     # Build dictionaries of proxy sites to assimilate and those set aside for
     # verification
-    prox_manager = LMR_proxy2.ProxyManager(cfg.proxies, recon_period,
-                                           cfg.psm)
+    prox_manager = LMR_proxy2.ProxyManager(cfg.proxies, cfg.psm,
+                                           recon_period)
     req_avg_intervals = prox_manager.avg_interval_by_psm_type
+
+    # Convert the required average interval keys to the prior variable name
+    psm_var_map = prior_cfg.psm_var_map
+    for key in list(req_avg_intervals.keys()):
+        curr_avg_intervals = req_avg_intervals.pop(key)
+        psm_sensitivity, psm_generic_var = key
+        prior_varname = psm_var_map[psm_sensitivity][psm_generic_var]
+        req_avg_intervals[prior_varname] = curr_avg_intervals
+
     type_site_assim = prox_manager.assim_ids_by_group
     # count the total number of proxies
     assim_proxy_count = len(prox_manager.ind_assim)
@@ -179,9 +187,9 @@ def LMR_driver_callable(cfg=None):
 
     # Create initial state vector of desired variables at smallest time res
     Xb_one = LMR_gridded.State.from_config(prior_cfg,
-                                           regrid_cfg,
                                            req_avg_intervals=req_avg_intervals)
-    state_vars = '_'.join([varname for varname, avg_interval in Xb_one.var_keys])
+    state_vars = '_'.join([var_key[0]
+                           for var_key in Xb_one.base_prior_keys])
     h5f_path = join(workdir,
                     'recon_output_{}_{}.h5'.format(state_vars,
                                                    output_avg_interval))
@@ -237,21 +245,21 @@ def LMR_driver_callable(cfg=None):
     # TODO: Switch to cPickled prior object... right now hardcoded for annual
     # case saving
     # Dump prior state vector (Xb_one) to file 
-    filen = workdir + '/' + 'Xb_one'
-    state = Xb_one.get_var_data('state').copy()
-    aug_state = Xb_one.state.copy()
-    nan_vals = np.isnan(state)
-    if np.any(nan_vals):
-        state[nan_vals] = 1.0e20
-        aug_state[np.isnan(aug_state)] = 1.0e20
-    else:
-        state = Xb_one.get_var_data('state')
-        aug_state = Xb_one.state
-    np.savez(filen, Xb_one=state,
-             Xb_one_aug=aug_state,
-             stateDim=state_dim,
-             Xb_one_coords=Xb_one.var_coords,
-             state_info=Xb_one.old_state_info)
+    # filen = workdir + '/' + 'Xb_one'
+    # state = Xb_one.get_var_data('state').copy()
+    # aug_state = Xb_one.state.copy()
+    # nan_vals = np.isnan(state)
+    # if np.any(nan_vals):
+    #     state[nan_vals] = 1.0e20
+    #     aug_state[np.isnan(aug_state)] = 1.0e20
+    # else:
+    #     state = Xb_one.get_var_data('state')
+    #     aug_state = Xb_one.state
+    # np.savez(filen, Xb_one=state,
+    #          Xb_one_aug=aug_state,
+    #          stateDim=state_dim,
+    #          Xb_one_coords=Xb_one.var_coords,
+    #          state_info=Xb_one.old_state_info)
 
     # TODO: replicate single variable prior saving
 

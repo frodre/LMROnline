@@ -249,7 +249,6 @@ class core(ConfigGroup):
         self.datadir_output = self.datadir_output
         self.archive_dir = self.archive_dir
         self.write_posterior_Ye = self.write_posterior_Ye
-        self.save_full_field = self.save_full_field
         self.online_reconstruction = self.online_reconstruction
         self.clean_start = self.clean_start
         self.use_precalc_ye = self.use_precalc_ye
@@ -843,12 +842,14 @@ class psm(ConfigGroup):
         min_data_req_frac = 1.0  # 0.0 no data required, 1.0 all data required
         ##** END User Parameters **##
 
-        def __init__(self, lmr_path=None, anom_reference_period=None,
+        def __init__(self, regrid_cfg, lmr_path=None,
+                     anom_reference_period=None,
                      proxy_use_from=None, calib_period=None,
                      **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
             self.datatag = self.datatag
+            self.regrid_cfg = regrid_cfg
 
             dataset_descr = _DataInfo.get_info(self.datatag)
             self.datainfo = dataset_descr['info']
@@ -903,6 +904,7 @@ class psm(ConfigGroup):
                 dbversion = proxies.LMRdb.dbversion
                 cstart, cend = self.calib_period
                 anom_start, anom_end = anom_reference_period
+                regrid_grid = self.regrid_cfg.regrid_grid
 
                 if self.avg_type == 'annual':
                     season_tag = _avg_type_pre_calib_tag['annual']
@@ -910,15 +912,15 @@ class psm(ConfigGroup):
                     season_tag = _avg_type_pre_calib_tag[(self.avg_type,
                                                           self.season_source)]
 
-                if 'LMRdb' in proxy_use_from:
+                if 'LMRdb' == proxy_use_from:
 
-                    filename = (f'PSMs_{proxy_use_from[0]}_{dbversion}_'
+                    filename = (f'PSMs_{proxy_use_from}_{dbversion}_'
                                 f'{self.avg_type}{season_tag}_{self.datatag}_'
-                                f'ref{anom_start}-{anom_end}_'
+                                f'{regrid_grid}_ref{anom_start}-{anom_end}_'
                                 f'cal{cstart}-{cend}.pckl')
                 else:
-                    filename = (f'PSMs_{proxy_use_from[0]}_{self.datatag}_'
-                                f'ref{anom_start}-{anom_end}_'
+                    filename = (f'PSMs_{proxy_use_from}_{self.datatag}_'
+                                f'{regrid_grid}_ref{anom_start}-{anom_end}_'
                                 f'cal{cstart}-{cend}.pckl')
 
                 self.pre_calib_datafile = join(lmr_path, 'PSM', filename)
@@ -999,7 +1001,7 @@ class psm(ConfigGroup):
 
         ##** END User Parameters **##
 
-        def __init__(self, lmr_path=None, proxy_use_from=None,
+        def __init__(self, regrid_cfg, lmr_path=None, proxy_use_from=None,
                      calib_period=None, anom_reference_period=None, **kwargs):
             super(self.__class__, self).__init__(**kwargs)
 
@@ -1029,12 +1031,12 @@ class psm(ConfigGroup):
             self.calib_period = calib_period
 
             # Configuration for temperature and moisture psms
-            self.temperature = psm.linear(lmr_path=lmr_path,
+            self.temperature = psm.linear(regrid_cfg, lmr_path=lmr_path,
                                           proxy_use_from=proxy_use_from,
                                           calib_period=calib_period,
                                           anom_reference_period=anom_reference_period,
                                           **temp_kwarg)
-            self.moisture = psm.linear(lmr_path=lmr_path,
+            self.moisture = psm.linear(regrid_cfg, lmr_path=lmr_path,
                                        proxy_use_from=proxy_use_from,
                                        calib_period=calib_period,
                                        anom_reference_period=anom_reference_period,
@@ -1094,7 +1096,7 @@ class psm(ConfigGroup):
 
         ##** END User Parameters **##
 
-        def __init__(self, lmr_path=None, proxy_use_from=None,
+        def __init__(self, regrid_cfg, lmr_path=None, proxy_use_from=None,
                      calib_period=None, anom_reference_period=None, **kwargs):
 
             super(self.__class__, self).__init__(**kwargs)
@@ -1123,12 +1125,12 @@ class psm(ConfigGroup):
             self.calib_period = calib_period
 
             # Configuration for temperature and moisture psms
-            self.temperature = psm.linear(lmr_path=lmr_path,
+            self.temperature = psm.linear(regrid_cfg, lmr_path=lmr_path,
                                           proxy_use_from=proxy_use_from,
                                           calib_period=calib_period,
                                           anom_reference_period=anom_reference_period,
                                           **temp_kwarg)
-            self.moisture = psm.linear(lmr_path=lmr_path,
+            self.moisture = psm.linear(regrid_cfg, lmr_path=lmr_path,
                                        proxy_use_from=proxy_use_from,
                                        calib_period=calib_period,
                                        anom_reference_period=anom_reference_period,
@@ -1141,6 +1143,7 @@ class psm(ConfigGroup):
                 dbversion = proxies.LMRdb.dbversion
                 cstart, cend = self.calib_period
                 anom_start, anom_end = anom_reference_period
+                regrid_grid = regrid_cfg.regrid_grid
 
                 if self.avg_type == 'annual':
                     season_tag = _avg_type_pre_calib_tag['annual']
@@ -1148,18 +1151,18 @@ class psm(ConfigGroup):
                     season_tag = _avg_type_pre_calib_tag[(self.avg_type,
                                                           self.season_source)]
 
-                if proxies.use_from == 'LMRdb':
+                if self.proxy_use_from == 'LMRdb':
 
-                    filename = (f'PSMs_{proxy_use_from[0]}_{dbversion}_'
-                                f'{self.avg_type}{season_tag}_{self.datatag_T}_'
-                                f'{self.datatag_P}_'
-                                f'ref{anom_start}-{anom_end}_'
+                    filename = (f'PSMs_{proxy_use_from}_{dbversion}_'
+                                f'{self.avg_type}{season_tag}_'
+                                f'{self.datatag_T}_{self.datatag_P}_'
+                                f'{regrid_grid}_ref{anom_start}-{anom_end}_'
                                 f'cal{cstart}-{cend}.pckl')
                 else:
 
-                    filename = (f'PSMs_{proxy_use_from[0]}_{dbversion}_'
+                    filename = (f'PSMs_{proxy_use_from}_{dbversion}_'
                                 f'{self.datatag_T}_{self.datatag_P}_'
-                                f'ref{anom_start}-{anom_end}_'
+                                f'{regrid_grid}_ref{anom_start}-{anom_end}_'
                                 f'cal{cstart}-{cend}.pckl')
 
                 self.pre_calib_datafile = join(lmr_path, 'PSM', filename)
@@ -1301,24 +1304,28 @@ class psm(ConfigGroup):
 
 
     # Initialize subclasses with all attributes 
-    def __init__(self, lmr_path=None, proxy_use_from=None, **kwargs):
+    def __init__(self, regrid_cfg, lmr_path=None, proxy_use_from=None,
+                 **kwargs):
 
         self.anom_reference_period = self.anom_reference_period
         self.calib_period = self.calib_period
 
-        self.linear = self.linear(lmr_path=lmr_path,
+        self.linear = self.linear(regrid_cfg,
+                                  lmr_path=lmr_path,
                                   proxy_use_from=proxy_use_from,
                                   anom_reference_period=self.anom_reference_period,
                                   calib_period=self.calib_period,
                                   **kwargs.pop('linear', {}))
 
-        self.linear_TorP = self.linear_TorP(lmr_path=lmr_path,
+        self.linear_TorP = self.linear_TorP(regrid_cfg,
+                                            lmr_path=lmr_path,
                                             proxy_use_from=proxy_use_from,
                                             anom_reference_period=self.anom_reference_period,
                                             calib_period=self.calib_period,
                                             **kwargs.pop('linear_TorP', {}))
 
-        self.bilinear = self.bilinear(lmr_path=lmr_path,
+        self.bilinear = self.bilinear(regrid_cfg,
+                                      lmr_path=lmr_path,
                                       proxy_use_from=proxy_use_from,
                                       anom_reference_period=self.anom_reference_period,
                                       calib_period=self.calib_period,
@@ -1448,11 +1455,12 @@ class prior(ConfigGroup):
 
     ##** END User Parameters **##
 
-    def __init__(self, lmr_path=None, seed=None, nens=None,
+    def __init__(self, regrid_cfg, lmr_path=None, seed=None, nens=None,
                  **kwargs):
         super(self.__class__, self).__init__(**kwargs)
 
         self.prior_source = self.prior_source
+        self.regrid_cfg = regrid_cfg
 
         dataset_descr = _DataInfo.get_info(self.prior_source)
         self.datainfo = dataset_descr['info']
@@ -1566,9 +1574,12 @@ class forecaster(ConfigGroup):
         detrend = True
         ignore_precalib_lim = False
 
-        def __init__(self, lmr_path=None, prior_config=None, **kwargs):
+        def __init__(self, regrid_cfg, lmr_path=None, prior_config=None,
+                     **kwargs):
 
             super(ConfigGroup, self).__init__(**kwargs)
+
+            self.regrid_cfg = regrid_cfg
 
             self.match_prior = self.match_prior
 
@@ -1625,9 +1636,10 @@ class forecaster(ConfigGroup):
             avg_kwargs = self._avg_interval_defs[avg_interval]
             self.avg_interval_kwargs = avg_kwargs
 
-    def __init__(self, lmr_path=None,
+    def __init__(self, regrid_cfg, lmr_path=None,
                  prior_config=None, **kwargs):
-        self.lim = self.lim(lmr_path=lmr_path,
+        self.lim = self.lim(regrid_cfg,
+                            lmr_path=lmr_path,
                             prior_config=prior_config,
                             **kwargs.pop('lim', {}))
 
@@ -1742,14 +1754,14 @@ class Config(ConfigGroup):
         self.proxies = proxies(lmr_path=lmr_path,
                                seed=seed,
                                **kwargs.pop('proxies', {}))
-        self.psm = psm(lmr_path=lmr_path,
+        self.psm = psm(self.regrid, lmr_path=lmr_path,
                        proxy_use_from=self.proxies.use_from,
                        **kwargs.pop('psm', {}))
-        self.prior = prior(lmr_path=lmr_path,
+        self.prior = prior(self.regrid, lmr_path=lmr_path,
                            seed=seed,
                            **kwargs.pop('prior', {}))
 
-        self.forecaster = forecaster(lmr_path=lmr_path,
+        self.forecaster = forecaster(self.regrid, lmr_path=lmr_path,
                                      prior_config=self.prior,
                                      **kwargs.pop('forecaster', {}))
 

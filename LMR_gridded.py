@@ -649,7 +649,7 @@ class GriddedVariable(object):
         return new_dobj
 
     @classmethod
-    def load(cls, gridded_config, regrid_config, varname=None,
+    def load(cls, gridded_config, varname=None,
              anomaly=False, sample=None, **kwargs):
         """
         Load a single variable as a GriddedVariable
@@ -658,8 +658,6 @@ class GriddedVariable(object):
         ----------
         gridded_config: LMR_Config.prior
             Configuration definition object for prior variable
-        regrid_config: LMR_Config.regrid
-            Configuration definition object for regridding the field
         varname: str, optional
             The name of the variable to load. If None and there are multiple
             variables an error is raised.
@@ -688,6 +686,7 @@ class GriddedVariable(object):
         datainfo = gridded_config.datainfo
         avg_interval = gridded_config.avg_interval
         avg_interval_kwargs = gridded_config.avg_interval_kwargs
+        regrid_config = gridded_config.regrid_cfg
         save = regrid_config.save_pre_avg_file
         ignore_pre_avg = regrid_config.ignore_pre_avg_file
         regrid_method = regrid_config.regrid_method
@@ -1284,7 +1283,7 @@ class PriorVariable(GriddedVariable):
         return unique_kwargs
 
     @classmethod
-    def load_allvars(cls, prior_config, regrid_config):
+    def load_allvars(cls, prior_config):
         """
         Load all variables specified in the prior configuration
 
@@ -1292,8 +1291,6 @@ class PriorVariable(GriddedVariable):
         ----------
         prior_config: LMR_Config.prior
             Configuration definition object for prior variables
-        regrid_config: LMR_Config.regrid
-            Configuration definition object for regridding the field
 
         Returns
         -------
@@ -1311,14 +1308,14 @@ class PriorVariable(GriddedVariable):
                 anomaly = True
             else:
                 anomaly = False
-            pobj = cls.load(prior_config, regrid_config, vname, anomaly=anomaly)
+            pobj = cls.load(prior_config, vname, anomaly=anomaly)
 
             prior_dict[(vname, avg_interval)] = pobj
 
         return prior_dict
 
     @classmethod
-    def load_psm_required_vars(cls, prior_config, regrid_config,
+    def load_psm_required_vars(cls, prior_config,
                                varkey_avg_intervals):
         """
         Load the prior fields required for the PSM to work.
@@ -1348,7 +1345,7 @@ class PriorVariable(GriddedVariable):
                     continue
 
                 prior_config.update_avg_interval(avg_interval)
-                pobj = cls.load(prior_config, regrid_config, varkey,
+                pobj = cls.load(prior_config, varkey,
                                 anomaly=True)
 
                 psm_req_prior_dict[(varkey, avg_interval)] = pobj
@@ -1454,7 +1451,8 @@ class State(object):
     Class to create state vector and information
     """
 
-    def __init__(self, prior_vars, psm_var_map=None):
+    def __init__(self, prior_vars, base_prior_keys=None,
+                 psm_prior_keys=None, psm_var_map=None):
 
         self._prior_vars = prior_vars
         state = []
@@ -1464,6 +1462,9 @@ class State(object):
         self.var_cell_area = {}
         self.var_keys = []
         self.augmented = False
+
+        self.base_prior_keys = base_prior_keys
+        self.psm_prior_keys = psm_prior_keys
 
         # Attr for backend storage
         self.output_backend = None
@@ -1490,22 +1491,27 @@ class State(object):
 
         self.state = np.concatenate(state, axis=0)
         self.shape = self.state.shape
-        self.old_state_info = self.get_old_state_info()
         self.psm_var_map = psm_var_map
 
     @classmethod
-    def from_config(cls, prior_config, regrid_config, req_avg_intervals=None):
-        pvars = PriorVariable.load_allvars(prior_config, regrid_config)
+    def from_config(cls, prior_config, req_avg_intervals=None):
+        pvars = PriorVariable.load_allvars(prior_config)
+        base_prior_keys = tuple(pvars.keys())
 
         if req_avg_intervals is not None:
             req_psm_pvars = PriorVariable.load_psm_required_vars(prior_config,
-                                                                 regrid_config,
                                                                  req_avg_intervals)
+            psm_prior_keys = tuple(req_psm_pvars.keys())
             pvars.update(req_psm_pvars)
+        else:
+            psm_prior_keys = None
 
         psm_var_map = prior_config.psm_var_map
 
-        return cls(pvars, psm_var_map=psm_var_map)
+        return cls(pvars,
+                   base_prior_keys=base_prior_keys,
+                   psm_prior_keys=psm_prior_keys,
+                   psm_var_map=psm_var_map)
 
     def get_var_data(self, var_name):
         """
@@ -1602,6 +1608,7 @@ class State(object):
         self.state = self._orig_state.copy()
 
     def get_old_state_info(self):
+        DeprecationWarning('Built for old state. No longer used.')
 
         state_info = {}
         for var in list(self.var_view_range.keys()):

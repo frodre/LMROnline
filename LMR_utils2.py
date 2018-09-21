@@ -2402,6 +2402,13 @@ class ProxyTypeNotMappedError(KeyError):
     pass
 
 
+class NoProxyObsError(ValueError):
+    """
+    Error raised when no observations overlap with the requested time period
+    for a given proxy record
+    """
+
+
 class PSMFitThresholdError(ValueError):
     """
     Error raised when the PSM fit (correlation) is below the specified
