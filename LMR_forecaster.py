@@ -206,12 +206,18 @@ class LIMForecaster(BaseForecaster):
 
         # Convert data into pylim.DataObject and then perform processing
         data_obj = fcast_var.forecast_var_to_pylim_dataobj()
+
+        if data_obj.valid_data is not None:
+            self.valid_data_mask[key] = data_obj.valid_data
+
         data_obj.calc_anomaly(nelem_in_yr, save=(not detrend))
+
         if detrend:
             data_obj.detrend_data()
             proj_key = data_obj._DETRENDED
         else:
             proj_key = data_obj._ANOMALY
+
         # TODO: Fix cell area loading in LMR_gridded
         data_obj.area_weight_data(save=False)
         data_obj.eof_proj_data(dobj_num_pcs, proj_key=proj_key, save=False)
