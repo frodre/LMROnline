@@ -1,6 +1,9 @@
 from abc import abstractmethod
 import numpy as np
 import logging
+import hashlib
+import os
+import pickle
 
 import pylim.LIM as LIM
 import pylim.Stats as plstat
@@ -41,26 +44,12 @@ class LIMForecaster(BaseForecaster):
     Linear Inverse Model Forecaster
     """
 
-    def __init__(self, forecaster_config, state_var_keys):
-        # TODO: hardcoded annual or greater
-        nelem_in_yr = 1
-        lim_cfg = forecaster_config.lim
-        match_prior = lim_cfg.match_prior
-        detrend = lim_cfg.detrend
-        num_pcs = lim_cfg.fcast_num_pcs
-        dobj_num_pcs = lim_cfg.dobj_num_pcs
-        prior_map = lim_cfg.prior_mapping
-        fcast_lead = lim_cfg.fcast_lead
-        fcast_type = lim_cfg.fcast_type
+    def __init__(self, lim_config, load_vars, nelem_in_yr, dobj_num_pcs,
+                 multivar_num_pcs, detrend, fcast_type, prior_map, fcast_lead,
+                 match_prior, save_attrs):
 
         FcastVar = LMR_gridded.ForecasterVariable
-
-        if match_prior:
-            load_vars = state_var_keys
-        else:
-            load_vars = FcastVar.get_fcast_prior_match_vars(lim_cfg.fcast_varnames)
-
-        save_attrs = [lim_cfg.datatag, num_pcs, dobj_num_pcs] + list(load_vars)
+        fcast_var_gen = FcastVar.load_all_gen(lim_config, load_vars)
 
         self.valid_data_mask = {}
         self.var_eofs = {}
@@ -69,6 +58,9 @@ class LIMForecaster(BaseForecaster):
         self._pre_concat_data = []
         self._start = 0
         self._end = 0
+
+        # list of datatag, multivar_num_pcs, dobj_num_pcs, load_vars
+        self._save_attrs = save_attrs
 
         for key, fcast_var in fcast_var_gen:
 
@@ -85,7 +77,7 @@ class LIMForecaster(BaseForecaster):
         [calib_state_eofs,
         calib_state_svals,
         calib_state_variance_stats] = _calc_limstate_eofs(calib_state_std,
-                                                          num_pcs)
+                                                          multivar_num_pcs)
         self.calib_eofs = calib_state_eofs
 
         # Collect dobject data for projecting EOFs upon and calibrating LIM
@@ -118,6 +110,62 @@ class LIMForecaster(BaseForecaster):
         else:
             raise ValueError('Unrecognized forecast type specification: '
                              '{}'.format(fcast_type))
+
+    @classmethod
+    def from_config(cls, forecaster_config, state_var_keys):
+        # TODO: hardcoded annual or greater
+        nelem_in_yr = 1
+        lim_cfg = forecaster_config.lim
+        match_prior = lim_cfg.match_prior
+        detrend = lim_cfg.detrend
+        num_pcs = lim_cfg.fcast_num_pcs
+        dobj_num_pcs = lim_cfg.dobj_num_pcs
+        prior_map = lim_cfg.prior_mapping
+        fcast_lead = lim_cfg.fcast_lead
+        fcast_type = lim_cfg.fcast_type
+        ignore_precalib = lim_cfg.ignore_precalib_lim
+
+        FcastVar = LMR_gridded.ForecasterVariable
+
+        if match_prior:
+            load_vars = state_var_keys
+        else:
+            load_vars = FcastVar.get_fcast_prior_match_vars(lim_cfg.fcast_varnames)
+
+        save_attrs = [lim_cfg.datatag, num_pcs, dobj_num_pcs] + list(load_vars)
+        save_str = str(save_attrs).encode('utf-8')
+        save_hasher = hashlib.md5()
+        save_hasher.update(save_str)
+        save_filename = save_hasher.hexdigest() + '.pkl'
+
+        output_dir = os.path.join(lim_cfg.lim_precalib_dir,
+                                  'lim_precalib_files')
+        output_path = os.path.join(output_dir, save_filename)
+
+        try:
+            if ignore_precalib:
+                raise IOError('Ignore precalibrated LIM files specified.')
+
+            with open(output_path, 'rb') as f:
+                lim_obj = pickle.load(f)
+
+            print('Successfully loaded pre-calibrated lim!')
+
+        except IOError as e:
+            print(e)
+            lim_obj = cls(lim_cfg, load_vars, nelem_in_yr, dobj_num_pcs,
+                          num_pcs, detrend, fcast_type, prior_map, fcast_lead,
+                          match_prior, save_attrs)
+
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            with open(output_path, 'wb') as f:
+                pickle.dump(lim_obj, f)
+
+        lim_obj.print_lim_save_attrs()
+
+        return lim_obj
 
     def forecast(self, state_obj):
         """Perfect no-noise forecast. Drastically reduces output variance."""
@@ -167,6 +215,22 @@ class LIMForecaster(BaseForecaster):
         state_obj.update_var_data(fcast_state_out)
 
         return state_obj
+
+    def print_lim_save_attrs(self):
+        datatag = self._save_attrs[0]
+        mvar_npcs = self._save_attrs[1]
+        dobj_npcs = self._save_attrs[2]
+        load_vars = self._save_attrs[3:]
+
+        str = (f'Calibrated LIM Attributes:\n'
+               f'==========================\n'
+               f'data source: {datatag}\n'
+               f'dobj num pcs: {dobj_npcs:3d}\n'
+               f'multivar num pcs: {mvar_npcs:3d}\n'
+               f'included variable/avg_intervals: {load_vars}\n'
+               f'==========================\n')
+
+        print(str)
 
     def _perf_forecast(self, state_arr):
         return self.lim.forecast(state_arr, [self.fcast_lead])[0]

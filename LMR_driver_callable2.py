@@ -269,7 +269,7 @@ def LMR_driver_callable(cfg=None):
         print('\n Initializing LMR forecasting for online reconstruction')
         key = cfg.forecaster.use_forecaster
         fcastr_class = LMR_forecaster.get_forecaster_class(key)
-        forecaster = fcastr_class(cfg.forecaster, Xb_one.var_keys)
+        forecaster = fcastr_class.from_config(cfg.forecaster, Xb_one.var_keys)
 
     # ==========================================================================
     # Loop over all years and proxies, and perform assimilation ----------------
