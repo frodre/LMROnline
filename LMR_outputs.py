@@ -252,13 +252,14 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
     return full_out_shp, grab_ens_members
 
 
-def save_field_output(idx, field_type, state, h5f, avg_interval,
+def save_field_output(idx, field_type, state, h5f,
                       output_def=None, ens_out_func=None):
 
     for var_key in state.base_prior_keys:
 
         data = state.get_var_data(var_key)
-        sptl_shape = state.var_space_shp[var_key]
+        var_name, avg_interval = var_key
+        sptl_shape = state.var_space_shp[var_name]
 
         if field_type == 'prior' or field_type == 'posterior':
 

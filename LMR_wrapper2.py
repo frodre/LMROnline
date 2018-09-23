@@ -106,7 +106,7 @@ for iter_and_params in itertools.product(*param_iterables):
     elif os.path.isdir(core.datadir_output) and core.clean_start:
         print (' **** clean start --- removing existing files in iteration'
                ' output directory')
-        os.system('rm -f {}'.format(core.datadir_output + '/*'))
+        os.system('rm -rf {}'.format(core.datadir_output + '/*'))
 
     # Call the driver
     try:
