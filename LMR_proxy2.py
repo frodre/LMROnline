@@ -606,6 +606,7 @@ class ProxyLMRdb(BaseProxyObject):
             meta_src = pd.read_pickle(lmr_db_cfg.metafile_proxy)
         if data_src is None:
             data_src = pd.read_pickle(lmr_db_cfg.datafile_proxy)
+            data_src = data_src.to_dense()
 
         site_meta = meta_src[meta_src['Proxy ID'] == site]
         pid = site_meta['Proxy ID'].iloc[0]
@@ -678,6 +679,7 @@ class ProxyLMRdb(BaseProxyObject):
             meta_src = pd.read_pickle(lmr_db_cfg.metafile_proxy)
         if data_src is None:
             data_src = pd.read_pickle(lmr_db_cfg.datafile_proxy)
+            data_src = data_src.to_dense()
 
         filters = lmr_db_cfg.simple_filters
         proxy_order = lmr_db_cfg.proxy_order
@@ -843,6 +845,7 @@ class ProxyLMRdb(BaseProxyObject):
             meta_src = pd.read_pickle(lmr_db_cfg.metafile_proxy)
         if data_src is None:
             data_src = pd.read_pickle(lmr_db_cfg.datafile_proxy)
+            data_src = data_src.to_dense()
 
         # TODO: For now hard coded to annual resolution - AP
         useable = meta_src['Resolution (yr)'] == 1.0
