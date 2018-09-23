@@ -1381,39 +1381,22 @@ class ForecasterVariable(GriddedVariable):
             fobj = cls.load(forecaster_cfg, varname, anomaly=True)
             yield (varname, avg_inteval), fobj
 
-    @classmethod
-    def load_all_cfg_vars_only(cls, forecaster_cfg, state_keys):
-
-        var_names = forecaster_cfg.fcast_varnames
-        prior_mapping = forecaster_cfg.prior_mapping
+    @staticmethod
+    def get_fcast_prior_match_vars(fcaster_cfg_vars, fcast_state_var_map,
+                                   state_var_keys):
 
         var_to_load = []
         # find which avg_intervals to use for selected forecast vars
-        for var in var_names:
-            prior_var_key = prior_mapping[var]
+        for var in fcaster_cfg_vars:
+            prior_var_key = fcast_state_var_map[var]
             matches = [(state_var, state_avg_interval)
-                       for state_var, state_avg_interval in state_keys
+                       for state_var, state_avg_interval in state_var_keys
                        if state_var == prior_var_key]
             var_to_load += matches
 
-        return cls.load_all(forecaster_cfg, var_to_load)
+        return var_to_load
 
-    @classmethod
-    def load_all_cfg_vars_only_gen(cls, forecaster_cfg, state_keys):
 
-        var_names = forecaster_cfg.fcast_varnames
-        prior_mapping = forecaster_cfg.prior_mapping
-
-        var_to_load = []
-        # find which avg_intervals to use for selected forecast vars
-        for var in var_names:
-            prior_var_key = prior_mapping[var]
-            matches = [(state_var, state_avg_interval)
-                       for state_var, state_avg_interval in state_keys
-                       if state_var == prior_var_key]
-            var_to_load += matches
-
-        return cls.load_all_gen(forecaster_cfg, var_to_load)
 
 
 class AnalysisVariable(GriddedVariable):

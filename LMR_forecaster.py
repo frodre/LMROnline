@@ -56,10 +56,11 @@ class LIMForecaster(BaseForecaster):
         FcastVar = LMR_gridded.ForecasterVariable
 
         if match_prior:
-            fcast_var_gen = FcastVar.load_all_gen(lim_cfg, state_var_keys)
+            load_vars = state_var_keys
         else:
-            fcast_var_gen = FcastVar.load_all_cfg_vars_only_gen(lim_cfg,
-                                                                state_var_keys)
+            load_vars = FcastVar.get_fcast_prior_match_vars(lim_cfg.fcast_varnames)
+
+        save_attrs = [lim_cfg.datatag, num_pcs, dobj_num_pcs] + list(load_vars)
 
         self.valid_data_mask = {}
         self.var_eofs = {}
