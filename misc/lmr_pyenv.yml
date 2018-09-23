@@ -23,3 +23,7 @@ dependencies:
   - esmpy=7.1
   - pytables
   - pymc3
+  - zarr
+  - dask
+  - scikit-learn
+  - netcdftime
