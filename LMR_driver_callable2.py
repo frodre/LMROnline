@@ -141,7 +141,8 @@ def LMR_driver_callable(cfg=None):
     # Build dictionaries of proxy sites to assimilate and those set aside for
     # verification
     prox_manager = LMR_proxy2.ProxyManager(cfg.proxies, cfg.psm,
-                                           recon_period)
+                                           recon_period,
+                                           include_eval=save_analysis_ye)
     req_avg_intervals = prox_manager.avg_interval_by_psm_type
 
     # Convert the required average interval keys to the prior variable name

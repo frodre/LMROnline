@@ -50,6 +50,18 @@ class ProxyManager:
     High-level manager to handle loading proxies from multiple sources and
     randomly sampling the proxies.
 
+    Parameters
+    ----------
+    proxy_config: LMR_Config.proxies
+        Configuration object for proxy loading
+    psm_config: LMR_COnfig.psm
+        COnfiguration object for psms that will be attached to proxy records
+    data_range: tuple of int
+        Year range of data to keep for loaded proxy records
+    include_eval: bool, Optional
+        Include withheld proxy objects in the list of average intervals that
+        are required to be loaded in the prior for the reconstruction
+
     Attributes
     ----------
     all_proxies: list(BaseProxyObject like)
@@ -71,7 +83,8 @@ class ProxyManager:
         reconstruction
     """
 
-    def __init__(self, proxy_config, psm_config, data_range):
+    def __init__(self, proxy_config, psm_config, data_range,
+                 include_eval=False):
 
         self.all_ids_by_group = defaultdict(list)
 
@@ -112,7 +125,14 @@ class ProxyManager:
             self.assim_ids_by_group = self.all_ids_by_group
 
         self.avg_interval_by_psm_type = defaultdict(set)
-        for proxy_obj in self.sites_assim_proxy_objs():
+        if include_eval:
+            # Includes assimilated and withheld proxies
+            pobj_gen = self.all_proxies
+        else:
+            # Includes only assimilated proxies
+            pobj_gen = self.sites_assim_proxy_objs()
+
+        for proxy_obj in pobj_gen:
             for psm_type in proxy_obj.psm_obj.psm_req_types:
                 psm_type = tuple(psm_type.items())[0]
                 avg_interval = proxy_obj.psm_obj.avg_interval
