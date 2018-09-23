@@ -56,32 +56,29 @@ class LIMForecaster(BaseForecaster):
         FcastVar = LMR_gridded.ForecasterVariable
 
         if match_prior:
-            fcast_calib_vars = FcastVar.load_all(lim_cfg, state_var_keys)
+            fcast_var_gen = FcastVar.load_all_gen(lim_cfg, state_var_keys)
         else:
-            fcast_calib_vars = FcastVar.load_all_cfg_vars_only(lim_cfg,
-                                                               state_var_keys)
-        fcast_calib_dobjs = {key: var.forecast_var_to_pylim_dataobj()
-                             for key, var in fcast_calib_vars.items()}
-        self.calib_dobjs = fcast_calib_dobjs
+            fcast_var_gen = FcastVar.load_all_cfg_vars_only_gen(lim_cfg,
+                                                                state_var_keys)
 
-        var_eofs = {}
+        self.valid_data_mask = {}
+        self.var_eofs = {}
+        self.var_order = []
+        self.var_span = {}
+        self._pre_concat_data = []
+        self._start = 0
+        self._end = 0
 
-        for key, dobj in fcast_calib_dobjs.items():
-            dobj.calc_anomaly(nelem_in_yr)
-            if detrend:
-                dobj.detrend_data()
-            # TODO: Fix cell area loading in LMR_gridded
-            dobj.area_weight_data()
-            dobj.eof_proj_data(dobj_num_pcs, proj_key=dobj._DETRENDED)
-            var_eofs[key] = dobj._eofs
-            dobj.standardize_data()
+        for key, fcast_var in fcast_var_gen:
 
-        # Collect dobjects for calculating multi-variate EOF
-        [calib_state_std,
-         var_order,
-         var_span] = _combine_dobjs_into_limstate(fcast_calib_dobjs,
-                                                  'standardized')
-        self.var_span = var_span
+            # Convert data into pylim.DataObject and then perform processing
+            dobj = self._process_forecast_variable(key, fcast_var, detrend,
+                                                   nelem_in_yr, dobj_num_pcs)
+
+            # Handle combination into LIMState
+            self._process_lim_state_params(key, dobj, 'data')
+
+        calib_state_std = self._combine_lim_state_data()
 
         # Calculate multi-variate EOFs
         [calib_state_eofs,
@@ -91,11 +88,14 @@ class LIMForecaster(BaseForecaster):
         self.calib_eofs = calib_state_eofs
 
         # Collect dobject data for projecting EOFs upon and calibrating LIM
-        [calib_state_reg,
-         _, _] = _combine_dobjs_into_limstate(fcast_calib_dobjs, 'eof_proj')
+        # [calib_state_reg,
+        #  _, _] = _combine_dobjs_into_limstate(fcast_calib_dobjs, 'eof_proj')
+        #
+        # # Project unstandardized ata on the calculated EOFs
+        # eof_proj_calib = calib_state_reg @ calib_state_eofs
 
         # Project unstandardized ata on the calculated EOFs
-        eof_proj_calib = calib_state_reg @ calib_state_eofs
+        eof_proj_calib = calib_state_std @ calib_state_eofs
 
         if fcast_type == 'noise_integrate':
             fit_noise = True
@@ -104,8 +104,6 @@ class LIMForecaster(BaseForecaster):
 
         self.lim = LIM.LIM(eof_proj_calib, nelem_in_tau1=nelem_in_yr,
                            fit_noise=fit_noise)
-        self.var_order = var_order
-        self.var_eofs = var_eofs
         self.prior_map = prior_map
         self.fcast_lead = fcast_lead
         self.match_prior = match_prior
@@ -127,14 +125,14 @@ class LIMForecaster(BaseForecaster):
         for var_key in self.var_order:
             var, avg_interval = var_key
             prior_var_key = self.prior_map[var]
-            data = state_obj.get_var_data((prior_var_key, avg_interval))
+            data = state_obj.get_var_data(var_key)
             if np.any(np.isnan(data)):
                 # Get the LIM calibration defined mask
-                valid_mask = self.calib_dobjs[(var, avg_interval)].valid_data
+                valid_mask = self.valid_data_mask[var_key]
                 data = data[valid_mask, :]
-                is_compressed.append(var)
+                is_compressed.append(var_key)
             # Transposes sampling dimension and projects into EOF space
-            eof_proj = np.dot(data.T, self.var_eofs[var])
+            eof_proj = np.dot(data.T, self.var_eofs[var_key])
             fcast_state.append(eof_proj)
 
         fcast_state = np.concatenate(fcast_state, axis=-1)
@@ -154,8 +152,9 @@ class LIMForecaster(BaseForecaster):
                                                self.var_span)
             phys_space_fcast = fcast_out @ self.var_eofs[var_key].T
             if var_key in is_compressed:
-                dobj = self.calib_dobjs[var_key]
-                phys_space_fcast = dobj.inflate_full_grid(data=phys_space_fcast)
+                phys_space_fcast = self._decompress_field(var_key,
+                                                          phys_space_fcast)
+
             fcast_state_out[(prior_var_key, avg_interval)] = phys_space_fcast.T
 
         # restore original data (climatological) when forecast prior vars
@@ -188,6 +187,65 @@ class LIMForecaster(BaseForecaster):
         return self.lim.noise_integration(state_arr, self.fcast_lead,
                                           timesteps=1440)
 
+    def _decompress_field(self, key, data):
+        # Simplified pylim.DataObject.inflate_full_grid because I don't want to
+        # store the entire calibration object for each field
+
+        valid_data = self.valid_data_mask[key]
+
+        if data.ndim > 2:
+            raise AttributeError('Function created to work for 2D data only.')
+
+        new_data = np.empty((data.shape[0], len(valid_data))) * np.nan
+        new_data[:, valid_data] = data
+
+        return new_data
+
+    def _process_forecast_variable(self, key, fcast_var, detrend, nelem_in_yr,
+                                   dobj_num_pcs):
+
+        # Convert data into pylim.DataObject and then perform processing
+        data_obj = fcast_var.forecast_var_to_pylim_dataobj()
+        data_obj.calc_anomaly(nelem_in_yr, save=(not detrend))
+        if detrend:
+            data_obj.detrend_data()
+            proj_key = data_obj._DETRENDED
+        else:
+            proj_key = data_obj._ANOMALY
+        # TODO: Fix cell area loading in LMR_gridded
+        data_obj.area_weight_data(save=False)
+        data_obj.eof_proj_data(dobj_num_pcs, proj_key=proj_key, save=False)
+        self.var_eofs[key] = data_obj._eofs
+        data_obj.standardize_data(save=False)
+
+        return data_obj
+
+    def _process_lim_state_params(self, key, data_obj, data_obj_dkey):
+        self.var_order.append(key)
+        dobj_data = getattr(data_obj, data_obj_dkey)
+        self._pre_concat_data.append(dobj_data)
+        self._end = self._start + dobj_data.shape[1]
+        self.var_span[key] = (self._start, self._end)
+        self._start = self._end
+
+    def _combine_lim_state_data(self):
+
+        curr_min = 1e10
+        for var_data in self._pre_concat_data:
+            curr_min = min(curr_min, var_data.shape[0])
+
+        for i, var_data in enumerate(self._pre_concat_data):
+            shave_yr = var_data.shape[0] - curr_min
+            if shave_yr > 1:
+                raise ValueError('Havent planned for more than 1 year being '
+                                 'removed from data after it is averaged...')
+
+            self._pre_concat_data[i] = var_data[shave_yr:]
+
+        lim_state_data = np.concatenate(self._pre_concat_data, axis=1)
+        self._pre_concat_data = None
+
+        return lim_state_data
 
 
 @class_docs_fixer
@@ -239,6 +297,19 @@ def _combine_dobjs_into_limstate(dobjs, dobj_key):
         end = start + dobj_data.shape[1]
         var_span[key] = (start, end)
         start = end
+
+    # Address the differences in number of times due to time averages taken
+    # that span a calendar year
+    curr_min = 1e10
+    for var_data in data:
+        curr_min = min(curr_min, var_data.shape[0])
+    for i, var_data in enumerate(data):
+        shave_yr = var_data.shape[0] - curr_min
+        if shave_yr > 1:
+            raise ValueError('Havent planned for more than 1 year being '
+                             'removed from data after it is averaged...')
+
+        data[i] = var_data[shave_yr:]
 
     data = np.concatenate(data, axis=1)
 
