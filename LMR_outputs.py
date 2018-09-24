@@ -1,5 +1,5 @@
 from LMR_gridded import PriorVariable
-from LMR_utils2 import var_to_hdf5_carray, empty_hdf5_carray
+from LMR_utils import var_to_hdf5_carray, empty_hdf5_carray
 from collections import Sequence, namedtuple
 from numcodecs import Blosc
 import numpy as np

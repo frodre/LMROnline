@@ -33,10 +33,10 @@ Revisions:
 """
 
 import LMR_psms
-from LMR_utils2 import (augment_docstr, class_docs_fixer, fix_lon,
-                        get_averaging_period, ProxyTypeNotMappedError,
-                        PSMFitThresholdError, PSMTooFewObsError,
-                        PSMTorPCalibrationError, NoProxyObsError)
+from LMR_utils import (augment_docstr, class_docs_fixer, fix_lon,
+                       get_averaging_period, ProxyTypeNotMappedError,
+                       PSMFitThresholdError, PSMTooFewObsError,
+                       PSMTorPCalibrationError, NoProxyObsError)
 
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict

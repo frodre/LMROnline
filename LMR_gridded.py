@@ -18,9 +18,9 @@ import tables as tb
 import pylim.DataTools as DT
 
 import LMR_config
-from LMR_utils2 import (regrid_sphere_gridded_object, var_to_hdf5_carray,
-    empty_hdf5_carray, regrid_esmpy_grid_object, ReqDataFractionMismatchError)
-from LMR_utils2 import fix_lon, regular_cov_infl
+from LMR_utils import (regrid_sphere_gridded_object, var_to_hdf5_carray,
+                       empty_hdf5_carray, regrid_esmpy_grid_object, ReqDataFractionMismatchError)
+from LMR_utils import fix_lon, regular_cov_infl
 # import pylim.DataTools as DT
 
 # Constant definitions

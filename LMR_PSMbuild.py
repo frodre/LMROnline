@@ -19,7 +19,7 @@ from time import time
 from copy import deepcopy
 from collections import defaultdict
 
-import LMR_proxy2 as LMR_proxy
+import LMR_proxy as LMR_proxy
 import LMR_config
 
 

@@ -9,7 +9,7 @@ from os.path import join, exists
 import os
 from sklearn import linear_model
 
-import LMR_utils2 as utils2
+import LMR_utils as utils2
 import LMR_gridded as lmrgrid
 import LMR_config
 

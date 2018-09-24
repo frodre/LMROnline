@@ -55,10 +55,10 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy.io import loadmat
 from functools import lru_cache
 
-from LMR_utils2 import (haversine, get_distance, smooth2D,
-                        get_data_closest_gridpt, class_docs_fixer,
-                        PSMFitThresholdError, PSMTooFewObsError,
-                        PSMTorPCalibrationError)
+from LMR_utils import (haversine, get_distance, smooth2D,
+                       get_data_closest_gridpt, class_docs_fixer,
+                       PSMFitThresholdError, PSMTooFewObsError,
+                       PSMTorPCalibrationError)
 
 # Logging output utility, configuration controlled by driver
 logger = logging.getLogger(__name__)

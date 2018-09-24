@@ -23,11 +23,11 @@ import sys
 import yaml
 import itertools
 import datetime
-from . import LMR_driver_callable as LMR
-from . import LMR_config
+import LMR_driver as LMR
+import LMR_config
 
-from .LMR_utils import validate_config, ensemble_stats
-from . import LMR_utils as Utils
+import LMR_utils as Util2
+from LMR_utils import ensemble_stats, validate_config
 
 print('\n' + str(datetime.datetime.now()) + '\n')
 
@@ -37,25 +37,7 @@ if not LMR_config.LEGACY_CONFIG:
     else:
         yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
-    try:
-        print('Loading configuration: {}'.format(yaml_file))
-        f = open(yaml_file, 'r')
-        yml_dict = yaml.load(f)
-        update_result = LMR_config.update_config_class_yaml(yml_dict,
-                                                            LMR_config)
-
-        # Check that all yml params match value in LMR_config
-        if update_result:
-            raise SystemExit(
-                'Extra or mismatching values found in the configuration yaml'
-                ' file.  Please fix or remove them.\n  Residual parameters:\n '
-                '{}'.format(update_result))
-
-    except IOError as e:
-        raise SystemExit(
-            ('Could not locate {}.  If use of legacy LMR_config usage is '
-             'desired then please change LEGACY_CONFIG to True'
-             'in LMR_wrapper.py.').format(yaml_file))
+    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
 
 # Define main experiment output directory
 iter_range = LMR_config.wrapper.iter_range
@@ -83,31 +65,20 @@ if param_search is not None:
 for iter_and_params in itertools.product(*param_iterables):
 
     iter_num = iter_and_params[-1]
-    cfg_dict = Utils.param_cfg_update('core.curr_iter', iter_num)
+    cfg_dict = Util2.param_cfg_update('core.curr_iter', iter_num)
 
     if LMR_config.wrapper.multi_seed is not None:
         curr_seed = LMR_config.wrapper.multi_seed[iter_num]
-        cfg_dict = Utils.param_cfg_update('core.seed', curr_seed,
+        cfg_dict = Util2.param_cfg_update('core.seed', curr_seed,
                                           cfg_dict=cfg_dict)
         print(('Setting current iteration seed: {}'.format(curr_seed)))
-
-        # TODO: Rectify this
-        try:
-            curr_seed = LMR_config.wrapper.multi_seed[iter_num]
-            cfg_dict = Utils.param_cfg_update('core.seed', curr_seed,
-                                              cfg_dict=cfg_dict)
-            print('Setting current iteration seed: {}'.format(curr_seed))
-        except IndexError:
-            print('ERROR: multi_seed activated but current MC iteration out of'
-                  ' range for list of seed values provided in config.')
-            raise SystemExit(1)
 
     itr_str = 'r{:d}'.format(iter_num)
     # If parameter space search is being performed then set the current
     # search space values and create a special sub-directory
     if param_search is not None:
         curr_param_values = iter_and_params[:-1]
-        cfg_dict, psearch_dir = Utils.psearch_list_cfg_update(sort_params,
+        cfg_dict, psearch_dir = Util2.psearch_list_cfg_update(sort_params,
                                                               curr_param_values,
                                                               cfg_dict=cfg_dict)
 
@@ -117,16 +88,16 @@ for iter_and_params in itertools.product(*param_iterables):
         working_dir = os.path.join(expdir, itr_str)
         mc_arc_dir = os.path.join(arc_dir, itr_str)
 
-    cfg_params = Utils.param_cfg_update('core.datadir_output', working_dir,
+    cfg_params = Util2.param_cfg_update('core.datadir_output', working_dir,
                                         cfg_dict=cfg_dict)
 
     cfg = LMR_config.Config(**cfg_params)
 
-    proceed = validate_config(cfg)
-    if not proceed:
-        raise SystemExit()
-    else:
-        print('OK!')
+    # proceed = validate_config(cfg)
+    # if not proceed:
+    #     raise SystemExit()
+    # else:
+    #     print 'OK!'
     core = cfg.core
 
     # Check if it exists, if not create it
@@ -135,15 +106,19 @@ for iter_and_params in itertools.product(*param_iterables):
     elif os.path.isdir(core.datadir_output) and core.clean_start:
         print (' **** clean start --- removing existing files in iteration'
                ' output directory')
-        os.system('rm -f {}'.format(core.datadir_output + '/*'))
+        os.system('rm -rf {}'.format(core.datadir_output + '/*'))
 
     # Call the driver
-    assim_proxy_objs, eval_proxy_objs = LMR.LMR_driver_callable(cfg)
+    try:
+        LMR.LMR_driver_callable(cfg)
+    except LMR.FilterDivergenceError as e:
+        print(e)
 
-    # write the analysis ensemble mean, variance or full ensemble to
-    # separate files (per state variable)
-    ensemble_stats(core, assim_proxy_objs, eval_proxy_objs)
-
+        # removing the work output directory
+        cmd = 'rm -f -r ' + working_dir
+        print(cmd)
+        os.system(cmd)
+        continue
 
     # start: DO NOT DELETE
     # move files from local disk to an archive location
@@ -157,32 +132,20 @@ for iter_and_params in itertools.product(*param_iterables):
     else:
         os.makedirs(mc_arc_dir)
 
-    # remove the individual years
-    # cmd = 'rm -f ' + core.datadir_output + '/year* '
-    # option to move the whole directory
-    # cmd = 'mv -f ' + loc_dir + ' ' + mc_dir
-    # print cmd
-    # os.system(cmd)
-
     # or just move select files and delete the rest
 
     cmd = 'mv -f ' + working_dir + '/*.npz' + ' ' + mc_arc_dir + '/'
     print(cmd)
     os.system(cmd)
-    cmd = 'mv -f ' + working_dir + '/*.pckl' + ' ' + mc_arc_dir + '/'
+    cmd = 'mv -f ' + working_dir + '/*.h5' + ' ' + mc_arc_dir + '/'
     print(cmd)
     os.system(cmd)
-    cmd = 'mv -f ' + working_dir + '/assim*' + ' ' + mc_arc_dir + '/'
+    cmd = 'mv -f ' + working_dir + '/*.pkl' + ' ' + mc_arc_dir + '/'
     print(cmd)
     os.system(cmd)
-    cmd = 'mv -f ' + working_dir + '/nonassim*' + ' ' + mc_arc_dir + '/'
+    cmd = 'mv -f ' + working_dir + '/*.zarr' + ' ' + mc_arc_dir + '/'
     print(cmd)
     os.system(cmd)
-    # copy file containing info on samples defining the prior ensemble
-    cmd = 'mv -f ' + working_dir + '/prior_sampling_info.txt' + ' ' + mc_arc_dir + '/'
-    print(cmd)
-    os.system(cmd)
-
 
     # removing the work output directory once selected files have been moved
     cmd = 'rm -f -r ' + working_dir

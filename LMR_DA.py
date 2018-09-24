@@ -8,7 +8,7 @@
 #==========================================================================================
 
 import numpy as np
-import LMR_utils2 as LMR_utils
+import LMR_utils as LMR_utils
 
 def enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None, inflate=None,
                       static_prior=None, a=1):

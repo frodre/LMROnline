@@ -3,7 +3,7 @@ import sys
 sys.path.append('../.')
 
 import misc_config as cfg
-import LMR_proxy2
+import LMR_proxy
 import pickle as cpckl
 from os.path import join
 
@@ -23,7 +23,7 @@ for frac in fracs:
 
 
     # Load and calibrate
-    _, proxies = LMR_proxy2.ProxyPages.load_all(cfg, [1850, 2000])
+    _, proxies = LMR_proxy.ProxyPages.load_all(cfg, [1850, 2000])
 
     pre_calib_dict = {}
     for p in proxies:

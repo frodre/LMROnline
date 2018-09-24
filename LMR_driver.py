@@ -68,9 +68,9 @@ import numpy as np
 from os.path import join
 from time import time
 
-import LMR_proxy2
+import LMR_proxy
 import LMR_gridded
-from LMR_utils2 import global_mean2
+from LMR_utils import global_mean2
 import LMR_outputs as lmr_out
 import LMR_config as BaseCfg
 import LMR_forecaster
@@ -140,9 +140,9 @@ def LMR_driver_callable(cfg=None):
 
     # Build dictionaries of proxy sites to assimilate and those set aside for
     # verification
-    prox_manager = LMR_proxy2.ProxyManager(cfg.proxies, cfg.psm,
-                                           recon_period,
-                                           include_eval=save_analysis_ye)
+    prox_manager = LMR_proxy.ProxyManager(cfg.proxies, cfg.psm,
+                                          recon_period,
+                                          include_eval=save_analysis_ye)
     req_avg_intervals = prox_manager.avg_interval_by_psm_type
 
     # Convert the required average interval keys to the prior variable name
@@ -240,7 +240,7 @@ def LMR_driver_callable(cfg=None):
 
     # TODO: Figure out how to handle precalculated YE Vals
     # Extract all the Ye's from master list of proxy objects into numpy array
-    ye_all = LMR_proxy2.calc_assim_ye_vals(prox_manager, Xb_one)
+    ye_all = LMR_proxy.calc_assim_ye_vals(prox_manager, Xb_one)
     Xb_one.augment_state(ye_all)
 
     # TODO: Switch to cPickled prior object... right now hardcoded for annual
@@ -407,7 +407,7 @@ def LMR_driver_callable(cfg=None):
             assim_ye_out[:, iyr] = assim_ye
 
             if eval_proxy_count is not None:
-                eval_ye = LMR_proxy2.calc_eval_ye_vals(prox_manager, Xb_one)
+                eval_ye = LMR_proxy.calc_eval_ye_vals(prox_manager, Xb_one)
                 eval_ye_out[:, iyr] = eval_ye
 
         if online:
@@ -415,7 +415,7 @@ def LMR_driver_callable(cfg=None):
             forecaster.forecast(Xb_one)
 
             # Recalculate Ye values
-            ye_all = LMR_proxy2.calc_assim_ye_vals(prox_manager, Xb_one)
+            ye_all = LMR_proxy.calc_assim_ye_vals(prox_manager, Xb_one)
             Xb_one.reset_augmented_ye(ye_all)
 
             # Inflation Adjustment

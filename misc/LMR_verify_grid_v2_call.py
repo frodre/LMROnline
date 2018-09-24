@@ -12,7 +12,7 @@ from spharm import Spharmt, regrid
 sys.path.append('/home/disk/p/wperkins/Research/LMR')
 
 # LMR specific imports
-from LMR_utils2 import global_hemispheric_means, coefficient_efficiency
+from LMR_utils import global_hemispheric_means, coefficient_efficiency
 from load_gridded_data import read_gridded_data_GISTEMP
 from load_gridded_data import read_gridded_data_HadCRUT
 from load_gridded_data import read_gridded_data_BerkeleyEarth

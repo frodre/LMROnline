@@ -9,7 +9,7 @@ import pytest
 import copy
 import pickle
 import numpy as np
-import LMR_proxy2 as proxy2
+import LMR_proxy as proxy2
 import LMR_config as cfg
 import yaml
 

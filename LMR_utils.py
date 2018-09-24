@@ -25,13 +25,17 @@ import re
 import pickle
 import collections
 import copy
+import tables as tb
 import ESMF
+import warnings
 from time import time
 from os.path import join
 from math import radians, cos, sin, asin, sqrt
 from scipy import signal, special
 from scipy.spatial import cKDTree
 from spharm import Spharmt, getspecindx, regrid
+
+import pylim.Stats as ST
 
 def atoi(text):
     try:
@@ -43,7 +47,7 @@ def natural_keys(text):
     '''
     alist.sort(key=natural_keys) sorts in human order
     http://nedbatchelder.com/blog/200712/human_sorting.html
-    '''    
+    '''
     return [ atoi(c) for c in re.split('([-]?\d+)', text) ]
 
 def natural_sort(input):
@@ -85,7 +89,7 @@ def get_distance(lon_pt, lat_pt, lon_ref, lat_ref):
 
     """
 
-    # Convert decimal degrees to radians 
+    # Convert decimal degrees to radians
     lon_pt, lat_pt, lon_ref, lat_ref = list(map(np.radians, [lon_pt, lat_pt, lon_ref, lat_ref]))
 
     # check dimension of lon_ref and lat_ref
@@ -106,10 +110,10 @@ def get_distance(lon_pt, lat_pt, lon_ref, lat_ref):
     else:
         print('ERROR in get_distance!')
         raise SystemExit()
-        
+
     # Haversine formula using arrays as input
-    dlon = lons - lon_pt 
-    dlat = lats - lat_pt 
+    dlon = lons - lon_pt
+    dlat = lats - lat_pt
 
     a = np.sin(dlat/2.)**2 + np.cos(lat_pt) * np.cos(lats) * np.sin(dlon/2.)**2
     c = 2. * np.arcsin(np.sqrt(a))
@@ -158,7 +162,7 @@ def get_data_closest_gridpt(data,lon_data,lat_data,lon_pt,lat_pt,getvalid=None):
     # Representative distance between grid pts.
     dist = haversine(np.roll(lon_data,1), np.roll(lat_data,1), lon_data, lat_data)
     meandist =  np.mean(dist)
-    
+
     # Calculate distances
     dist = haversine(lon_pt, lat_pt, lon_data, lat_data)
     workdist = np.ravel(dist)
@@ -189,7 +193,7 @@ def get_data_closest_gridpt(data,lon_data,lat_data,lon_pt,lat_pt,getvalid=None):
                 test_valid = np.isfinite(data[inds,:])
             else:
                 print('ERROR in distance calc in get_data_closest_gridpt!')
-                raise SystemExit(1)            
+                raise SystemExit(1)
             if np.all(test_valid): valid = True
             i +=1
             distpt = sorteddist[i]
@@ -234,6 +238,24 @@ def year_fix(t):
     
     return ypad
 
+
+def fix_lon(lon):
+    """
+    Fixes negative longitude values.
+
+    Parameters
+    ----------
+    lon: ndarray like or value
+        Input longitude array or single value
+    """
+    if lon is not None and np.any(lon < 0):
+        if isinstance(lon, np.ndarray):
+            lon[lon < 0] += 360.
+        else:
+            lon += 360
+    return lon
+
+
 def smooth2D(im, n=15):
 
     """
@@ -261,7 +283,100 @@ def smooth2D(im, n=15):
     return(improc)
 
 
-def ensemble_stats(cfg_core, y_assim, y_eval=None):
+def regular_cov_infl(data, infl_factor):
+    """
+    Constant covariance inflation for every location.  Preserves relationships
+    between points.
+
+    Parameters
+    ----------
+    data: ndarray
+        2D array of state.  Nlocs x Nens
+    infl_factor: int
+        Inflation factor for state.  Multiplies by sqrt of this factor so
+        variance is increased by exactly this factor.
+
+    Returns
+    -------
+    ndarray
+    """
+
+    dat_mean = data.mean(axis=1, keepdims=True)
+    dat_pert = data - dat_mean
+
+    dat_pert *= np.sqrt(infl_factor)
+    infl_dat = dat_mean + dat_pert
+
+    return infl_dat
+
+
+def global_mean2(field, lat, output_hemispheric=False):
+
+    """
+     compute global mean value for all times in the input array
+     input: field with dimensions
+            [time, lat, lon]
+            [time, lat*lon]
+            [lat, lon]
+            [lat*lon]
+
+            lat in degrees
+            has to match field dimensions, either singleton nlat, or nlat*nlon
+
+    Altered by AndreP August 2015
+    """
+
+    # Originator: Greg Hakim
+    #             University of Washington
+    #             May 2015
+    #
+    #             revised 16 June 2015 (GJH)
+
+    # index for start of spatial dimensions
+
+    if not lat.shape == field.shape[-lat.ndim:]:
+        # received singleton lat
+        lat_idx = field.shape.index(len(lat))
+
+        tmp = np.ones(field.shape[lat_idx:])
+        lat = (tmp.T * lat).T  # broadcast latitude dimension
+
+    # Flatten spatial dimensions if necessary
+    if lat.ndim > 1:
+        field = field.reshape(list(field.shape[:-lat.ndim]) +
+                              [np.product(field.shape[-lat.ndim:])])
+        lat = lat.flatten()
+
+    # latitude weighting for global mean
+    lat_weight = np.cos(np.deg2rad(lat))
+    # If nan-values in the field, result in nan
+    field_weighted = field * lat_weight
+
+    # mask lat_weights
+    lat_weight = np.ones_like(field_weighted) * lat_weight
+    lat_weight[~np.isfinite(field_weighted)] = np.nan
+
+    gm = np.nansum(field_weighted, axis=-1) / np.nansum(lat_weight, axis=-1)
+
+    if output_hemispheric:
+        nh_idx, = np.where(lat > 0)
+        nh_wgt_field = np.take(field_weighted, nh_idx, axis=-1)
+        nh_lat_wgt = np.take(lat_weight, nh_idx, axis=-1)
+        nhm = np.nansum(nh_wgt_field, axis=-1)
+        nhm /= np.nansum(nh_lat_wgt, axis=-1)
+
+        sh_idx, = np.where(lat < 0)
+        sh_wgt_field = np.take(field_weighted, sh_idx, axis=-1)
+        sh_lat_wgt = np.take(lat_weight, sh_idx, axis=-1)
+        shm = np.nansum(sh_wgt_field, axis=-1)
+        shm /= np.nansum(sh_lat_wgt, axis=-1)
+
+        return gm, nhm, shm
+
+    return gm
+
+
+def ensemble_stats(workdir,  y_assim, y_eval=None, write_posterior_Ye=False, save_full_field=False):
     """
     Compute the ensemble mean and variance for files in the input directory
 
@@ -289,33 +404,17 @@ def ensemble_stats(cfg_core, y_assim, y_eval=None):
               : added full-ensemble saving facility
       Revised August 2017 (R. Tardif, UW)
               : Modified load_precalculated_ye_vals_psm_per_proxy function to upload Ye values
-                either from assimilated or withheld proxy sets
-      Revised February 2018 (R. Tardif, UW)
-              : More streamlined handling of full-ensemble saving facility
-                as attempt to prevent occurrences of MemoryError even though full-ensemble
-                save was not activated
-      Revised April 2018 (R. Tardif, UW)
-              : Enabled option for possible regridding of 2D reanalysis fields at the archiving stage.
-      Revised April 2018 (R. Tardif, UW)
-              : Added options for archiving information on the reanalysis ensemble other than
-                the mean (i.e. full ensemble, ensemble variance, percentiles or subset of members)
+                either from assimilated or withheld proxy sets (R. Tardif, UW)
 
-      TODO: Look into how to prevent occurences of MemoryError when 
-            full-ensemble saving is activated.
     """
 
-    workdir = cfg_core.datadir_output
-    write_posterior_Ye =  cfg_core.write_posterior_Ye
-    
-    # ---
-    
     prior_filn = workdir + '/Xb_one.npz'
     
     # get the prior and basic info
     npzfile = np.load(prior_filn)
     npzfile.files
     Xbtmp = npzfile['Xb_one']
-    Xb_coords = npzfile['Xb_one_coords']
+    Xb_coords = npzfile['Xb_one_coords'][()]
 
     # get state vector content info (state variables and their position in vector)
     # note: the .item() is necessary to access a dict stored in a npz file 
@@ -325,7 +424,7 @@ def ensemble_stats(cfg_core, y_assim, y_eval=None):
     # get a listing of the analysis files
     files = glob.glob(workdir+"/year*")
     # sorted
-    sfiles = natural_sort(files)    
+    sfiles = natural_sort(files)
     nyears = len(sfiles)
 
     # loop on state variables 
@@ -336,165 +435,54 @@ def ensemble_stats(cfg_core, y_assim, y_eval=None):
         ibeg = state_info[var]['pos'][0]
         iend = state_info[var]['pos'][1]
 
-        # Determine variable type (2D lat/lon, 2D lat/depth, time series etc.)
+        # Determine variable type (2D lat/lon, 2D lat/depth, time series etc ...)
         # Look for the 'vartype' entry in the state vector dict.
-        # Possibilities are: '2D:horizontal', '2D:meridional_vertical',
-        #                    '1D:meridional', '0D:time series'
-        if state_info[var]['vartype'] == '2D:horizontal': 
+        # Possibilities are: '2D:horizontal', '2D:meridional_vertical', '0D:time series'
+        if state_info[var]['vartype'] == '2D:horizontal':
             # 2D:horizontal variable
-            # ----------------------
-            # Extracting info on reanalysis grid
             ndim1 = state_info[var]['spacedims'][0]
             ndim2 = state_info[var]['spacedims'][1]
-            
-            nlat = state_info[var]['spacedims'][state_info[var]['spacecoords'].index('lat')]
-            nlon = state_info[var]['spacedims'][state_info[var]['spacecoords'].index('lon')]
 
-            lats = Xb_coords[ibeg:iend+1,state_info[var]['spacecoords'].index('lat')]
-            lons = Xb_coords[ibeg:iend+1,state_info[var]['spacecoords'].index('lon')]
+            # Prior
+            Xb = np.reshape(Xbtmp[ibeg:iend,:],(ndim1,ndim2,nens))
+            xbm = np.mean(Xb,axis=2)       # ensemble mean
+            xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
 
-            
-            # -- Prior --
-            if cfg_core.archive_regrid_method is not None:
-                # option to regrid the reanalysis is activated
-                target_grid = cfg_core.archive_esmpy_grid_def
-
-                lat_2d = lats.reshape(nlat, nlon)
-                lon_2d = lons.reshape(nlat, nlon)
-                
-                [priorVariabletoArchive,
-                 lat_new,
-                 lon_new] = regrid_esmpy(target_grid['nlat'],
-                                         target_grid['nlon'],
-                                         nens,
-                                         Xbtmp[ibeg:iend+1,:],
-                                         lat_2d,
-                                         lon_2d,
-                                         nlat,
-                                         nlon,
-                                         include_poles=target_grid['include_poles'],
-                                         method=cfg_core.archive_esmpy_interp_method)
-
-                ndim1_archive = lat_new.shape[0]
-                ndim2_archive = lon_new.shape[1]
-                lats_archive = lat_new.flatten()
-                lons_archive = lon_new.flatten()
-                
-            else:            
-                # no regridding
-                ndim1_archive = ndim1
-                ndim2_archive = ndim2
-                lats_archive = lats
-                lons_archive = lons
-                priorVariabletoArchive = Xbtmp[ibeg:iend+1,:]
-
-            
-            Xb = np.reshape(priorVariabletoArchive,(ndim1_archive,ndim2_archive,nens))
-            xbm = np.mean(Xb,axis=2)           # ensemble mean
-            if cfg_core.save_archive == 'ens_variance':
-                xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
-            elif cfg_core.save_archive == 'ens_percentiles':
-                xb_pctl = np.zeros([ndim1_archive,ndim2_archive,2])
-                xb_pctl[:,:,0] = np.percentile(Xb,cfg_core.save_archive_percentiles[0],axis=2)
-                xb_pctl[:,:,1] = np.percentile(Xb,cfg_core.save_archive_percentiles[1],axis=2)
-            elif cfg_core.save_archive == 'ens_subsample':
-                xb_sub = Xb[:,:,0:cfg_core.save_archive_ens_subsample]
-
-            
-            # -- Process the **analysis** (i.e. posterior) files --
+            # Process the **analysis** (i.e. posterior) files
             years = []
-            if cfg_core.save_archive == 'ens_full':
-                if 'xa_ens' in dir():
-                    del xa_ens
-                xa_ens = np.zeros([nyears,ndim1_archive,ndim2_archive,nens])
-            xam = np.zeros([nyears,ndim1_archive,ndim2_archive])
-            if cfg_core.save_archive == 'ens_variance':
-                xav = np.zeros([nyears,ndim1_archive,ndim2_archive],dtype=np.float64)
-            elif cfg_core.save_archive == 'ens_percentiles':
-                xa_pctl = np.zeros([nyears,ndim1_archive,ndim2_archive,2])
-            elif cfg_core.save_archive == 'ens_subsample':
-                xa_sub = np.zeros([nyears,ndim1_archive,ndim2_archive,cfg_core.save_archive_ens_subsample])
-
+            xa_ens = np.zeros([nyears,ndim1,ndim2,nens])
+            xam = np.zeros([nyears,ndim1,ndim2])
+            xav = np.zeros([nyears,ndim1,ndim2],dtype=np.float64)
             k = -1
             for f in sfiles:
-                k += 1
-                fname_end = f.split('/')[-1]
-                year = fname_end.rstrip('.npy').lstrip('year')
-                years.append(year)                
-
+                k = k + 1
+                i = f.rfind('year')
+                fname_end = f[i+4:]
+                ii = fname_end.rfind('.')
+                year = fname_end[:ii]
+                years.append(year)
                 Xatmp = np.load(f)
-                
-                if cfg_core.archive_regrid_method is not None:
-                    # option to regrid the reanalysis is activated
-                    # nlat, nlon, lat_2d, lon_2d are same as for prior above
-                    [posteriorVariabletoArchive,
-                     lat_new,
-                     lon_new] = regrid_esmpy(target_grid['nlat'],
-                                             target_grid['nlon'],
-                                             nens,
-                                             Xatmp[ibeg:iend+1,:],
-                                             lat_2d,
-                                             lon_2d,
-                                             nlat,
-                                             nlon,
-                                             include_poles=target_grid['include_poles'],
-                                             method=cfg_core.archive_esmpy_interp_method)
-                else:
-                    posteriorVariabletoArchive = Xatmp[ibeg:iend+1,:]
-
-                Xa = np.reshape(posteriorVariabletoArchive,(ndim1_archive,ndim2_archive,nens))
+                Xa = np.reshape(Xatmp[ibeg:iend,:],(ndim1,ndim2,nens))
+                xa_ens[k,:,:,:] = Xa                  # total ensemble
                 xam[k,:,:] = np.mean(Xa,axis=2)       # ensemble mean
-                if cfg_core.save_archive == 'ens_full':
-                    xa_ens[k,:,:,:] = Xa              # total ensemble
-                elif cfg_core.save_archive == 'ens_variance':
-                    xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
-                elif cfg_core.save_archive == 'ens_percentiles':
-                    xa_pctl[k,:,:,0] = np.percentile(Xa,cfg_core.save_archive_percentiles[0],axis=2)
-                    xa_pctl[k,:,:,1] = np.percentile(Xa,cfg_core.save_archive_percentiles[1],axis=2)
-                elif cfg_core.save_archive == 'ens_subsample':
-                    xa_sub[k,:,:,:] = Xa[:,:,:cfg_core.save_archive_ens_subsample]
+                xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
 
-                
+
             # form dictionary containing variables to save, including info on array dimensions
             coordname1 = state_info[var]['spacecoords'][0]
             coordname2 = state_info[var]['spacecoords'][1]
             dimcoord1 = 'n'+coordname1
             dimcoord2 = 'n'+coordname2
 
-            if coordname1 == 'lat':
-                coord1 = lats_archive.reshape(ndim1_archive, ndim2_archive)
-                coord2 = lons_archive.reshape(ndim1_archive, ndim2_archive)
-            else:
-                coord1 = lons_archive.reshape(ndim1_archive, ndim2_archive)
-                coord2 = lats_archive.reshape(ndim1_archive, ndim2_archive)
+            coord1 = np.reshape(Xb_coords[var][coordname1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+            coord2 = np.reshape(Xb_coords[var][coordname2],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
 
-            # ensemble mean
-            vars_to_save_mean = {'nens':nens, 'years':years, \
-                                 dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
-                                 coordname1:coord1, coordname2:coord2, \
-                                 'xbm':xbm, 'xam':xam}
-                
-            if cfg_core.save_archive == 'ens_full': 
-                vars_to_save_ens  = {'nens':nens, 'years':years, \
-                                     dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
-                                     coordname1:coord1, coordname2:coord2, \
-                                     'xb_ens':Xb, 'xa_ens':xa_ens}
-            elif cfg_core.save_archive == 'ens_variance':
-                vars_to_save_var  = {'nens':nens, 'years':years, \
-                                     dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
-                                     coordname1:coord1, coordname2:coord2, \
-                                     'xbv':xbv, 'xav':xav}                
-            elif cfg_core.save_archive == 'ens_percentiles':
-                vars_to_save_var  = {'nens':nens, 'years':years, \
-                                     dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
-                                     coordname1:coord1, coordname2:coord2, \
-                                     'percentiles': cfg_core.save_archive_percentiles, \
-                                     'xb_pctl':xb_pctl, 'xa_pctl':xa_pctl}
-            elif cfg_core.save_archive == 'ens_subsample':
-                vars_to_save_var  = {'nens':nens, 'nsubsample': cfg_core.save_archive_ens_subsample, \
-                                     'years':years, dimcoord1:ndim1_archive, dimcoord2:ndim2_archive, \
-                                     coordname1:coord1, coordname2:coord2, \
-                                     'xb_subsample':xb_sub, 'xa_subsample':xa_sub}
+            vars_to_save_ens  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, 'xb_ens':Xb, 'xa_ens':xa_ens}
+            vars_to_save_mean = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, 'xbm':xbm, 'xam':xam}
+            vars_to_save_var  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, 'xbv':xbv, 'xav':xav}
 
 
         elif state_info[var]['vartype'] == '2D:meridional_vertical':
@@ -502,55 +490,29 @@ def ensemble_stats(cfg_core, y_assim, y_eval=None):
             ndim1 = state_info[var]['spacedims'][0]
             ndim2 = state_info[var]['spacedims'][1]
 
-            
             # Prior
-            Xb = np.reshape(Xbtmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
-            xbm = np.mean(Xb,axis=2)           # ensemble mean
-            if cfg_core.save_archive == 'ens_variance':
-                xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
-            elif cfg_core.save_archive == 'ens_percentiles':
-                xb_pctl = np.zeros([ndim1,ndim2,2])
-                xb_pctl[:,:,0] = np.percentile(Xb,cfg_core.save_archive_percentiles[0],axis=2)
-                xb_pctl[:,:,1] = np.percentile(Xb,cfg_core.save_archive_percentiles[1],axis=2)
-            elif cfg_core.save_archive == 'ens_subsample':
-                xb_sub = Xb[:,:,0:cfg_core.save_archive_ens_subsample]
+            Xb = np.reshape(Xbtmp[ibeg:iend,:],(ndim1,ndim2,nens))
+            xbm = np.mean(Xb,axis=2)       # ensemble mean
+            xbv = np.var(Xb,axis=2,ddof=1) # ensemble variance
 
-            
             # Process the **analysis** (i.e. posterior) files
             years = []
-            # ensemble mean
+            xa_ens = np.zeros([nyears,ndim1,ndim2,nens])
             xam = np.zeros([nyears,ndim1,ndim2])
-            if cfg_core.save_archive == 'ens_full':
-                if 'xa_ens' in dir():
-                    del xa_ens
-                xa_ens = np.zeros([nyears,ndim1,ndim2,nens])
-            elif cfg_core.save_archive == 'ens_variance':
-                xav = np.zeros([nyears,ndim1,ndim2],dtype=np.float64)
-            elif cfg_core.save_archive == 'ens_percentiles':
-                 xa_pctl = np.zeros([nyears,ndim1,ndim2,2])
-            elif cfg_core.save_archive == 'ens_subsample':
-                xa_sub = np.zeros([nyears,ndim1,ndim2,cfg_core.save_archive_ens_subsample])
-
+            xav = np.zeros([nyears,ndim1,ndim2],dtype=np.float64)
             k = -1
             for f in sfiles:
-                k += 1
-                fname_end = f.split('/')[-1]
-                year = fname_end.rstrip('.npy').lstrip('year')
+                k = k + 1
+                i = f.rfind('year')
+                fname_end = f[i+4:]
+                ii = fname_end.rfind('.')
+                year = fname_end[:ii]
                 years.append(year)
-                
                 Xatmp = np.load(f)
-
-                Xa = np.reshape(Xatmp[ibeg:iend+1,:],(ndim1,ndim2,nens))
+                Xa = np.reshape(Xatmp[ibeg:iend,:],(ndim1,ndim2,nens))
+                xam[k,:,:,:] = Xa                     # total ensemble
                 xam[k,:,:] = np.mean(Xa,axis=2)       # ensemble mean
-                if cfg_core.save_archive == 'ens_full':
-                    xa_ens[k,:,:,:] = Xa              # total ensemble
-                elif cfg_core.save_archive == 'ens_variance':
-                    xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
-                elif cfg_core.save_archive == 'ens_percentiles':
-                    xa_pctl[k,:,:,0] = np.percentile(Xa,cfg_core.save_archive_percentiles[0],axis=2)
-                    xa_pctl[k,:,:,1] = np.percentile(Xa,cfg_core.save_archive_percentiles[1],axis=2)
-                elif cfg_core.save_archive == 'ens_subsample':
-                    xa_sub[k,:,:,:] = Xa[:,:,:cfg_core.save_archive_ens_subsample]
+                xav[k,:,:] = np.var(Xa,axis=2,ddof=1) # ensemble variance
 
 
             # form dictionary containing variables to save, including info on array dimensions
@@ -559,233 +521,119 @@ def ensemble_stats(cfg_core, y_assim, y_eval=None):
             dimcoord1 = 'n'+coordname1
             dimcoord2 = 'n'+coordname2
 
-            coord1 = np.reshape(Xb_coords[ibeg:iend+1,0],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
-            coord2 = np.reshape(Xb_coords[ibeg:iend+1,1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+            coord1 = np.reshape(Xb_coords[ibeg:iend,0],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
+            coord2 = np.reshape(Xb_coords[ibeg:iend,1],(state_info[var]['spacedims'][0],state_info[var]['spacedims'][1]))
 
-            # ensemble mean
-            vars_to_save_mean = {'nens':nens, 'years':years, \
-                                 dimcoord1:state_info[var]['spacedims'][0], \
-                                 dimcoord2:state_info[var]['spacedims'][1], \
-                                 coordname1:coord1, coordname2:coord2,
-                                 'xbm':xbm, 'xam':xam}
-
-            if cfg_core.save_archive == 'ens_full':
-                vars_to_save_ens  = {'nens':nens, 'years':years, \
-                                     dimcoord1:state_info[var]['spacedims'][0], \
-                                     dimcoord2:state_info[var]['spacedims'][1], \
-                                     coordname1:coord1, coordname2:coord2, \
-                                     'xb_ens':Xb, 'xa_ens':xa_ens}
-            elif cfg_core.save_archive == 'ens_variance':
-                vars_to_save_var  = {'nens':nens, 'years':years, \
-                                     dimcoord1:state_info[var]['spacedims'][0], \
-                                     dimcoord2:state_info[var]['spacedims'][1], \
-                                     coordname1:coord1, coordname2:coord2, \
-                                     'xbv':xbv, 'xav':xav}
-            elif cfg_core.save_archive == 'ens_percentiles':
-                vars_to_save_var  = {'nens':nens, 'years':years, \
-                                     dimcoord1:state_info[var]['spacedims'][0], \
-                                     dimcoord2:state_info[var]['spacedims'][1], \
-                                     coordname1:coord1, coordname2:coord2, \
-                                     'percentiles': cfg_core.save_archive_percentiles, \
-                                     'xb_pctl':xb_pctl, 'xa_pctl':xa_pctl}
-            elif cfg_core.save_archive == 'ens_subsample':
-                vars_to_save_var  = {'nens':nens, 'nsubsample': cfg_core.save_archive_ens_subsample, \
-                                     'years':years, dimcoord1:state_info[var]['spacedims'][0], \
-                                     dimcoord2:state_info[var]['spacedims'][1], \
-                                     coordname1:coord1, coordname2:coord2, \
-                                     'xb_subsample':xb_sub, 'xa_subsample':xa_sub}
+            vars_to_save_ens  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, 'xb_ens':Xb, 'xa_ens':xa_ens}
+            vars_to_save_mean = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, 'xbm':xbm, 'xam':xam}
+            vars_to_save_var  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], dimcoord2:state_info[var]['spacedims'][1], \
+                                     coordname1:coord1, coordname2:coord2, 'xbv':xbv, 'xav':xav}
 
 
-        elif state_info[var]['vartype'] == '1D:meridional': 
+        elif state_info[var]['vartype'] == '1D:meridional':
 
             ndim1 = state_info[var]['spacedims'][0]
 
             # Prior
-            Xb = np.reshape(Xbtmp[ibeg:iend+1,:],(ndim1,nens))
+            Xb = np.reshape(Xbtmp[ibeg:iend,:],(ndim1,nens))
             xbm = np.mean(Xb,axis=1)       # ensemble mean
-            if cfg_core.save_archive == 'ens_variance':
-                xbv = np.var(Xb,axis=1,ddof=1) # ensemble variance
-            elif cfg_core.save_archive == 'ens_percentiles':
-                xb_pctl = np.zeros([ndim1,2])
-                xb_pctl[:,0] = np.percentile(Xb,cfg_core.save_archive_percentiles[0],axis=1)
-                xb_pctl[:,1] = np.percentile(Xb,cfg_core.save_archive_percentiles[1],axis=1)
-            elif cfg_core.save_archive == 'ens_subsample':
-                xb_sub = Xb[:,0:cfg_core.save_archive_ens_subsample]
-
+            xbv = np.var(Xb,axis=1,ddof=1) # ensemble variance
 
             # Process the **analysis** (i.e. posterior) files
             years = []
-            # ensemble mean
+            xa_ens = np.zeros([nyears,ndim1,nens])
             xam = np.zeros([nyears,ndim1])
-            if cfg_core.save_archive == 'ens_full':
-                if 'xa_ens' in dir():
-                    del xa_ens
-                xa_ens = np.zeros([nyears,ndim1,nens])
-            elif cfg_core.save_archive == 'ens_variance':
-                xav = np.zeros([nyears,ndim1],dtype=np.float64)
-            elif cfg_core.save_archive == 'ens_percentiles':
-                xa_pctl = np.zeros([nyears,ndim1,2])
-            elif cfg_core.save_archive == 'ens_subsample':
-                xa_sub = np.zeros([nyears,ndim1,cfg_core.save_archive_ens_subsample])
-
+            xav = np.zeros([nyears,ndim1],dtype=np.float64)
             k = -1
             for f in sfiles:
-                k += 1
-                fname_end = f.split('/')[-1]
-                year = fname_end.rstrip('.npy').lstrip('year')
+                k = k + 1
+                i = f.rfind('year')
+                fname_end = f[i+4:]
+                ii = fname_end.rfind('.')
+                year = fname_end[:ii]
                 years.append(year)
-
                 Xatmp = np.load(f)
-
-                Xa = np.reshape(Xatmp[ibeg:iend+1,:],(ndim1,nens))
+                Xa = np.reshape(Xatmp[ibeg:iend,:],(ndim1,nens))
+                xa_ens[k,:,:] = Xa                  # total ensemble
                 xam[k,:] = np.mean(Xa,axis=1)       # ensemble mean
-                if cfg_core.save_archive == 'ens_full':
-                    xa_ens[k,:,:] = Xa              # total ensemble
-                elif cfg_core.save_archive == 'ens_variance':
-                    xav[k,:] = np.var(Xa,axis=1,ddof=1) # ensemble variance
-                elif cfg_core.save_archive == 'ens_percentiles':
-                    xa_pctl[k,:,0] = np.percentile(Xa,cfg_core.save_archive_percentiles[0],axis=1)
-                    xa_pctl[k,:,1] = np.percentile(Xa,cfg_core.save_archive_percentiles[1],axis=1)
-                elif cfg_core.save_archive == 'ens_subsample':
-                    xa_sub[k,:,:] = Xa[:,0:cfg_core.save_archive_ens_subsample]
-
+                xav[k,:] = np.var(Xa,axis=1,ddof=1) # ensemble variance
 
             # form dictionary containing variables to save, including info on array dimensions
             coordname1 = state_info[var]['spacecoords'][0]
             dimcoord1 = 'n'+coordname1
 
-            coord1 = np.reshape(Xb_coords[ibeg:iend+1,0],(state_info[var]['spacedims'][0]))
+            coord1 = np.reshape(Xb_coords[ibeg:iend,0],(state_info[var]['spacedims'][0]))
 
-            # ensemble mean
-            vars_to_save_mean = {'nens':nens, 'years':years, \
-                                 dimcoord1:state_info[var]['spacedims'][0], \
-                                 coordname1:coord1, 'xbm':xbm, 'xam':xam}            
-            
-            if cfg_core.save_archive == 'ens_full':
-                vars_to_save_ens  = {'nens':nens, 'years':years, \
-                                     dimcoord1:state_info[var]['spacedims'][0], \
+            vars_to_save_ens  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], \
                                      coordname1:coord1, 'xb_ens':Xb, 'xa_ens':xa_ens}
-            elif cfg_core.save_archive == 'ens_variance':
-                vars_to_save_var  = {'nens':nens, 'years':years, \
-                                     dimcoord1:state_info[var]['spacedims'][0], \
+            vars_to_save_mean = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], \
+                                     coordname1:coord1, 'xbm':xbm, 'xam':xam}
+            vars_to_save_var  = {'nens':nens, 'years':years, dimcoord1:state_info[var]['spacedims'][0], \
                                      coordname1:coord1, 'xbv':xbv, 'xav':xav}
-            elif cfg_core.save_archive == 'ens_percentiles':
-                vars_to_save_var  = {'nens':nens, 'years':years, \
-                                     dimcoord1:state_info[var]['spacedims'][0], \
-                                     coordname1:coord1, \
-                                     'percentiles': cfg_core.save_archive_percentiles, \
-                                     'xb_pctl':xb_pctl, 'xa_pctl':xa_pctl}
-            elif cfg_core.save_archive == 'ens_subsample':
-                vars_to_save_var  = {'nens':nens, 'nsubsample': cfg_core.save_archive_ens_subsample, \
-                                     'years':years, dimcoord1:state_info[var]['spacedims'][0], \
-                                     coordname1:coord1, \
-                                     'xb_subsample':xb_sub, 'xa_subsample':xa_sub}
-                
-                
-        elif state_info[var]['vartype'] == '0D:time series': 
-            # 0D:time series variable (no spatial dims)
-            Xb = Xbtmp[ibeg:iend+1,:] # prior (full) ensemble
-            xbm = np.mean(Xb,axis=1)  # ensemble mean
-            
-            if cfg_core.save_archive == 'ens_variance':
-                xbv = np.var(Xb,axis=1,ddof=1)   # ensemble variance
-            elif cfg_core.save_archive == 'ens_percentiles':
-                xb_pctl = np.zeros([2])
-                xb_pctl[0] = np.percentile(Xb,cfg_core.save_archive_percentiles[0],axis=1)
-                xb_pctl[1] = np.percentile(Xb,cfg_core.save_archive_percentiles[1],axis=1)
-            elif cfg_core.save_archive == 'ens_subsample':
-                xb_sub = Xb[:,0:cfg_core.save_archive_ens_subsample]
 
+        elif state_info[var]['vartype'] == '0D:time series':
+            # 0D:time series variable (no spatial dims)
+            Xb = Xbtmp[ibeg:iend,:] # prior (full) ensemble
+            xbm = np.mean(Xb,axis=1)  # ensemble mean
+            xbv = np.var(Xb,axis=1,ddof=1)   # ensemble variance
 
             # process the **analysis** files
             years = []
             xa_ens = np.zeros((nyears, Xb.shape[1]))
             xam = np.zeros([nyears])
-            if cfg_core.save_archive == 'ens_variance':
-                xav = np.zeros([nyears],dtype=np.float64)
-            elif cfg_core.save_archive == 'ens_percentiles':
-                xa_pctl = np.zeros([nyears,2])
-            elif cfg_core.save_archive == 'ens_subsample':
-                xa_sub = np.zeros([nyears,cfg_core.save_archive_ens_subsample])
-
+            xav = np.zeros([nyears],dtype=np.float64)
             k = -1
             for f in sfiles:
-                k += 1
-                fname_end = f.split('/')[-1]
-                year = fname_end.rstrip('.npy').lstrip('year')
+                k = k + 1
+                i = f.rfind('year')
+                fname_end = f[i+4:]
+                ii = fname_end.rfind('.')
+                year = fname_end[:ii]
                 years.append(year)
-                
                 Xatmp = np.load(f)
-
-                Xa = Xatmp[ibeg:iend+1,:]
-                xa_ens[k] = Xa              # total ensemble
+                Xa = Xatmp[ibeg:iend,:]
+                xa_ens[k] = Xa  # total ensemble
                 xam[k] = np.mean(Xa,axis=1) # ensemble mean
-                if cfg_core.save_archive == 'ens_variance':
-                    xav[k] = np.var(Xa,axis=1,ddof=1)  # ensemble variance
-                elif cfg_core.save_archive == 'ens_percentiles':
-                    xa_pctl = np.zeros([nyears,2])
-                    xa_pctl[k,0] = np.percentile(Xa,cfg_core.save_archive_percentiles[0],axis=1)
-                    xa_pctl[k,1] = np.percentile(Xa,cfg_core.save_archive_percentiles[1],axis=1)
-                elif cfg_core.save_archive == 'ens_subsample':
-                    xa_sub[k,:] = Xa[:,0:cfg_core.save_archive_ens_subsample]
-                    
-                
+                xav[k] = np.var(Xa,axis=1,ddof=1)  # ensemble variance
+
             vars_to_save_ens = {'nens':nens, 'years':years, 'xb_ens':Xb, 'xa_ens':xa_ens}
             vars_to_save_mean = {'nens':nens, 'years':years, 'xbm':xbm, 'xam':xam}
-
-            if cfg_core.save_archive == 'ens_variance':
-                vars_to_save_var  = {'nens':nens, 'years':years, 'xbv':xbv, 'xav':xav}
-            elif cfg_core.save_archive == 'ens_percentiles':
-                vars_to_save_var  = {'nens':nens, 'years':years, \
-                                     'percentiles': cfg_core.save_archive_percentiles, \
-                                     'xb_pctl':xb_pctl, 'xa_pctl':xa_pctl}
-            elif cfg_core.save_archive == 'ens_subsample':
-                vars_to_save_var  = {'nens':nens, 'nsubsample': cfg_core.save_archive_ens_subsample, \
-                                     'years':years, 'xb_subsample':xb_sub, 'xa_subsample':xa_sub}
+            vars_to_save_var  = {'nens':nens, 'years':years, 'xbv':xbv, 'xav':xav}
 
             # (full) ensemble to file for this variable type
             filen = workdir + '/ensemble_full_' + var
             print('writing the new ensemble file' + filen)
             np.savez(filen, **vars_to_save_ens)
 
-        else: 
+
+        else:
             print('ERROR in ensemble_stats: Variable of unrecognized (space) dimensions! Skipping variable:', var)
             continue
 
-        
-        # --- Write data to archive files ---
 
+        if (state_info[var]['vartype'] != '0D:time series') and save_full_field:
+            filen = workdir + '/ensemble_full_' + var
+            print('writing the new ensemble file' + filen)
+            np.savez(filen, **vars_to_save_ens)
+
+        # --- Write data to files ---
         # ens. mean to file
         filen = workdir + '/ensemble_mean_' + var
         print('writing the new ensemble mean file...' + filen)
         np.savez(filen, **vars_to_save_mean)
 
-        if (state_info[var]['vartype'] != '0D:time series') and cfg_core.save_archive == 'ens_full':
-            filen = workdir + '/ensemble_full_' + var
-            print('writing the new ensemble file' + filen)
-            np.savez(filen, **vars_to_save_ens)
-        elif cfg_core.save_archive == 'ens_variance':
-            filen = workdir + '/ensemble_variance_' + var
-            print('writing the new ensemble variance file...' + filen)
-            np.savez(filen, **vars_to_save_var)
-        elif cfg_core.save_archive == 'ens_percentiles':
-            filen = workdir + '/ensemble_percentiles_' + var
-            print('writing the new ensemble percentiles file...' + filen)
-            np.savez(filen, **vars_to_save_var)
-        elif cfg_core.save_archive == 'ens_subsample':
-            filen = workdir + '/ensemble_subsample_' + var
-            print('writing the new ensemble members subsample file...' + filen)
-            np.savez(filen, **vars_to_save_var)
-
+        # ens. variance to file
+        filen = workdir + '/ensemble_variance_' + var
+        print('writing the new ensemble variance file...' + filen)
+        np.savez(filen, **vars_to_save_var)
 
     # --------------------------------------------------------
     # Extract the analyzed Ye ensemble for diagnostic purposes
     # --------------------------------------------------------
     if write_posterior_Ye:
 
-        if 'xa_ens' in dir():
-            del xa_ens
-        
         # get information on dim of state without the Ye's (before augmentation)
         stateDim  = npzfile['stateDim']
         Xbtmp_aug = npzfile['Xb_one_aug']
@@ -828,7 +676,7 @@ def ensemble_stats(cfg_core, y_assim, y_eval=None):
                         yr_idxs[k] = True
                     else:
                         yr_idxs[k] = False
-            
+
             YeDict[(pobj.type, pobj.id)] = {}
             YeDict[(pobj.type, pobj.id)]['status'] = 'assimilated'
             YeDict[(pobj.type, pobj.id)]['lat'] = pobj.lat
@@ -838,7 +686,7 @@ def ensemble_stats(cfg_core, y_assim, y_eval=None):
             YeDict[(pobj.type, pobj.id)]['years'] = years[yr_idxs]
             YeDict[(pobj.type, pobj.id)]['HXa'] = Ye_s[i, yr_idxs, :]
             YeDict[(pobj.type, pobj.id)]['augStateIndex'] = i
-            
+
             nbassim +=1
 
         # loop over non-assimilated (withheld) proxies
@@ -867,10 +715,10 @@ def ensemble_stats(cfg_core, y_assim, y_eval=None):
                 YeDict[(pobj.type, pobj.id)]['years'] = years[yr_idxs]
                 YeDict[(pobj.type, pobj.id)]['HXa'] = Ye_s[nbassim+j, yr_idxs, :]
                 YeDict[(pobj.type, pobj.id)]['augStateIndex'] = nbassim+j
-            
+
         # Dump dictionary to pickle file
         # using protocol 2 for more efficient storing
-        outfile = open('{}/analysis_Ye.pckl'.format(workdir), 'wb')
+        outfile = open('{}/analysis_Ye.pckl'.format(workdir), 'w')
         pickle.dump(YeDict, outfile, protocol=2)
         outfile.close()
 
@@ -881,7 +729,7 @@ def lon_lat_to_cartesian(lon, lat, R=6371.):
     """
 
     """
-    
+
     lon_r = np.radians(lon)
     lat_r = np.radians(lat)
 
@@ -891,7 +739,8 @@ def lon_lat_to_cartesian(lon, lat, R=6371.):
 
     return x, y, z
 
-def regrid_simple(Nens,X,X_coords,ind_lat,ind_lon,ntrunc):
+
+def regrid_simple(Nens, X, X_coords, ind_lat, ind_lon, ntrunc):
     """
     Truncate lat,lon grid to another resolution using local distance-weighted 
     averages. 
@@ -909,16 +758,16 @@ def regrid_simple(Nens,X,X_coords,ind_lat,ind_lon,ntrunc):
     lat_new : 2D latitude array on the new grid (nlat_new,nlon_new)
     lon_new : 2D longitude array on the new grid (nlat_new,nlon_new)
     X_new   : truncated data array of shape (nlat_new*nlon_new, Nens)
-    
+
     Originator: Robert Tardif
                 University of Washington
                 March 2017
     """
-        
+
     # truncate to a lower resolution grid (triangular truncation)
-    ifix = np.remainder(ntrunc,2.0).astype(int)
+    ifix = np.remainder(ntrunc, 2.0).astype(int)
     nlat_new = ntrunc + ifix
-    nlon_new = int(nlat_new*1.5)
+    nlon_new = int(nlat_new * 1.5)
 
     # create new lat,lon grid arrays
     # Note: AP - According to github.com/jswhit/pyspharm documentation the
@@ -933,57 +782,57 @@ def regrid_simple(Nens,X,X_coords,ind_lat,ind_lon,ntrunc):
                                              include_endpts=include_poles)
 
     # cartesian coords of target grid
-    xt,yt,zt = lon_lat_to_cartesian(lon_new.flatten(), lat_new.flatten())
+    xt, yt, zt = lon_lat_to_cartesian(lon_new.flatten(), lat_new.flatten())
 
     # cartesian coords of source grid
     lats = X_coords[:, ind_lat]
     lons = X_coords[:, ind_lon]
-    xs,ys,zs = lon_lat_to_cartesian(lons, lats)
+    xs, ys, zs = lon_lat_to_cartesian(lons, lats)
 
     # cKDtree object of source grid
-    tree = cKDTree(list(zip(xs,ys,zs)))
+    tree = cKDTree(list(zip(xs, ys, zs)))
 
     # inverse distance weighting (N pts)
     N = 20
     fracvalid = 0.7
-    d, inds = tree.query(list(zip(xt,yt,zt)), k=N)
+    d, inds = tree.query(list(zip(xt, yt, zt)), k=N)
     L = 200.
-    w = np.exp(-np.square(d)/np.square(L))
+    w = np.exp(-np.square(d) / np.square(L))
 
     # transform each ensemble member, one at a time
-    X_new = np.zeros([nlat_new*nlon_new,Nens])
+    X_new = np.zeros([nlat_new * nlon_new, Nens])
     X_new[:] = np.nan
     for k in range(Nens):
-        tmp = np.ma.masked_invalid(X[:,k][inds])
+        tmp = np.ma.masked_invalid(X[:, k][inds])
         mask = tmp.mask
 
         # apply tmp mask to weights array
-        w = np.ma.masked_where(np.ma.getmask(tmp),w)
-        
-        # compute weighted-average of surrounding data
-        datagrid = np.sum(w*tmp, axis=1)/np.sum(w, axis=1)
+        w = np.ma.masked_where(np.ma.getmask(tmp), w)
 
-        # keep track of valid data involved in averges  
-        nbvalid = np.sum(~mask,axis=1)
-        nonvalid = np.where(nbvalid < int(fracvalid*N))[0]
+        # compute weighted-average of surrounding data
+        datagrid = np.sum(w * tmp, axis=1) / np.sum(w, axis=1)
+
+        # keep track of valid data involved in averges
+        nbvalid = np.sum(~mask, axis=1)
+        nonvalid = np.where(nbvalid < int(fracvalid * N))[0]
 
         # make sure to mask grid points where too few valid data were used
         datagrid[nonvalid] = np.nan
-        X_new[:,k] = datagrid
+        X_new[:, k] = datagrid
 
     # make sure a masked array is returned, if at
     # least one invalid data is found
     if np.isnan(X_new).any():
         X_new = np.ma.masked_invalid(X_new)
-    
-    return X_new,lat_new,lon_new
+
+    return X_new, lat_new, lon_new
 
 
-def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D,
-                 X_nlat, X_nlon, include_poles=False, method='bilinear'):
+def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
+                 X_nlon, method='bilinear'):
     """
     Regrid field to target resolution using the ESMF package.
-    
+
     Parameters
     ----------
     target_nlat: int
@@ -993,7 +842,8 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D,
     X_nens: int
         number of ensemble members in the data array
     X: ndarray
-        data array to be regridded of shape (nlat*nlon, nens)
+        data array to be regridded of shape (nens, nlat, nlon) or (nens, 
+        nlat*nlon)
     X_lat2D: ndarray
         2D array of latitudes corresponding to the source field of shape (
         nlat, nlon)
@@ -1004,8 +854,6 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D,
         number of latitude points in the source grid
     X_nlon: int
         number of longitude points in the source grid
-    include_poles: boolean
-        consider (or not) poles in constructing the lat-lon grid
     method: str
         Regridding method to use. Valid options include 'bilinear' and 'patch'
 
@@ -1017,125 +865,94 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D,
         2D latitude array on the new grid (nlat_new,nlon_new)
     lon_new: ndarray
         2D longitude array on the new grid (nlat_new,nlon_new)
-        
+
     Notes
     -----
     This regridding function supports masked grids
 
     """
 
-    lons_1D = X_lon2D[0]
-    lon_diff_negative = np.diff(lons_1D) < 0
-    if lon_diff_negative.sum() > 1:
-        raise ValueError('Expected monotonic value increase with index '
-                         '(excluding cyclic point) for input longitudes.')
-    # adjust cyclinc longitude point to boundaries if necessary
-    elif lon_diff_negative.sum() == 1:
-        cyclic_idx_start, = np.where(lon_diff_negative)
-        lon_shift = -(cyclic_idx_start+1)
-        X_lon2D = np.roll(X_lon2D, lon_shift, axis=1)
-        X_lat2D = np.roll(X_lat2D, lon_shift, axis=1)
+    # determine grid cell boundaries
+    lat_bnds, lon_bnds = calculate_latlon_bnds(X_lat2D, X_lon2D, lat_ax=0)
+
+    if X[0].shape != (X_nlat, X_nlon):
+        do_reshape = True
+        X = X.reshape(X_nens, X_nlat, X_nlon)
     else:
-        lon_shift = None
-
-    # Create grid for the input state data
-    grid = ESMF.Grid(max_index=np.array((X_nlon, X_nlat)),
-                     num_peri_dims=1,
-                     pole_dim=1,
-                     coord_sys=ESMF.CoordSys.SPH_DEG,
-                     coord_typekind=ESMF.TypeKind.R8,
-                     staggerloc=ESMF.StaggerLoc.CENTER)
-
-    # Add grid cell center coordinates
-    [x, y] = (0, 1)
-    grid_x_center = grid.get_coords(x)
-    grid_x_center[:] = X_lon2D.T
-    grid_y_center = grid.get_coords(y)
-    grid_y_center[:] = X_lat2D.T
-
-    # Add grid cell corner boundaries
-    lat_bnds, lon_bnds = calculate_latlon_bnds(X_lat2D[:,0], X_lon2D[0])
-    grid.add_coords(staggerloc=ESMF.StaggerLoc.CORNER)
-    grid_x_corner = grid.get_coords(x, staggerloc=ESMF.StaggerLoc.CORNER)
-    # Cutoff last element because grid assumed periodic, this might be
-    # erroneous if we aren't using full global grids.
-    grid_x_corner[:] = lon_bnds[:-1, None]
-    grid_y_corner = grid.get_coords(y, staggerloc=ESMF.StaggerLoc.CORNER)
-    grid_y_corner[:] = lat_bnds[None, :]
+        do_reshape = False
 
     # check for masked values
     masked_regrid = hasattr(X, 'mask')
 
     if masked_regrid:
         print('Mask detected.  Adding mask to src ESMF grid')
-        grid_mask = grid.add_item(ESMF.GridItem.MASK)
-        X_mask = X[:, 0].mask.astype(np.int16)
-        X_mask = X_mask.reshape(X_nlat, X_nlon)
-
-        if lon_shift:
-            X_mask = np.roll(X_mask, lon_shift, axis=1)
-
-        grid_mask[:] = X_mask.T
+        X_mask = X[0].mask.astype(np.int16)
         mask_values = np.array([1])
     else:
+        X_mask = None
         mask_values = None
 
-    # Create new grid
-    new_grid = ESMF.Grid(max_index=np.array((target_nlon, target_nlat)),
-                         num_peri_dims=1,
-                         pole_dim=1,
-                         coord_sys=ESMF.CoordSys.SPH_DEG,
-                         coord_typekind=ESMF.TypeKind.R8,
-                         staggerloc=ESMF.StaggerLoc.CENTER)
+    grid = _create_grid_ESMF(X_nlat, X_nlon,
+                             mask=X_mask,
+                             lat_centers=X_lat2D, lon_centers=X_lon2D,
+                             lat_corners=lat_bnds, lon_corners=lon_bnds)
 
-    # NEW: now including explicit use of include_endpts argument (RT, April 10 2018)    
     [new_lat, new_lon,
-     new_lat_bnds, new_lon_bnds] = generate_latlon(target_nlat, target_nlon,
-                                                   include_endpts=include_poles)
+     new_lat_corners,
+     new_lon_corners] = generate_latlon(target_nlat, target_nlon)
 
-    new_grid_x_cen = new_grid.get_coords(x)
-    new_grid_x_cen[:] = new_lon.T
-    new_grid_y_cen = new_grid.get_coords(y)
-    new_grid_y_cen[:] = new_lat.T
-    new_grid.add_coords(staggerloc=ESMF.StaggerLoc.CORNER)
-    new_grid_x_cor = new_grid.get_coords(x, staggerloc=ESMF.StaggerLoc.CORNER)
-    # Cut off last element of lon_bnds because grid assumed periodic
-    new_grid_x_cor[:] = new_lon_bnds[:-1, None]
-    new_grid_y_cor = new_grid.get_coords(y, staggerloc=ESMF.StaggerLoc.CORNER)
-    new_grid_y_cor[:] = new_lat_bnds[None, :]
-
-    new_grid_mask = new_grid.add_item(ESMF.GridItem.MASK)
-    new_grid_mask[:] = 0
+    new_grid = _create_grid_ESMF(target_nlat, target_nlon, new_lat, new_lon,
+                                 new_lat_corners, new_lon_corners,
+                                 add_mask=masked_regrid)
 
     if method == 'bilinear':
         use_method = ESMF.RegridMethod.BILINEAR
-    # Note: Removed because conservative regridding does not work for irreg
-    # grids currently (discovered with rotated pole ocean grids)
-    # elif method == 'conserve':
-    #     use_method = ESMF. RegridMethod.CONSERVE
+    elif method == 'conserve':
+        use_method = ESMF. RegridMethod.CONSERVE
     elif method == 'patch':
         use_method = ESMF.RegridMethod.PATCH
     else:
         raise ValueError('Regridding method \'{}\''
                          ' in regrid_esmpy does not exist.'.format(method))
 
+    if masked_regrid and method == 'conserve':
+        # Determine output mask
+        tmp_src_field = ESMF.Field(grid, name='src',
+                                   staggerloc=ESMF.StaggerLoc.CENTER)
+        tmp_dst_field = ESMF.Field(new_grid, name='dst',
+                                   staggerloc=ESMF.StaggerLoc.CENTER)
+        tmp_regridder = ESMF.Regrid(tmp_src_field, tmp_dst_field,
+                                    regrid_method=ESMF.RegridMethod.BILINEAR,
+                                    dst_mask_values=mask_values,
+                                    src_mask_values=mask_values,
+                                    unmapped_action=ESMF.UnmappedAction.IGNORE)
+        tmp = np.ones_like(tmp_src_field.data)
+        tmp_src_field.data[:] = tmp
+        tmp_regridder(tmp_src_field, tmp_dst_field)
+        out_data = tmp_dst_field.data[:]
+        out_mask = out_data == 0.0
+
+        tmp_src_field.destroy()
+        tmp_dst_field.destroy()
+        tmp_regridder.destroy()
+
+        new_grid_mask = new_grid.get_item(ESMF.GridItem.MASK)
+        new_grid_mask[:] = out_mask
+
     # create src and dst fields
     src_field = ESMF.Field(grid, name='src', staggerloc=ESMF.StaggerLoc.CENTER)
     dst_field = ESMF.Field(new_grid, name='dst',
                            staggerloc=ESMF.StaggerLoc.CENTER)
 
-    regrid_output = np.empty((target_nlat * target_nlon, X_nens))
+    regrid_output = np.empty((X_nens, target_nlat, target_nlon))
     regridder = ESMF.Regrid(src_field, dst_field, regrid_method=use_method,
+                            dst_mask_values=mask_values,
                             src_mask_values=mask_values,
                             unmapped_action=ESMF.UnmappedAction.IGNORE)
 
     # Regrid each ensemble member
     for k in range(X_nens):
-        grid_data = X[:,k].reshape(X_nlat, X_nlon)
-
-        if lon_shift:
-            grid_data = np.roll(grid_data, lon_shift, axis=1)
-
+        grid_data = X[k]
         src_field.data[:] = grid_data.T
 
         regridder(src_field, dst_field)
@@ -1147,10 +964,14 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D,
             out_mask = out_data == 0.0  # if it's exactly zero, it's masked
             out_data[out_mask] = np.nan
 
-        regrid_output[:, k] = out_data.flatten()
+        regrid_output[k] = out_data
 
     if masked_regrid:
-        regrid_output = np.ma.masked_invalid(regrid_output)
+        pass
+        # regrid_output = np.ma.masked_invalid(regrid_output)
+
+    if do_reshape:
+        regrid_output = regrid_output.reshape(X_nens, -1)
 
     # Clean up objects
     src_field.destroy()
@@ -1161,10 +982,112 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D,
 
     return regrid_output, new_lat, new_lon
 
-    
-def regrid_sphere(nlat,nlon,Nens,X,ntrunc):
+
+def _create_grid_ESMF(nlat, nlon, lat_centers, lon_centers, lat_corners,
+                      lon_corners, mask=None, add_mask=False):
+
+    # Create grid for the input state data
+    grid = ESMF.Grid(max_index=np.array((nlon, nlat)),
+                     num_peri_dims=0,
+                     pole_dim=1,
+                     coord_sys=ESMF.CoordSys.SPH_DEG,
+                     coord_typekind=ESMF.TypeKind.R8,
+                     staggerloc=ESMF.StaggerLoc.CENTER)
+
+    # Add grid cell center coordinates
+    [x, y] = (0, 1)
+    grid_x_center = grid.get_coords(x)
+    grid_x_center[:] = lon_centers.T
+    grid_y_center = grid.get_coords(y)
+    grid_y_center[:] = lat_centers.T
+
+    # Add grid cell corner boundaries
+    grid.add_coords(staggerloc=ESMF.StaggerLoc.CORNER)
+    grid_x_corner = grid.get_coords(x, staggerloc=ESMF.StaggerLoc.CORNER)
+    grid_x_corner[:] = lon_corners.T
+    grid_y_corner = grid.get_coords(y, staggerloc=ESMF.StaggerLoc.CORNER)
+    grid_y_corner[:] = lat_corners.T
+
+    if mask is not None:
+        grid_mask = grid.add_item(ESMF.GridItem.MASK)
+        grid_mask[:] = mask.T
+    elif add_mask:
+        grid_mask = grid.add_item(ESMF.GridItem.MASK)
+        grid_mask[:] = 0
+
+    return grid
+
+
+def regrid_esmpy_grid_object(target_nlat, target_nlon,
+                             grid_obj, interp_method='bilinear'):
     """
-    Truncate lat,lon grid to another resolution in spherical harmonic space. Triangular truncation
+    Regrid field to target resolution using the ESMF package.
+
+    Parameters
+    ----------
+    target_nlat: int
+        number of latitude points for destination grid
+    target_nlon: int
+        number of longitude points for the destination grid
+    grid_obj: LMR_gridded.GriddedVariable
+        Grid variable object to move to a new grid
+    interp_method: str
+        Regridding method to use. Valid options include 'bilinear' and 'patch'
+
+    Returns
+    -------
+    X_new:
+        truncated data array of shape (nlat_new*nlon_new, Nens)
+    lat_new: ndarray
+        2D latitude array on the new grid (nlat_new,nlon_new)
+    lon_new: ndarray
+        2D longitude array on the new grid (nlat_new,nlon_new)
+
+    Notes
+    -----
+    This regridding function supports masked grids
+    """
+
+    print ('Regridding using ESMPy....')
+    print(('    interpolation method: {}'.format(interp_method)))
+    print(('    target grid: nlat={}, nlon={}'.format(target_nlat,
+                                                      target_nlon)))
+
+    if grid_obj.lat_grid is None or grid_obj.lon_grid is None:
+        lon_grid, lat_grid = np.meshgrid(grid_obj.lon, grid_obj.lat)
+    else:
+        lon_grid = grid_obj.lon_grid
+        lat_grid = grid_obj.lat_grid
+
+
+    if grid_obj.climo is not None:
+        new_climo, lat, lon  = regrid_esmpy(target_nlat, target_nlon,
+                                            1,
+                                            grid_obj.climo,
+                                            lat_grid,
+                                            lon_grid,
+                                            len(grid_obj.lat),
+                                            len(grid_obj.lon),
+                                            method=interp_method)
+    else:
+        new_climo = None
+
+    new_data, new_lat, new_lon =regrid_esmpy(target_nlat, target_nlon,
+                                             grid_obj.nsamples,
+                                             grid_obj.data,
+                                             lat_grid,
+                                             lon_grid,
+                                             len(grid_obj.lat),
+                                             len(grid_obj.lon),
+                                             method=interp_method)
+    return new_data, new_lat, new_lon, new_climo
+
+
+def regrid_sphere(nlat, nlon, Nens, X, ntrunc, shift_lons=False):
+
+    """
+    Truncate lat,lon grid to another resolution in spherical harmonic space.
+    Triangular truncation
 
     Inputs:
     nlat            : number of latitudes
@@ -1172,6 +1095,8 @@ def regrid_sphere(nlat,nlon,Nens,X,ntrunc):
     Nens            : number of ensemble members
     X               : data array of shape (nlat*nlon,Nens) 
     ntrunc          : triangular truncation (e.g., use 42 for T42)
+    shift_lons      : whether to shift longitudes by half the world
+                      eg. (0, 90, 180, 270) -> (180, 270, 0, 90)
 
     Outputs :
     lat_new : 2D latitude array on the new grid (nlat_new,nlon_new)
@@ -1183,17 +1108,24 @@ def regrid_sphere(nlat,nlon,Nens,X,ntrunc):
                 May 2015
     """
 
-    
     # create the spectral object on the original grid
-    specob_lmr = Spharmt(nlon,nlat,gridtype='regular',legfunc='computed')
+    specob_lmr = Spharmt(nlon, nlat, gridtype='regular', legfunc='computed')
 
     # truncate to a lower resolution grid (triangular truncation)
-    ifix = np.remainder(ntrunc,2.0).astype(int)
-    nlat_new = ntrunc + ifix
+    # ifix = np.remainder(ntrunc,2.0).astype(int)
+    # nlat_new = ntrunc + ifix
+    # nlon_new = int(nlat_new*1.5)
+
+    # truncate to a lower resolution grid (triangular truncation)
+    # nlat must be ntrunc+1 per the documentation, want to keep it even
+    # so that poles are not included in the grid and because the original
+    # experiments were with even nlat
+    nlat_new = (ntrunc + 1) + (ntrunc + 1) % 2
     nlon_new = int(nlat_new*1.5)
 
     # create the spectral object on the new grid
-    specob_new = Spharmt(nlon_new,nlat_new,gridtype='regular',legfunc='computed')
+    specob_new = Spharmt(nlon_new, nlat_new, gridtype='regular',
+                         legfunc='computed')
 
     # create new lat,lon grid arrays
     # Note: AP - According to github.com/jswhit/pyspharm documentation the
@@ -1207,22 +1139,85 @@ def regrid_sphere(nlat,nlon,Nens,X,ntrunc):
                                              include_endpts=include_poles)
 
     # transform each ensemble member, one at a time
-    X_new = np.zeros([nlat_new*nlon_new,Nens])
+    X_new = np.zeros([nlat_new*nlon_new, Nens])
     for k in range(Nens):
-        X_lalo = np.reshape(X[:,k],(nlat,nlon))
-        Xbtrunc = regrid(specob_lmr, specob_new, X_lalo, ntrunc=nlat_new-1, smooth=None)
+        X_lalo = np.reshape(X[:, k], (nlat, nlon))
+        Xbtrunc = regrid(specob_lmr, specob_new, X_lalo, ntrunc=nlat_new-1,
+                         smooth=None)
         vectmp = Xbtrunc.flatten()
-        X_new[:,k] = vectmp
+        X_new[:, k] = vectmp
 
-    return X_new,lat_new,lon_new
+    return X_new, lat_new, lon_new
 
 
-def generate_latlon(nlats, nlons, include_endpts=False,
-                    lat_bnd=(-90,90), lon_bnd=(0, 360)):
+def regrid_sphere_gridded_object(grid_obj, ntrunc):
+
+    """
+    An adaptation of regrid_shpere for new GriddedData objects
+
+    Inputs:
+    grid_obj
+    ntrunc
+
+    Outputs :
+    lat_new : 2D latitude array on the new grid (nlat_new,nlon_new)
+    lon_new : 2D longitude array on the new grid (nlat_new,nlon_new)
+    X_new   : truncated data array of shape (nlat_new*nlon_new, Nens)
+    """
+    # Originator: Greg Hakim
+    #             University of Washington
+    #             May 2015
+
+    # create the spectral object on the original grid
+    specob_lmr = Spharmt(len(grid_obj.lon), len(grid_obj.lat),
+                         gridtype='regular', legfunc='computed')
+
+    # truncate to a lower resolution grid (triangular truncation)
+    # nlat must be ntrunc+1 per the documentation, want to keep it even
+    # so that poles are not included in the grid and because the original
+    # experiments were with even nlat
+    nlat_new = (ntrunc + 1) + (ntrunc + 1) % 2
+    nlon_new = int(nlat_new*1.5)
+
+    # create new lat,lon grid arrays
+    # Note: AP - According to github.com/jswhit/pyspharm documentation the
+    #  latitudes will not include the equator or poles when nlats is even.
+    if nlat_new % 2 == 0:
+        include_poles = False
+    else:
+        include_poles = True
+
+    lat_new, lon_new, _, _ = generate_latlon(nlat_new, nlon_new,
+                                             include_endpts=include_poles)
+
+    # create the spectral object on the new grid
+    specob_new = Spharmt(nlon_new, nlat_new, gridtype='regular',
+                         legfunc='computed')
+
+    print(('Regridding using spherical harmonics to target grid: nlat={}, '
+           'nlon={}'.format(nlat_new, nlon_new)))
+
+    # transform each ensemble member, one at a time
+    gridded_new = np.zeros((len(grid_obj.time), nlat_new, nlon_new))
+
+    for i, time_slice in enumerate(grid_obj.data):
+        gridded_new[i] = regrid(specob_lmr, specob_new, time_slice,
+                                ntrunc=ntrunc)
+
+    tmp_climo = np.squeeze(grid_obj.climo)
+    new_climo = regrid(specob_lmr, specob_new, tmp_climo,
+                       ntrunc=ntrunc)
+    new_climo = new_climo[None]  # Add in leading time dim
+
+    return gridded_new, lat_new, lon_new, new_climo
+
+
+def generate_latlon(nlats, nlons, lat_bnd=(-90, 90), lon_bnd=(0, 360),
+                    include_endpts=False):
     """
     Generate regularly spaced latitude and longitude arrays where each point 
     is the center of the respective grid cell.
-    
+
     Parameters
     ----------
     nlats: int
@@ -1244,13 +1239,11 @@ def generate_latlon(nlats, nlons, include_endpts=False,
         Array of central latitide points (nlat x nlon)
     lon_center_2d:
         Array of central longitude points (nlat x nlon)
-    lat_corner:
-        Array of latitude boundaries for all grid cells (nlat+1)
-    lon_corner:
-        Array of longitude boundaries for all grid cells (nlon+1)   
-
+    lat_corner_2d:
+        Array of latitude boundaries for all grid cells (nlat+1 x nlon+1)
+    lon_corner_2d:
+        Array of longitude boundaries for all grid cells (nlon+1 x nlon+1)
     """
-    
     if len(lat_bnd) != 2 or len(lon_bnd) != 2:
         raise ValueError('Bound tuples must be of length 2')
     if np.any(np.diff(lat_bnd) < 0) or np.any(np.diff(lon_bnd) < 0):
@@ -1267,67 +1260,143 @@ def generate_latlon(nlats, nlons, include_endpts=False,
     if include_endpts:
         lat_center = np.linspace(lat_bnd[0], lat_bnd[1], nlats)
     else:
-        tmp = np.linspace(lat_bnd[0], lat_bnd[1], nlats+1)
+        tmp = np.linspace(lat_bnd[0], lat_bnd[1], nlats + 1)
         lat_center = (tmp[:-1] + tmp[1:]) / 2.
 
     lon_center_2d, lat_center_2d = np.meshgrid(lon_center, lat_center)
     lat_corner, lon_corner = calculate_latlon_bnds(lat_center, lon_center)
+    lon_corner_2d, lat_corner_2d = np.meshgrid(lon_corner, lat_corner)
 
-    return lat_center_2d, lon_center_2d, lat_corner, lon_corner
+    return lat_center_2d, lon_center_2d, lat_corner_2d, lon_corner_2d
 
 
-def calculate_latlon_bnds(lats, lons):
+def calculate_latlon_bnds(lats, lons, lat_ax=0):
     """
-    Calculate the bounds for regularly gridded lats and lons.
-    
+    Calculate the bounds for gridded lats and lons.
+
     Parameters
     ----------
     lats: ndarray
-        Regularly spaced latitudes.  Must be 1-dimensional and monotonically 
-        increase with index.
+        Latitude array. Can be either 1D or 2D.
     lons:  ndarray
-        Regularly spaced longitudes.  Must be 1-dimensional and monotonically 
-        increase with index.
+        Longitude array.  Can be either 1D or 2D.
 
     Returns
     -------
     lat_bnds:
-        Array of latitude boundaries for each input latitude of length 
-        len(lats)+1.
+        Array of latitude boundaries for each input latitude.
     lon_bnds:
-        Array of longitude boundaries for each input longitude of length
-        len(lons)+1.
+        Array of longitude boundaries for each input longitude.
+
+    Notes
+    -----
+    This function was originally built with regularly gridded coordinate
+    dimensions in mind.  It was extended to be useful for conservative
+    regridding of irregular grids, but only tested on Rotated Pole grids.
+    When using funky grids it is best to make sure output makes sense.
 
     """
-    if lats.ndim != 1 or lons.ndim != 1:
-        raise ValueError('Expected 1D-array for input lats and lons.')
-    if np.any(np.diff(lats) < 0) or np.any(np.diff(lons) < 0):
-        raise ValueError('Expected monotonic value increase with index for '
-                         'input latitudes and longitudes')
+    if not 1 <= lats.ndim <= 2 or not 1 <= lons.ndim <= 2:
+        raise ValueError('Input lats and lons must be 1D or 2D')
+    if lats.ndim != lons.ndim:
+        raise ValueError('Input lats and lons must have the same dimensions')
+    if lats.ndim > 1 and lats.shape != lons.shape:
+        raise ValueError('2D lats and lons must have same array shape.')
 
-    # Note: assumes lats are monotonic increase with index
-    dlat = abs(lats[1] - lats[0]) / 2.
-    dlon = abs(lons[1] - lons[0]) / 2.
+    if lats.ndim == 2:
+        lon_ax = int(np.logical_not(lat_ax))
+        bnd_2d = True
+    else:
+        lat_ax = lon_ax = 0
+        bnd_2d = False
 
-    # Check that inputs are regularly spaced
-    lat_space = np.diff(lats)
-    lon_space = np.diff(lons)
+    dim_order = sorted([lat_ax, lon_ax])
 
-    lat_bnds = np.zeros(len(lats)+1)
-    lon_bnds = np.zeros(len(lons)+1)
+    lat_space = np.diff(lats, axis=lat_ax)
+    lon_space = np.diff(lons, axis=lon_ax)
 
-    lat_bnds[1:-1] = lats[:-1] + lat_space/2.
-    lat_bnds[0] = lats[0] - lat_space[0]/2.
-    lat_bnds[-1] = lats[-1] + lat_space[-1]/2.
+    nlat = lats.shape[lat_ax]
+    nlon = lons.shape[lon_ax]
 
-    if lat_bnds[0] < -90:
-        lat_bnds[0] = -90.
-    if lat_bnds[-1] > 90:
-        lat_bnds[-1] = 90.
+    lat_bnd_shp = [dim_len + 1 for dim_len in lats.shape]
+    lon_bnd_shp = [dim_len + 1 for dim_len in lons.shape]
 
-    lon_bnds[1:-1] = lons[:-1] + lon_space/2.
-    lon_bnds[0] = lons[0] - lon_space[0]/2.
-    lon_bnds[-1] = lons[-1] + lon_space[-1]/2.
+    lat_bnds = np.zeros(lat_bnd_shp)
+    lon_bnds = np.zeros(lon_bnd_shp)
+
+    # Handle cyclic point if necessary
+    if bnd_2d:
+        if np.any(lon_space > 300):
+            i_idx, j_idx = np.where(lon_space > 300)
+            lon_space[i_idx, j_idx] = lon_space[i_idx, j_idx + 1]
+
+        if np.any(lon_space < -300):
+            i_idx, j_idx = np.where(lon_space < -300)
+            lon_space[i_idx, j_idx] = lon_space[i_idx, j_idx - 1]
+    else:
+        if np.any(lon_space > 300):
+            i_idx, = np.where(lon_space > 300)
+            lon_space[i_idx] = lon_space[i_idx + 1]
+
+        if np.any(lon_space < -300):
+            i_idx, = np.where(lon_space < -300)
+            lon_space[i_idx] = lon_space[i_idx - 1]
+
+    # Handle out of bounds latitudes
+    lat_space[lat_space > 90] = 90
+    lat_space[lat_space < -90] = -90
+
+    lon_sl = slice(0, nlon-1)
+    lat_sl = slice(0, nlat-1)
+    all_but_last = slice(0, -1)
+    last_two = slice(-2, None)
+    all_vals = slice(None)
+
+    # TODO: Not an elegant solution for variable dimension order but I think it
+    # works...
+    if bnd_2d:
+        # Create slices to be used for general dimension order
+        bnd_slice = (all_but_last, lon_sl)
+        coord_slice = (all_vals, all_but_last)
+        bnd_end_slice = (all_but_last, last_two)
+        coord_end_slice = (all_vals, last_two)
+        diff_end_slice = (all_vals, last_two)
+        cyclic_bnd_dst = (-1, all_vals)
+        cyclic_bnd_src = (-2, all_vals)
+
+        # If lon changes over first dimension we want to reverse the slice
+        # tuples
+        if lon_ax == 0:
+            rev = -1
+        else:
+            rev = 1
+
+        lon_bnds[bnd_slice[::rev]] = lons[coord_slice[::rev]] - lon_space / 2
+        lon_bnds[bnd_end_slice[::rev]] = (lons[coord_end_slice[::rev]] +
+                                          lon_space[diff_end_slice[::rev]] / 2)
+        lon_bnds[cyclic_bnd_dst[::rev]] = lon_bnds[cyclic_bnd_src[::rev]]
+
+        # Adjust the bnd slice for latitude dimension
+        bnd_slice = (all_but_last, lat_sl)
+
+        # If lat changes over first dimension we want to reverse the slice
+        # tuples
+        if lat_ax == 0:
+            rev = -1
+        else:
+            rev = 1
+
+        lat_bnds[bnd_slice[::rev]] = lats[coord_slice[::rev]] - lat_space / 2
+        lat_bnds[bnd_end_slice[::rev]] = (lats[coord_end_slice[::rev]] +
+                                          lat_space[diff_end_slice[::rev]] / 2)
+        lat_bnds[cyclic_bnd_dst[::rev]] = lat_bnds[cyclic_bnd_src[::rev]]
+
+    else:
+        lon_bnds[lon_sl] = lons[all_but_last] - lon_space / 2
+        lon_bnds[last_two] = lons[last_two] + lon_space[last_two] / 2
+
+        lat_bnds[lat_sl] = lats[all_but_last] - lat_space / 2
+        lat_bnds[last_two] = lats[last_two] + lat_space[last_two] / 2
 
     return lat_bnds, lon_bnds
 
@@ -1335,7 +1404,8 @@ def calculate_latlon_bnds(lats, lons):
 def assimilated_proxies(workdir):
 
     """
-    Read the files written by LMR_driver_callable as written to directory workdir. Returns a dictionary with a count by proxy type.
+    Read the files written by LMR_driver_callable as written to directory
+    workdir. Returns a dictionary with a count by proxy type.
     
     """
     # Originator: Greg Hakim
@@ -1355,16 +1425,45 @@ def assimilated_proxies(workdir):
         else:
             ptypes[key] = 1
             
-    return ptypes,nrecords
+    return ptypes, nrecords
+
+def coefficient_efficiency_old(ref,test):
+    """
+    Compute the coefficient of efficiency for a test time series, with respect
+    to a reference time series.
+
+    Inputs:
+    test: one-dimensional test array
+    ref: one-dimensional reference array, of same size as test
+
+    Outputs:
+    CE: scalar CE score
+    """
+
+    # error
+    error = test - ref
+
+    # error variance
+    evar = np.var(error, ddof=1)
+
+    # variance in the reference 
+    rvar = np.var(ref, ddof=1)
+
+    # CE
+    CE = 1. - (evar/rvar)
+
+    return CE
+
 
 def coefficient_efficiency(ref,test,valid=None):
     """
-    Compute the coefficient of efficiency for a test time series, with respect to a reference time series.
+    Compute the coefficient of efficiency for a test time series, with respect
+    to a reference time series.
 
     Inputs:
     test:  test array
     ref:   reference array, of same size as test
-    valid: fraction of valid data required to calculate the statistic 
+    valid: fraction of valid data required to calculate the statistic
 
     Note: Assumes that the first dimension in test and ref arrays is time!!!
 
@@ -1375,18 +1474,19 @@ def coefficient_efficiency(ref,test,valid=None):
     # check array dimensions
     dims_test = test.shape
     dims_ref  = ref.shape
-    #print('dims_test: ', dims_test, ' dims_ref: ', dims_ref)
+    #print 'dims_test: ', dims_test, ' dims_ref: ', dims_ref
 
     if len(dims_ref) == 3:   # 3D: time + 2D spatial
         dims = dims_ref[1:3]
     elif len(dims_ref) == 2: # 2D: time + 1D spatial
         dims = dims_ref[1:2]
-    elif len(dims_ref) == 1: # 0D: time series
+    elif len(dims_ref) == 1: # 1D: time series
         dims = 1
     else:
-        print('In coefficient_efficiency(): Problem with input array dimension! Exiting...')
-        SystemExit(1)
+        print('Problem with input array dimension! Exiting...')
+        exit(1)
 
+    #print 'dims CE: ', dims
     CE = np.zeros(dims)
 
     # error
@@ -1405,8 +1505,8 @@ def coefficient_efficiency(ref,test,valid=None):
         indbad = np.where(ratio < valid)
         dim_indbad = len(indbad)
         testlist = [indbad[k].size for k in range(dim_indbad)]
-        if not all(v == 0 for v in testlist): 
-            if isinstance(dims,(tuple,list)):
+        if not all(v == 0 for v in testlist):
+            if dims>1:
                 CE[indbad] = np.nan
             else:
                 CE = np.nan
@@ -1453,7 +1553,7 @@ def rmsef(predictions, targets):
     """
     """
     val = np.sqrt(((predictions - targets) ** 2).mean())
-    
+
     return val
 
 
@@ -1477,20 +1577,25 @@ def rank_histogram(ensemble, value):
     Lensemble = ensemble.tolist()
     Lensemble.append(value)
 
-    # convert the list back to a numpy array so we have access to a sorting function
+    # convert the list back to a numpy array so we have access to a sorting
+    # function
     Nensemble = np.array(Lensemble)
     sort_index = np.argsort(Nensemble)
 
-    # convert the numpy array containing the ranked list indices back to an ordinary list for indexing
+    # convert the numpy array containing the ranked list indices back to an
+    # ordinary list for indexing
     Lsort_index = sort_index.tolist()
     rank = Lsort_index.index(len(Lensemble)-1)
 
     return rank
 
-def global_hemispheric_means(field,lat):
+
+def global_hemispheric_means(field, lat):
 
     """
-     compute global and hemispheric mean valuee for all times in the input (i.e. field) array
+     compute global and hemispheric mean valuee for all times in the input
+     (i.e. field) array
+
      input:  field[ntime,nlat,nlon] or field[nlat,nlon]
              lat[nlat,nlon] in degrees
 
@@ -1509,26 +1614,27 @@ def global_hemispheric_means(field,lat):
     #           - Enhanced flexibility in the handling of missing values
     #             [ R. Tardif, Aug. 2017 ]
 
-    # set number of times, lats, lons; array indices for lat and lon    
-    if len(np.shape(field)) == 3: # time is a dimension
-        ntime,nlat,nlon = np.shape(field)
+    # set number of times, lats, lons; array indices for lat and lon
+    if len(np.shape(field)) == 3:  # time is a dimension
+        ntime, nlat, nlon = np.shape(field)
         lati = 1
         loni = 2
-    else: # only spatial dims
+    else:  # only spatial dims
         ntime = 1
-        nlat,nlon = np.shape(field)
-        field = field[None,:] # add time dim of size 1 for consistent array dims
+        nlat, nlon = np.shape(field)
+        field = field[None, :]  # add time dim of size 1 for consistent dims
         lati = 1
         loni = 2
 
-    # latitude weighting 
+    # latitude weighting
     lat_weight = np.cos(np.deg2rad(lat))
-    tmp = np.ones([nlon,nlat])
-    W = np.multiply(lat_weight,tmp).T
+    tmp = np.ones([nlon, nlat])
+    W = np.multiply(lat_weight, tmp).T
 
     # define hemispheres
-    eqind = nlat//2
+    eqind = nlat/2
 
+    # TODO: Check that the eqind is correct w/ +1
     if lat[0] > 0:
         # data has NH -> SH format
         W_NH = W[0:eqind+1]
@@ -1538,15 +1644,15 @@ def global_hemispheric_means(field,lat):
     else:
         # data has SH -> NH format
         W_NH = W[eqind:]
-        field_NH = field[:,eqind:,:]
+        field_NH = field[:, eqind:, :]
         W_SH = W[0:eqind]
-        field_SH = field[:,0:eqind,:]
+        field_SH = field[:, 0:eqind, :]
 
-    gm  = np.zeros(ntime)
+    gm = np.zeros(ntime)
     nhm = np.zeros(ntime)
     shm = np.zeros(ntime)
 
-    # Check for valid (non-NAN) values & use numpy average function (includes weighted avg calculation) 
+    # Check for valid (non-NAN) values & use numpy average function (includes weighted avg calculation)
     # Get arrays indices of valid values
     indok    = np.isfinite(field)
     indok_nh = np.isfinite(field_NH)
@@ -1581,7 +1687,7 @@ def global_hemispheric_means(field,lat):
                 shm[t]      = np.average(field_sh_2d[indok_sh_2d],weights=W_SH[indok_sh_2d])
             else:
                 shm[t] = np.nan
-                
+
 # original code (keep for now...)
 #    for t in xrange(ntime):
 #        if lati == 0:
@@ -1594,7 +1700,7 @@ def global_hemispheric_means(field,lat):
 #            shm[t] = np.sum(np.multiply(W_SH,field_SH[t,:,:]))/(np.sum(np.sum(W_SH)))
 
 
-    return gm,nhm,shm
+    return gm, nhm, shm
 
 
 def regional_mask(lat,lon,southlat,northlat,westlon,eastlon):
@@ -1618,7 +1724,7 @@ def regional_mask(lat,lon,southlat,northlat,westlon,eastlon):
     longrid = np.multiply(tmp.T,lon)
 
     lab = (latgrid >= southlat) & (latgrid <=northlat)
-    # check for zero crossing 
+    # check for zero crossing
     if eastlon < westlon:
         lob1 = (longrid >= westlon) & (longrid <=360.)
         lob2 = (longrid >= 0.) & (longrid <=eastlon)
@@ -1656,11 +1762,11 @@ def PAGES2K_regional_means(field,lat,lon):
     # print debug statements
     #debug = True
     debug = False
-    
+
     # number of geographical regions (default, as defined in PAGES2K(2013) paper
     nregions = 7
-    
-    # set number of times, lats, lons; array indices for lat and lon    
+
+    # set number of times, lats, lons; array indices for lat and lon
     if len(np.shape(field)) == 3: # time is a dimension
         ntime,nlat,nlon = np.shape(field)
     else: # only spatial dims
@@ -1676,7 +1782,7 @@ def PAGES2K_regional_means(field,lat,lon):
 
     # lat and lon range for each region (first value is lower limit, second is upper limit)
     rlat = np.zeros([nregions,2]); rlon = np.zeros([nregions,2])
-    # 1. Arctic: north of 60N 
+    # 1. Arctic: north of 60N
     rlat[0,0] = 60.; rlat[0,1] = 90.
     rlon[0,0] = 0.; rlon[0,1] = 360.
     # 2. Europe: 35-70N, 10W-40E
@@ -1685,21 +1791,21 @@ def PAGES2K_regional_means(field,lat,lon):
     # 3. Asia: 23-55N; 60-160E (from map)
     rlat[2,0] = 23.; rlat[2,1] = 55.
     rlon[2,0] = 60.; rlon[2,1] = 160.
-    # 4. North America 1 (trees):  30-55N, 75-130W 
+    # 4. North America 1 (trees):  30-55N, 75-130W
     rlat[3,0] = 30.; rlat[3,1] = 55.
     rlon[3,0] = 55.; rlon[3,1] = 230.
     # 5. South America: Text: 20S-65S and 30W-80W
     rlat[4,0] = -65.; rlat[4,1] = -20.
     rlon[4,0] = 280.; rlon[4,1] = 330.
-    # 6. Australasia: 110E-180E, 0-50S 
+    # 6. Australasia: 110E-180E, 0-50S
     rlat[5,0] = -50.; rlat[5,1] = 0.
     rlon[5,0] = 110.; rlon[5,1] = 180.
     # 7. Antarctica: south of 60S (from map)
     rlat[6,0] = -90.; rlat[6,1] = -60.
     rlon[6,0] = 0.; rlon[6,1] = 360.
     # ...add other regions here...
-    
-    # latitude weighting 
+
+    # latitude weighting
     lat_weight = np.cos(np.deg2rad(lat))
     tmp = np.ones([nlon,nlat])
     W = np.multiply(lat_weight,tmp).T
@@ -1712,14 +1818,14 @@ def PAGES2K_regional_means(field,lat,lon):
         if debug:
             print('region='+str(region))
             print(rlat[region,0],rlat[region,1],rlon[region,0],rlon[region,1])
-            
+
         # regional weighting (ones in region; zeros outside)
         mask = regional_mask(lat,lon,rlat[region,0],rlat[region,1],rlon[region,0],rlon[region,1])
         if debug:
             print('mask=')
             print(mask)
 
-        # this is the weight mask for the regional domain    
+        # this is the weight mask for the regional domain
         Wmask = np.multiply(mask,W)
 
         # make sure data starts at South Pole
@@ -1727,7 +1833,7 @@ def PAGES2K_regional_means(field,lat,lon):
             # data has NH -> SH format; reverse
             field = np.flipud(field)
 
-        # Check for valid (non-NAN) values & use numpy average function (includes weighted avg calculation) 
+        # Check for valid (non-NAN) values & use numpy average function (includes weighted avg calculation)
         # Get arrays indices of valid values
         indok    = np.isfinite(field)
         for t in range(ntime):
@@ -1760,8 +1866,8 @@ def class_docs_fixer(cls):
                             func.__doc__ = func.__doc__.replace('%%aug%%', '')
                             func.__doc__ = parfunc.__doc__ + func.__doc__
                             break
-
     return cls
+
 
 def augment_docstr(func):
     """ Decorator to mark augmented function docstrings. """
@@ -1769,7 +1875,7 @@ def augment_docstr(func):
     return func
 
 
-def create_precalc_ye_filename(config,psm_key,prior_kind):
+def create_precalc_ye_filename(config, psm_key, prior_kind):
     """
     Create the filename to use for the precalculated Ye file from the provided
     configuration.  Uses the prior, psm, and proxy configuration to determine a
@@ -1801,12 +1907,12 @@ def create_precalc_ye_filename(config,psm_key,prior_kind):
     if config.psm.calib_period:
         calib_str_ext = calib_str_ext+'_cal{}-{}'.format(str(config.psm.calib_period[0]),
                                                          str(config.psm.calib_period[1]))
-    
+
     if psm_key == 'linear':
         calib_avgPeriod = config.psm.linear.avgPeriod
         calib_str = config.psm.linear.datatag_calib+calib_str_ext
         state_vars_for_ye = config.psm.linear.psm_required_variables
-        
+
     elif psm_key == 'linear_TorP':
         calib_avgPeriod = config.psm.linear_TorP.avgPeriod
         calib_str = 'T:{}-PR:{}'.format(config.psm.linear_TorP.datatag_calib_T,
@@ -1820,23 +1926,23 @@ def create_precalc_ye_filename(config,psm_key,prior_kind):
                                         config.psm.bilinear.datatag_calib_P)
         calib_str = calib_str+calib_str_ext
         state_vars_for_ye = config.psm.bilinear.psm_required_variables
-        
+
     elif psm_key == 'h_interp':
         calib_avgPeriod = None
         calib_str = ''
         state_vars_for_ye = config.psm.h_interp.psm_required_variables
 
-    elif  psm_key == 'bayesreg_uk37':
-        calib_avgPeriod = ''.join([str(config.prior.avgInterval['multiyear'][0]),'yrs'])
+    elif psm_key == 'bayesreg_uk37':
+        calib_avgPeriod = ''.join(
+            [str(config.prior.avgInterval['multiyear'][0]), 'yrs'])
         calib_str = ''
         state_vars_for_ye = config.psm.bayesreg_uk37.psm_required_variables
-        
+
     else:
         raise ValueError('Unrecognized PSM key.')
 
-    
     if calib_avgPeriod:
-        psm_str = psm_key +'_'+ calib_avgPeriod + '-' + calib_str
+        psm_str = psm_key + '_' + calib_avgPeriod + '-' + calib_str
     else:
         psm_str = psm_key + '-' + calib_str
 
@@ -1844,8 +1950,8 @@ def create_precalc_ye_filename(config,psm_key,prior_kind):
     if proxy_str == 'LMRdb':
         proxy_str = proxy_str + str(config.proxies.LMRdb.dbversion)
     elif proxy_str == 'NCDCdtda':
-        proxy_str = proxy_str + str(config.proxies.NCDCdtda.dbversion)
-        
+        proxy_str = proxy_str + str(config.proxies.ncdcdtda.dbversion)
+
     # Generate appropriate prior string
     prior_str = '-'.join([config.prior.prior_source] +
                          sorted(state_vars_for_ye) + [prior_kind])
@@ -1890,7 +1996,8 @@ def load_precalculated_ye_vals(config, proxy_manager, sample_idxs):
     return ye_all
 
 
-def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set, sample_idxs):
+def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set,
+                                             sample_idxs):
     """
     Convenience function to load a precalculated Ye file for the current
     experiment.
@@ -1916,17 +2023,19 @@ def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set, s
     begin_load = time()
 
     load_dir = os.path.join(config.core.lmr_path, 'ye_precalc_files')
-    
+
     if proxy_set == 'assim':
         num_proxies_assim = len(proxy_manager.ind_assim)
-        psm_keys = list(set([pobj.psm_obj.psm_key for pobj in proxy_manager.sites_assim_proxy_objs()]))
+        psm_keys = list(set([pobj.psm_obj.psm_key for pobj in
+                             proxy_manager.sites_assim_proxy_objs()]))
     elif proxy_set == 'eval':
         num_proxies_assim = len(proxy_manager.ind_eval)
-        psm_keys = list(set([pobj.psm_obj.psm_key for pobj in proxy_manager.sites_eval_proxy_objs()]))
+        psm_keys = list(set([pobj.psm_obj.psm_key for pobj in
+                             proxy_manager.sites_eval_proxy_objs()]))
     num_samples = len(sample_idxs)
     ye_all = np.zeros((num_proxies_assim, num_samples))
     ye_all_coords = np.zeros((num_proxies_assim, 2))
-    
+
     precalc_files = {}
     for psm_key in psm_keys:
 
@@ -1943,13 +2052,14 @@ def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set, s
             elif config.proxies.proxy_timeseries_kind == 'anom':
                 pkind = 'anom'
             else:
-                raise ValueError('Unrecognized proxy_timeseries_kind in proxies class')
+                raise ValueError(
+                    'Unrecognized proxy_timeseries_kind in proxies class')
         elif psm_key == 'bayesreg_uk37':
             pkind = 'full'
         else:
             raise ValueError('Unrecognized PSM key.')
 
-        load_fname = create_precalc_ye_filename(config,psm_key,pkind)
+        load_fname = create_precalc_ye_filename(config, psm_key, pkind)
         print('  Loading file:', load_fname)
         # check if file exists
         if not os.path.isfile(os.path.join(load_dir, load_fname)):
@@ -1960,7 +2070,6 @@ def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set, s
             raise SystemExit()
         precalc_files[psm_key] = np.load(os.path.join(load_dir, load_fname))
 
-    
     print('  Now extracting proxy type-dependent Ye values...')
     if proxy_set == 'assim':
         for i, pobj in enumerate(proxy_manager.sites_assim_proxy_objs()):
@@ -1971,7 +2080,8 @@ def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set, s
             pidx = pid_idx_map[pobj.id]
             ye_all[i] = precalc_vals[pidx, sample_idxs]
 
-            ye_all_coords[i,:] = np.asarray([pobj.lat, pobj.lon], dtype=np.float64)
+            ye_all_coords[i, :] = np.asarray([pobj.lat, pobj.lon],
+                                             dtype=np.float64)
     elif proxy_set == 'eval':
         for i, pobj in enumerate(proxy_manager.sites_eval_proxy_objs()):
             psm_key = pobj.psm_obj.psm_key
@@ -1981,14 +2091,16 @@ def load_precalculated_ye_vals_psm_per_proxy(config, proxy_manager, proxy_set, s
             pidx = pid_idx_map[pobj.id]
             ye_all[i] = precalc_vals[pidx, sample_idxs]
 
-            ye_all_coords[i,:] = np.asarray([pobj.lat, pobj.lon], dtype=np.float64)        
-            
-    print('  Completed in ',  time() - begin_load, 'secs')
-        
+            ye_all_coords[i, :] = np.asarray([pobj.lat, pobj.lon],
+                                             dtype=np.float64)
+
+    print('  Completed in ', time() - begin_load, 'secs')
+
     return ye_all, ye_all_coords
 
 
-def load_precalculated_ye_vals_psm_per_proxy_onlyobjs(config, proxy_objs, sample_idxs):
+def load_precalculated_ye_vals_psm_per_proxy_onlyobjs(config, proxy_objs,
+                                                      sample_idxs):
     """
     Convenience function to load a precalculated Ye file for the current
     experiment.
@@ -2017,9 +2129,8 @@ def load_precalculated_ye_vals_psm_per_proxy_onlyobjs(config, proxy_objs, sample
     ye_all = np.zeros((num_proxies_assim, num_samples))
     ye_all_coords = np.zeros((num_proxies_assim, 2))
 
-    
-    #psm_keys = list(set([pobj.psm_obj.psm_key for pobj in proxy_manager.sites_assim_proxy_objs()]))
-    psm_keys = list(set([pobj.psm_obj.psm_key for pobj in proxy_objs]))    
+    # psm_keys = list(set([pobj.psm_obj.psm_key for pobj in proxy_manager.sites_assim_proxy_objs()]))
+    psm_keys = list(set([pobj.psm_obj.psm_key for pobj in proxy_objs]))
     precalc_files = {}
     for psm_key in psm_keys:
 
@@ -2036,13 +2147,14 @@ def load_precalculated_ye_vals_psm_per_proxy_onlyobjs(config, proxy_objs, sample
             elif config.proxies.proxy_timeseries_kind == 'anom':
                 pkind = 'anom'
             else:
-                raise ValueError('Unrecognized proxy_timeseries_kind in proxies class')
+                raise ValueError(
+                    'Unrecognized proxy_timeseries_kind in proxies class')
         elif psm_key == 'bayesreg_uk37':
             pkind = 'full'
         else:
             raise ValueError('Unrecognized PSM key.')
 
-        load_fname = create_precalc_ye_filename(config,psm_key,pkind)
+        load_fname = create_precalc_ye_filename(config, psm_key, pkind)
         print('  Loading file:', load_fname)
         # check if file exists
         if not os.path.isfile(os.path.join(load_dir, load_fname)):
@@ -2053,21 +2165,20 @@ def load_precalculated_ye_vals_psm_per_proxy_onlyobjs(config, proxy_objs, sample
             raise SystemExit()
         precalc_files[psm_key] = np.load(os.path.join(load_dir, load_fname))
 
-    
     print('  Now extracting proxy type-dependent Ye values...')
-    #for i, pobj in enumerate(proxy_manager.sites_assim_proxy_objs()):
+    # for i, pobj in enumerate(proxy_manager.sites_assim_proxy_objs()):
     for i, pobj in enumerate(proxy_objs):
         psm_key = pobj.psm_obj.psm_key
         pid_idx_map = precalc_files[psm_key]['pid_index_map'][()]
         precalc_vals = precalc_files[psm_key]['ye_vals']
-        
+
         pidx = pid_idx_map[pobj.id]
         ye_all[i] = precalc_vals[pidx, sample_idxs]
 
-        ye_all_coords[i,:] = np.asarray([pobj.lat, pobj.lon], dtype=np.float64)
+        ye_all_coords[i, :] = np.asarray([pobj.lat, pobj.lon], dtype=np.float64)
 
-    print('  Completed in ',  time() - begin_load, 'secs')
-        
+    print('  Completed in ', time() - begin_load, 'secs')
+
     return ye_all, ye_all_coords
 
 
@@ -2090,7 +2201,7 @@ def gaussianize(X):
         Xn = gaussianize_single(X)
     else:
         for i in range(X.shape[1]):
-            Xn[:,i] = gaussianize_single(X[:,i])
+            Xn[:, i] = gaussianize_single(X[:, i])
 
     return Xn
 
@@ -2115,8 +2226,8 @@ def gaussianize_single(X_single):
     index = np.argsort(X_single[nz])
     rank = np.argsort(index)
 
-    CDF = 1.*(rank+1)/(1.*n) -1./(2*n)
-    Xn_single[nz] = np.sqrt(2)*special.erfinv(2*CDF -1)
+    CDF = 1. * (rank + 1) / (1. * n) - 1. / (2 * n)
+    Xn_single[nz] = np.sqrt(2) * special.erfinv(2 * CDF - 1)
 
     return Xn_single
 
@@ -2137,35 +2248,34 @@ def validate_config(config):
         Boolean indicating if the configuration settings were validated or not.
     """
 
-    proxy_database = config.proxies.use_from[0]
+    proxy_database = config.proxies.use_from
     if proxy_database == 'LMRdb':
         proxy_cfg = config.proxies.LMRdb
     elif proxy_database == 'PAGES2kv1':
         proxy_cfg = config.proxies.PAGES2kv1
     elif proxy_database == 'NCDCdtda':
-        proxy_cfg = config.proxies.NCDCdtda
+        proxy_cfg = config.proxies.ncdcdtda
     else:
-        print('ERROR in specification of proxy database.')
-        raise SystemExit()
+        raise SystemExit('ERROR in specification of proxy database.')
 
     # proxy types activated in configuration
-    proxy_types = proxy_cfg.proxy_order 
+    proxy_types = proxy_cfg.proxy_order
     # associated psm's
     psm_keys = list(set([proxy_cfg.proxy_psm_type[p] for p in proxy_types]))
 
     # Forming list of required state variables
-    psmclasses = dict([(name,cls)  for name, cls in list(config.psm.__dict__.items())])
+    psmclasses = dict(
+        [(name, cls) for name, cls in list(config.psm.__dict__.items())])
     psm_required_variables = []
     for psm_type in psm_keys:
-        #print psm_type, ':', psmclasses[psm_type].psm_required_variables
-        psm_required_variables.extend(psmclasses[psm_type].psm_required_variables)
+        # print psm_type, ':', psmclasses[psm_type].psm_required_variables
+        psm_required_variables.extend(
+            psmclasses[psm_type].psm_required_variables)
     # keep unique values
     psm_required_variables = list(set(psm_required_variables))
 
-    
     proceed_ok = True
 
-    
     # Begin checking configuration
     print('Checking configuration ... ')
 
@@ -2173,7 +2283,7 @@ def validate_config(config):
     if not config.core.use_precalc_ye:
 
         # 1) Check whether all variables needed by PSMs are in prior.state_variables
-        
+
         for psm_required_var in psm_required_variables:
             if psm_required_var not in list(config.prior.state_variables.keys()):
                 print(' ERROR: Missing state variable:', psm_required_var)
@@ -2196,7 +2306,6 @@ def validate_config(config):
                    ' Combination of options not enabled!')
             proceed_ok = False
 
-
     # Constraints irrespective of value chosen for use_precalc_ye
 
     # 3) Cannot use seasonally-calibrated PSMs with PAGES2kv1 proxies
@@ -2209,7 +2318,7 @@ def validate_config(config):
                ' No seasonality metadata available in that dataset.'
                ' Change avgPeriod to "annual" in your configuration.')
         proceed_ok = False
-        
+
     # 4) Check compatibility between variable 'kind' ('anom' or 'full')
     #    between prior state variables and requirements of chosen PSMs
 
@@ -2225,8 +2334,8 @@ def validate_config(config):
                            ' is incompatible with requirements of '+ psm_type+' PSM ('
                            + psmclasses[psm_type].psm_required_variables[var]+') using this variable as input'))
                     proceed_ok = False
-    
-    
+
+
     return proceed_ok
 
 
@@ -2257,7 +2366,6 @@ def nested_dict_update(orig_dict, update_dict):
 
 
 def param_cfg_update(param_str, val, cfg_dict=None):
-
     if cfg_dict is None:
         cfg_dict = {}
 
@@ -2266,7 +2374,6 @@ def param_cfg_update(param_str, val, cfg_dict=None):
 
 
 def psearch_list_cfg_update(param_str_list, val_list, cfg_dict=None):
-
     if cfg_dict is None:
         cfg_dict = {}
 
@@ -2286,8 +2393,54 @@ class FlagError(ValueError):
     """
     pass
 
-def regional_mask(lat,lon,southlat,northlat,westlon,eastlon):
 
+class ReqDataFractionMismatchError(AttributeError):
+    """
+    Error to raise when the pre-averaged data was creating using a different
+    minimum data requirement.
+    """
+    pass
+
+
+class ProxyTypeNotMappedError(KeyError):
+    """
+    Error raised when proxy type loaded is not in the configuration mapping and
+    is therefore unusable.
+    """
+    pass
+
+
+class NoProxyObsError(ValueError):
+    """
+    Error raised when no observations overlap with the requested time period
+    for a given proxy record
+    """
+
+
+class PSMFitThresholdError(ValueError):
+    """
+    Error raised when the PSM fit (correlation) is below the specified
+    threshold.
+    """
+    pass
+
+
+class PSMTooFewObsError(ValueError):
+    """
+    Error raised when PSM calibration has too few overlapping values with the
+    reference data to fit.
+    """
+    pass
+
+
+class PSMTorPCalibrationError(ValueError):
+    """
+    Error raised when moisture and temperutre failed to have calibrated PSMs.
+    """
+    pass
+
+
+def regional_mask(lat, lon, southlat, northlat, westlon, eastlon):
     """
     Given vectors for lat and lon, and lat-lon boundaries for a regional domain, 
     return an array of ones and zeros, with ones located within the domain and zeros outside
@@ -2295,27 +2448,27 @@ def regional_mask(lat,lon,southlat,northlat,westlon,eastlon):
     """
 
     nlat = len(lat)
-    nlon =len(lon)
+    nlon = len(lon)
 
-    tmp = np.ones([nlon,nlat])
-    latgrid = np.multiply(lat,tmp).T
-    longrid = np.multiply(tmp.T,lon)
+    tmp = np.ones([nlon, nlat])
+    latgrid = np.multiply(lat, tmp).T
+    longrid = np.multiply(tmp.T, lon)
 
-    lab = (latgrid >= southlat) & (latgrid <=northlat)
-    # check for zero crossing 
+    lab = (latgrid >= southlat) & (latgrid <= northlat)
+    # check for zero crossing
     if eastlon < westlon:
-        lob1 = (longrid >= westlon) & (longrid <=360.)
-        lob2 = (longrid >= 0.) & (longrid <=eastlon)
-        lob = lob1+lob2
+        lob1 = (longrid >= westlon) & (longrid <= 360.)
+        lob2 = (longrid >= 0.) & (longrid <= eastlon)
+        lob = lob1 + lob2
     else:
-        lob = (longrid >= westlon) & (longrid <=eastlon)
+        lob = (longrid >= westlon) & (longrid <= eastlon)
 
-    mask = np.multiply(lab*lob,tmp.T)
+    mask = np.multiply(lab * lob, tmp.T)
 
     return mask
 
-def PAGES2K_regional_means(field,lat,lon):
 
+def PAGES2K_regional_means(field, lat, lon):
     """
      compute geographical spatial mean valuee for all times in the input (i.e. field) array. regions are defined by The PAGES2K Consortium (2013) Nature Geosciences paper, Supplementary Information.
      input:  field[ntime,nlat,nlon] or field[nlat,nlon]
@@ -2323,7 +2476,7 @@ def PAGES2K_regional_means(field,lat,lon):
              lon[nlat,nlon] in degrees
 
      output: rm[nregions,ntime] : regional means of "field" where nregions = 7 by definition, but could change
-     
+
     """
 
     # Originator: Greg Hakim
@@ -2334,19 +2487,20 @@ def PAGES2K_regional_means(field,lat,lon):
     #
 
     # print debug statements
-    #debug = True
+    # debug = True
     debug = False
-    
+
     # number of geographical regions (default, as defined in PAGES2K(2013) paper
     nregions = 7
-    
-    # set number of times, lats, lons; array indices for lat and lon    
-    if len(np.shape(field)) == 3: # time is a dimension
-        ntime,nlat,nlon = np.shape(field)
-    else: # only spatial dims
+
+    # set number of times, lats, lons; array indices for lat and lon
+    if len(np.shape(field)) == 3:  # time is a dimension
+        ntime, nlat, nlon = np.shape(field)
+    else:  # only spatial dims
         ntime = 1
-        nlat,nlon = np.shape(field)
-        field = field[None,:] # add time dim of size 1 for consistent array dims
+        nlat, nlon = np.shape(field)
+        field = field[None,
+                :]  # add time dim of size 1 for consistent array dims
 
     if debug:
         print('field dimensions...')
@@ -2355,72 +2509,90 @@ def PAGES2K_regional_means(field,lat,lon):
     # define regions as in PAGES paper
 
     # lat and lon range for each region (first value is lower limit, second is upper limit)
-    rlat = np.zeros([nregions,2]); rlon = np.zeros([nregions,2])
-    # 1. Arctic: north of 60N 
-    rlat[0,0] = 60.; rlat[0,1] = 90.
-    rlon[0,0] = 0.; rlon[0,1] = 360.
+    rlat = np.zeros([nregions, 2]);
+    rlon = np.zeros([nregions, 2])
+    # 1. Arctic: north of 60N
+    rlat[0, 0] = 60.;
+    rlat[0, 1] = 90.
+    rlon[0, 0] = 0.;
+    rlon[0, 1] = 360.
     # 2. Europe: 35-70N, 10W-40E
-    rlat[1,0] = 35.; rlat[1,1] = 70.
-    rlon[1,0] = 350.; rlon[1,1] = 40.
+    rlat[1, 0] = 35.;
+    rlat[1, 1] = 70.
+    rlon[1, 0] = 350.;
+    rlon[1, 1] = 40.
     # 3. Asia: 23-55N; 60-160E (from map)
-    rlat[2,0] = 23.; rlat[2,1] = 55.
-    rlon[2,0] = 60.; rlon[2,1] = 160.
-    # 4. North America 1 (trees):  30-55N, 75-130W 
-    rlat[3,0] = 30.; rlat[3,1] = 55.
-    rlon[3,0] = 55.; rlon[3,1] = 230.
+    rlat[2, 0] = 23.;
+    rlat[2, 1] = 55.
+    rlon[2, 0] = 60.;
+    rlon[2, 1] = 160.
+    # 4. North America 1 (trees):  30-55N, 75-130W
+    rlat[3, 0] = 30.;
+    rlat[3, 1] = 55.
+    rlon[3, 0] = 55.;
+    rlon[3, 1] = 230.
     # 5. South America: Text: 20S-65S and 30W-80W
-    rlat[4,0] = -65.; rlat[4,1] = -20.
-    rlon[4,0] = 280.; rlon[4,1] = 330.
-    # 6. Australasia: 110E-180E, 0-50S 
-    rlat[5,0] = -50.; rlat[5,1] = 0.
-    rlon[5,0] = 110.; rlon[5,1] = 180.
+    rlat[4, 0] = -65.;
+    rlat[4, 1] = -20.
+    rlon[4, 0] = 280.;
+    rlon[4, 1] = 330.
+    # 6. Australasia: 110E-180E, 0-50S
+    rlat[5, 0] = -50.;
+    rlat[5, 1] = 0.
+    rlon[5, 0] = 110.;
+    rlon[5, 1] = 180.
     # 7. Antarctica: south of 60S (from map)
-    rlat[6,0] = -90.; rlat[6,1] = -60.
-    rlon[6,0] = 0.; rlon[6,1] = 360.
+    rlat[6, 0] = -90.;
+    rlat[6, 1] = -60.
+    rlon[6, 0] = 0.;
+    rlon[6, 1] = 360.
     # ...add other regions here...
-    
-    # latitude weighting 
-    lat_weight = np.cos(np.deg2rad(lat))
-    tmp = np.ones([nlon,nlat])
-    W = np.multiply(lat_weight,tmp).T
 
-    rm  = np.zeros([nregions,ntime])
+    # latitude weighting
+    lat_weight = np.cos(np.deg2rad(lat))
+    tmp = np.ones([nlon, nlat])
+    W = np.multiply(lat_weight, tmp).T
+
+    rm = np.zeros([nregions, ntime])
 
     # loop over regions
     for region in range(nregions):
 
         if debug:
-            print('region='+str(region))
-            print(rlat[region,0],rlat[region,1],rlon[region,0],rlon[region,1])
-            
+            print('region=' + str(region))
+            print(rlat[region, 0], rlat[region, 1], rlon[region, 0], rlon[
+                region, 1])
+
         # regional weighting (ones in region; zeros outside)
-        mask = regional_mask(lat,lon,rlat[region,0],rlat[region,1],rlon[region,0],rlon[region,1])
+        mask = regional_mask(lat, lon, rlat[region, 0], rlat[region, 1],
+                             rlon[region, 0], rlon[region, 1])
         if debug:
             print('mask=')
             print(mask)
 
-        # this is the weight mask for the regional domain    
-        Wmask = np.multiply(mask,W)
+        # this is the weight mask for the regional domain
+        Wmask = np.multiply(mask, W)
 
         # make sure data starts at South Pole
         if lat[0] > 0:
             # data has NH -> SH format; reverse
             field = np.flipud(field)
 
-        # Check for valid (non-NAN) values & use numpy average function (includes weighted avg calculation) 
+        # Check for valid (non-NAN) values & use numpy average function (includes weighted avg calculation)
         # Get arrays indices of valid values
-        indok    = np.isfinite(field)
+        indok = np.isfinite(field)
         for t in range(ntime):
-            indok_2d = indok[t,:,:]
-            field_2d = np.squeeze(field[t,:,:])
-            if np.max(Wmask) >0.:
-                rm[region,t] = np.average(field_2d[indok_2d],weights=Wmask[indok_2d])
+            indok_2d = indok[t, :, :]
+            field_2d = np.squeeze(field[t, :, :])
+            if np.max(Wmask) > 0.:
+                rm[region, t] = np.average(field_2d[indok_2d],
+                                           weights=Wmask[indok_2d])
             else:
-                rm[region,t] = np.nan
+                rm[region, t] = np.nan
     return rm
 
-def find_date_indices(time,stime,etime):
 
+def find_date_indices(time, stime, etime):
     # find start and end times that match specific values
     # input: time: an array of time values
     #        stime: the starting time
@@ -2429,15 +2601,15 @@ def find_date_indices(time,stime,etime):
     # initialize returned variables
     begin_index = None
     end_index = None
-    
-    smatch = np.where(time==stime)
-    ematch = np.where(time==etime)
+
+    smatch = np.where(time == stime)
+    ematch = np.where(time == etime)
 
     # make sure valid integers are returned
     if type(smatch) is tuple:
         smatch = smatch[0]
         ematch = ematch[0]
-        
+
     if type(smatch) is np.ndarray:
         try:
             smatch = smatch[0]
@@ -2448,10 +2620,203 @@ def find_date_indices(time,stime,etime):
         except IndexError:
             pass
 
-    
-    if isinstance(smatch,(int,np.integer)):
+    if isinstance(smatch, (int, np.integer)):
         begin_index = smatch
-    if isinstance(ematch,(int,np.integer)):
+    if isinstance(ematch, (int, np.integer)):
         end_index = ematch
 
     return begin_index, end_index
+
+def var_to_hdf5_carray(h5file, group, node, data, **kwargs):
+    """
+    Take an input data and insert into a PyTables carray in an HDF5 file.
+
+    Parameters
+    ----------
+    h5file: tables.File
+        Writeable HDF5 file to insert the carray into.
+    group: str, tables.Group
+        PyTables group to insert the data node into
+    node: str, tables.Node
+        PyTables node of the carray.  If it already exists it will remove
+        the existing node and create a new one.
+    data: ndarray
+        Data to be inserted into the node carray
+    kwargs:
+        Extra keyword arguments to be passed to the
+        tables.File.create_carray method.
+
+    Returns
+    -------
+    tables.carray
+        Pointer to the created carray object.
+    """
+    assert(type(h5file) == tb.File)
+
+    # Switch to string
+    if type(group) != str:
+        group = group._v_pathname
+
+    # Join path for node existence check
+    if group[-1] == '/':
+        node_path = group + node
+    else:
+        node_path = '/'.join((group, node))
+
+    # Check existence and remove if necessary
+    if node_path in h5file:
+        h5file.remove_node(node_path)
+
+    out_arr = h5file.create_carray(group,
+                                   node,
+                                   atom=tb.Atom.from_dtype(data.dtype),
+                                   shape=data.shape,
+                                   **kwargs)
+    out_arr[:] = data
+    return out_arr
+
+
+def empty_hdf5_carray(h5file, group, node, in_atom, shape, **kwargs):
+    """
+    Create an empty PyTables carray.  Replaces node if it already exists.
+
+    Parameters
+    ----------
+    h5file: tables.File
+        Writeable HDF5 file to insert the carray into.
+    group: str, tables.Group
+        PyTables group to insert the data node into
+    node: str, tables.Node
+        PyTables node of the carray.  If it already exists it will remove
+        the existing node and create a new one.
+    in_atom: tables.Atom
+        Atomic datatype and chunk size for the carray.
+    shape: tuple, list
+        Shape of empty carray to be created.
+    kwargs:
+        Extra keyword arguments to be passed to the
+        tables.File.create_carray method.
+
+    Returns
+    -------
+    tables.carray
+        Pointer to the created carray object.
+    """
+    assert(type(h5file) == tb.File)
+
+    # Switch to string
+    if type(group) == tb.Group:
+        group = group._v_pathname
+
+    # Join path for node existence check
+    if group[-1] == '/':
+        node_path = group + node
+    else:
+        node_path = '/'.join((group, node))
+
+    # Check existence and remove if necessary
+    if h5file.__contains__(node_path):
+        h5file.remove_node(node_path)
+
+    out_arr = h5file.create_carray(group,
+                                   node,
+                                   atom=in_atom,
+                                   shape=shape,
+                                   **kwargs)
+    return out_arr
+
+
+def set_cfg_attribute(key, value, cfg_object):
+
+    attr_list = key.split('.')
+
+    while len(attr_list) > 1:
+        cfg_object = getattr(cfg_object, attr_list[0])
+        attr_list = attr_list[1:]
+
+    setattr(cfg_object, attr_list[-1], value)
+    try:
+        value_str = '{:g}'.format(value)
+    except ValueError as e:
+        value_str = '{}'.format(value)
+
+    return attr_list[-1] + value_str
+
+
+def set_paramsearch_attributes(sorted_keys, values, cfg_object):
+
+    paramsearch_dir = []
+
+    for key, value in zip(sorted_keys, values):
+
+        param_str = set_cfg_attribute(key, value, cfg_object)
+        paramsearch_dir.append(param_str)
+
+    return '_'.join(paramsearch_dir)
+
+
+def get_averaging_period(elements, nelem_in_yr, is_zero_based=False):
+    """
+    Take a list of elements to be used for subannual averaging and normalize
+    them to a common output tuple that is in order, contains no negative
+    integers, and uses 0-based indexing.
+
+    Parameters
+    ----------
+    elements: list of int
+        List of indices that will be used to perform subannual averaging on
+        the data.
+    nelem_in_yr: int
+        Number of elements that comprise a single year in the data to be
+        averaged.
+
+    Returns
+    -------
+    tuple
+        Quality checked list of subannual indices used for subannual
+        averaging by LMR_gridded
+    """
+
+    nelem = len(elements)
+
+    # More elements in the subannual list than there are possible elem in a yr
+    if nelem > nelem_in_yr:
+        raise ValueError('List length of subannual elements to average must be '
+                         'less than or equal to the number of elements in a '
+                         'year.')
+
+    elements = np.array(elements, dtype=np.int)
+
+    if np.any(elements == 0) and not is_zero_based:
+        raise ValueError('If using zero-based indexing.  Argument '
+                         '"is_zero_based" must be set to true.')
+
+    if np.any(elements < 0):
+        neg_ind = elements < 0
+        pos_ind = elements >= 0
+        negative_swapped = abs(elements[neg_ind])
+        shifted_positive = elements[pos_ind] + nelem_in_yr
+        elements[neg_ind] = negative_swapped
+        elements[pos_ind] = shifted_positive
+
+    # elements specified span longer than a year
+    elem_span = max(elements) - min(elements)
+    if elem_span >= nelem_in_yr:
+        raise ValueError('List of subannual elements spans longer than the '
+                         'number of elements in a year.  Please use a '
+                         'multi-annual distinction to average multiple years.')
+
+    # Convert from monthly number to array index (0-based)
+    if not is_zero_based:
+        elements -= 1
+
+    # Reduce list to unique subannual elements
+    unique_elements = set(elements)
+    if len(unique_elements) != nelem:
+        elements = unique_elements
+        warnings.warn(UserWarning('Duplicate indices found in the list of '
+                                  'subannual elements to average.'))
+
+    elements = tuple(sorted(elements))
+
+    return elements

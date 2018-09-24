@@ -20,7 +20,7 @@ import yaml
 import numpy as np
 import os
 
-from LMR_utils2 import get_averaging_period
+from LMR_utils import get_averaging_period
 
 # If true, uses only LMR_config.  No yaml loading
 LEGACY_CONFIG = False

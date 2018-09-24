@@ -7,7 +7,7 @@ import pickle
 
 import pylim.LIM as LIM
 import pylim.Stats as plstat
-from LMR_utils2 import class_docs_fixer
+from LMR_utils import class_docs_fixer
 import LMR_gridded
 
 logger = logging.getLogger(__name__)
