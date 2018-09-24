@@ -138,8 +138,7 @@ class LIMForecaster(BaseForecaster):
         save_hasher.update(save_str)
         save_filename = save_hasher.hexdigest() + '.pkl'
 
-        output_dir = os.path.join(lim_cfg.lim_precalib_dir,
-                                  'lim_precalib_files')
+        output_dir = lim_cfg.lim_precalib_dir
         output_path = os.path.join(output_dir, save_filename)
 
         try:

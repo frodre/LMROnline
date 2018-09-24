@@ -1615,6 +1615,8 @@ class forecaster(ConfigGroup):
             if lmr_path is None:
                 lmr_path = core.lmr_path
 
+            self.lim_precalib_dir = join(lmr_path, 'lim_precalib_files')
+
             if self.datadir is None:
                 model_dir = join(lmr_path, 'data', 'model', self.datatag)
                 analysis_dir = join(lmr_path, 'data', 'analyses',
