@@ -70,11 +70,10 @@ from time import time
 
 import LMR_proxy
 import LMR_gridded
-from LMR_utils import global_mean2
 import LMR_outputs as lmr_out
 import LMR_config as BaseCfg
 import LMR_forecaster
-from LMR_DA import enkf_update_array_xb_blend, cov_localization
+from LMR_DA import enkf_update_array_xb_blend, process_hybrid_static_prior
 
 
 # *** main driver
@@ -262,27 +261,12 @@ def LMR_driver_callable(cfg=None):
 
         if verbose > 0:
             print('working on year: ' + str(t))
-            # Store original annual for hybrid update
-        if hybrid_update:
-            if iyr == 0:
-                # Creates a copy for use as our static prior
-                Xb_one.stash_state('orig_aug')
-                Xb_static = Xb_one.state
-                Yevals_static = Xb_one.get_var_data('ye_vals')
-                Xb_one.stash_recall_state_list('orig_aug',
-                                               copy=True)
-            else:
-                Xb_one.stash_state('tmp')
-                Xb_one.stash_recall_state_list('orig_aug', copy=True)
-                Xb_static = Xb_one.state
-                Yevals_static = Xb_one.get_var_data('ye_vals')
-                Xb_one.stash_pop_state_list('tmp')
 
-            if blend_prior:
-                xbf = Xb_one.state
-                blend_forecast = (hybrid_a_val * xbf +
-                                  (1-hybrid_a_val) * Xb_static)
-                Xb_one.state = blend_forecast
+        if hybrid_update:
+            # Get static climatological Xb_one and blend prior if desired
+            [hybrid_update_kwargs,
+             Xb_one] = process_hybrid_static_prior(iyr, Xb_one, blend_prior,
+                                                   hybrid_a_val)
 
         # Save output fields for the prior
         lmr_out.save_field_output(iyr, 'prior', Xb_one, field_hdf5_outputs,

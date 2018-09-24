@@ -195,6 +195,33 @@ def enkf_update_array_xb_blend(Xb, obvalue, Ye, ob_err, loc=None, inflate=None,
 #
 #==========================================================================================
 
+def process_hybrid_static_prior(yr_idx, prior_state, blend_prior, hybrid_a_val):
+    if yr_idx == 0:
+        # Creates a copy for use as our static prior
+        prior_state.stash_state('orig_aug')
+        Xb_static = prior_state.state
+        Ye_vals_static = prior_state.get_var_data('ye_vals')
+        prior_state.stash_recall_state_list('orig_aug',
+                                            copy=True)
+    else:
+        prior_state.stash_state('tmp')
+        prior_state.stash_recall_state_list('orig_aug', copy=True)
+        Xb_static = prior_state.state
+        Ye_vals_static = prior_state.get_var_data('ye_vals')
+        prior_state.stash_pop_state_list('tmp')
+
+    if blend_prior:
+        xbf = prior_state.state
+        blend_forecast = (hybrid_a_val * xbf +
+                          (1 - hybrid_a_val) * Xb_static)
+        prior_state.state = blend_forecast
+
+    hybrid_update_kwargs = {'Xb_static': Xb_static,
+                            'Ye_vals_static': Ye_vals_static}
+
+    return hybrid_update_kwargs, prior_state
+
+
 def cov_localization(locRad, Y, X, X_coords):
     """
 
