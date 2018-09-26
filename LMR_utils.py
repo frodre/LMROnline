@@ -1412,13 +1412,14 @@ def assimilated_proxies(workdir):
     #             University of Washington
     #             May 2015
 
-    apfile = workdir + 'assimilated_proxies.npy'
-    assimilated_proxies = np.load(apfile)
-    nrecords = np.size(assimilated_proxies)
+    apfile = workdir + 'assimilated_proxies.pkl'
+    with open(apfile, 'rb') as f:
+        assim_proxies = pickle.load(f)
+    nrecords = len(assim_proxies)
 
     ptypes = {}
     for rec in range(nrecords):
-        key = list(assimilated_proxies[rec].keys())[0]
+        key = assim_proxies[rec].type
         if key in ptypes:
             pc = ptypes[key]
             ptypes[key] = pc + 1
@@ -1632,7 +1633,7 @@ def global_hemispheric_means(field, lat):
     W = np.multiply(lat_weight, tmp).T
 
     # define hemispheres
-    eqind = nlat/2
+    eqind = nlat//2
 
     # TODO: Check that the eqind is correct w/ +1
     if lat[0] > 0:
@@ -2820,3 +2821,54 @@ def get_averaging_period(elements, nelem_in_yr, is_zero_based=False):
     elements = tuple(sorted(elements))
 
     return elements
+
+
+def find_date_indices(time, stime, etime):
+    # find start and end times that match specific values
+    # input: time: an array of time values
+    #        stime: the starting time
+    #        etime: the ending time
+
+    # initialize returned variables
+    begin_index = None
+    end_index = None
+
+    smatch = np.where(time == stime)
+    ematch = np.where(time == etime)
+
+    # make sure valid integers are returned
+    if type(smatch) is tuple:
+        smatch = smatch[0]
+        ematch = ematch[0]
+
+    if type(smatch) is np.ndarray:
+        try:
+            smatch = smatch[0]
+        except IndexError:
+            pass
+        try:
+            ematch = ematch[0]
+        except IndexError:
+            pass
+
+    if isinstance(smatch, (int, np.integer)):
+        begin_index = smatch
+    if isinstance(ematch, (int, np.integer)):
+        end_index = ematch
+
+    return begin_index, end_index
+
+
+def moving_average(data, xvals, window=5):
+    # data is the input series
+    # window is the number of entries in data to average over (should be ODD)
+    # the first value in data_smoothed is the mean of the first window values in data
+
+    edge = (window - 1) // 2
+    weigths = np.repeat(1.0, window) / window
+    data_smoothed = np.convolve(data, weigths, 'valid')
+
+    # also return the x values for which the data is valid
+    xvals_smoothed = xvals[edge:-edge]
+
+    return data_smoothed, xvals_smoothed

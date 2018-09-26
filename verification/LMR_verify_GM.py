@@ -22,6 +22,7 @@ import numpy as np
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 from matplotlib import ticker
+import matplotlib
 from mpl_toolkits.axes_grid1 import make_axes_locatable, axes_size
 from scipy import stats
 from netCDF4 import Dataset
@@ -34,12 +35,14 @@ from scipy import stats
 
 # LMR specific imports
 sys.path.append('../')
-from LMR_utils import global_hemispheric_means, assimilated_proxies, coefficient_efficiency, rank_histogram, natural_sort
-from load_gridded_data import read_gridded_data_GISTEMP
-from load_gridded_data import read_gridded_data_HadCRUT
-from load_gridded_data import read_gridded_data_BerkeleyEarth
-from load_gridded_data import read_gridded_data_CMIP5_model
-from LMR_plot_support import find_date_indices, moving_average
+from LMR_utils import (global_hemispheric_means, assimilated_proxies,
+                       coefficient_efficiency, rank_histogram, natural_sort,
+                       find_date_indices, moving_average)
+from load_gridded_data import (read_gridded_data_GISTEMP,
+                               read_gridded_data_HadCRUT,
+                               read_gridded_data_BerkeleyEarth,
+                               read_gridded_data_CMIP5_model,
+                               read_gridded_data_MLOST)
 
 # =============================================================================
 def truncate_colormap(cmap, minval=0.0,maxval=1.0,n=100):
@@ -69,7 +72,7 @@ nsyrs = 5 # 5-> 5-year running mean--nsyrs must be odd!
 iplot = True
 
 # Open interactive windows of figures
-interactive = False
+interactive = True
 
 if interactive:
     plt.ion()
@@ -79,11 +82,11 @@ else:
     matplotlib.pyplot.switch_backend('agg')
 
 # option to save figures to a file
-fsave = True
-#fsave = False
+# fsave = True
+fsave = False
 
 # save statistics file
-stat_save = True
+stat_save = False
 
 # file specification
 #
@@ -96,7 +99,7 @@ stat_save = True
 #nexp = 'production_mlost_era20c_pagesall_0.75'
 #nexp = 'production_mlost_era20cm_pagesall_0.75'
 # ---
-nexp = 'test'
+nexp = 'test_ensrf_noise_lim'
 # ---
 
 # perform verification using all recon. MC realizations ( MCset = None )
@@ -105,7 +108,7 @@ nexp = 'test'
 #     MCset = (0,10)   -> the first 11 MC runs (from 0 to 10 inclusively)
 #     MCset = (80,100) -> the 80th to 100th MC runs (21 realizations)
 MCset = None
-#MCset = (0,10)
+#MCset = (0,0)
 
 # reference period over which mean is calculated & subtracted 
 # from all other datasets (in years CE)
@@ -117,14 +120,13 @@ ref_period = (1900, 1999) # 20th century
 # specify directories for LMR data
 #datadir_output = './data/'
 #datadir_output = '/home/disk/kalman3/hakim/LMR'
-datadir_output = '/home/disk/kalman3/rtardif/LMR/output'
-#datadir_output = '/home/disk/katabatic3/wperkins/LMR_output/testing'
+datadir_output = '/home/disk/katabatic/wperkins/data/LMR/output/testing'
 
 # Directory where historical griddded data products can be found
-datadir_calib = '/home/disk/kalman3/rtardif/LMR/data/analyses'
+datadir_calib = '/home/disk/katabatic/wperkins/data/LMR/data/analyses'
 
 # Directory where reanalysis data can be found
-datadir_reanl = '/home/disk/kalman3/rtardif/LMR/data/model'
+datadir_reanl = '/home/disk/katabatic/wperkins/data/LMR/data/model'
 
 # plotting preferences
 nlevs = 30 # number of contours
@@ -324,27 +326,26 @@ first = True
 kk = -1
 for dir in dirset:
     kk = kk + 1
-    gmtpfile =  dir + '/gmt_ensemble.npz'
+    gmtpfile =  dir + '/tas_sfc_Amon_glob_mean_ens_output.npz'
     npzfile = np.load(gmtpfile)
-    npzfile.files
-    gmt = npzfile['gmt_ensemble']
-    nhmt = npzfile['nhmt_ensemble']
-    shmt = npzfile['shmt_ensemble']
+    gmt = npzfile['scalar_ens']
+    # nhmt = npzfile['nhmt_ensemble']
+    # shmt = npzfile['shmt_ensemble']
     recon_times = npzfile['recon_times']
     print(recon_times)
     print(gmtpfile)
     gmt_shape = np.shape(gmt)
-    nhmt_shape = np.shape(nhmt)
-    shmt_shape = np.shape(shmt)
+    # nhmt_shape = np.shape(nhmt)
+    # shmt_shape = np.shape(shmt)
     if first:
         gmt_save = np.zeros([gmt_shape[0],gmt_shape[1],niters])
-        nhmt_save = np.zeros([nhmt_shape[0],nhmt_shape[1],niters])
-        shmt_save = np.zeros([shmt_shape[0],shmt_shape[1],niters])
+        # nhmt_save = np.zeros([nhmt_shape[0],nhmt_shape[1],niters])
+        # shmt_save = np.zeros([shmt_shape[0],shmt_shape[1],niters])
         first = False
         
     gmt_save[:,:,kk] = gmt
-    nhmt_save[:,:,kk] = nhmt
-    shmt_save[:,:,kk] = shmt
+    # nhmt_save[:,:,kk] = nhmt
+    # shmt_save[:,:,kk] = shmt
        
 # average and 5-95% range
 # 1. global mean
@@ -352,16 +353,16 @@ gmse = np.reshape(gmt_save,(gmt_shape[0],gmt_shape[1]*niters))
 sagmt = np.mean(gmse,1)
 gmt_min = np.percentile(gmse,5,axis=1)
 gmt_max = np.percentile(gmse,95,axis=1)
-# 2. NH
-nhse = np.reshape(nhmt_save,(nhmt_shape[0],nhmt_shape[1]*niters))
-sanhmt = np.mean(nhse,1)
-nhmt_min = np.percentile(nhse,5,axis=1)
-nhmt_max = np.percentile(nhse,95,axis=1)
-# 3. SH
-shse = np.reshape(shmt_save,(shmt_shape[0],shmt_shape[1]*niters))
-sashmt = np.mean(shse,1)
-shmt_min = np.percentile(shse,5,axis=1)
-shmt_max = np.percentile(shse,95,axis=1)
+# # 2. NH
+# nhse = np.reshape(nhmt_save,(nhmt_shape[0],nhmt_shape[1]*niters))
+# sanhmt = np.mean(nhse,1)
+# nhmt_min = np.percentile(nhse,5,axis=1)
+# nhmt_max = np.percentile(nhse,95,axis=1)
+# # 3. SH
+# shse = np.reshape(shmt_save,(shmt_shape[0],shmt_shape[1]*niters))
+# sashmt = np.mean(shse,1)
+# shmt_min = np.percentile(shse,5,axis=1)
+# shmt_max = np.percentile(shse,95,axis=1)
     
 # define for later use
 LMR_time = recon_times
