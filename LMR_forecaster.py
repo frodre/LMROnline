@@ -132,6 +132,7 @@ class LIMForecaster(BaseForecaster):
         else:
             load_vars = FcastVar.get_fcast_prior_match_vars(lim_cfg.fcast_varnames)
 
+        load_vars.sort()
         save_attrs = [lim_cfg.datatag, num_pcs, dobj_num_pcs] + list(load_vars)
         save_str = str(save_attrs).encode('utf-8')
         save_hasher = hashlib.md5()
