@@ -1354,6 +1354,35 @@ class PriorVariable(GriddedVariable):
 
         return psm_req_prior_dict
 
+    @staticmethod
+    def get_base_and_psm_req_vars(prior_config,
+                                  psm_type_avg_intervals):
+
+        orig_avg_interval = prior_config.avg_interval
+        base_vars = prior_config.state_variables
+
+        base_keys = [(var, orig_avg_interval) for var in base_vars]
+
+        varnames_avg_intervals = {}
+
+        # Convert the required average interval keys to the prior variable name
+        psm_var_map = prior_config.psm_var_map
+        for key, curr_avg_intervals in psm_type_avg_intervals.items():
+            psm_sensitivity, psm_generic_var = key
+            prior_varname = psm_var_map[psm_sensitivity][psm_generic_var]
+            varnames_avg_intervals[prior_varname] = curr_avg_intervals
+
+        psm_req_keys = []
+        for varname, avg_interval_names in varnames_avg_intervals.items():
+            for avg_interval in avg_interval_names:
+                if varname in base_vars and avg_interval == orig_avg_interval:
+                    # Already have this key in the list
+                    continue
+
+                psm_req_keys.append((varname, avg_interval))
+
+        return base_keys, psm_req_keys
+
 
 class ForecasterVariable(GriddedVariable):
 
