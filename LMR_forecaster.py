@@ -55,23 +55,28 @@ class LIMForecaster(BaseForecaster):
         self.var_eofs = {}
         self.var_order = []
         self.var_span = {}
-        self._pre_concat_data = []
         self._start = 0
         self._end = 0
+
+        # Used for data concatenation
+        self._pre_concat_data_std = []
+        self._pre_concat_data_reg = []
 
         # list of datatag, multivar_num_pcs, dobj_num_pcs, load_vars
         self._save_attrs = save_attrs
 
         for key, fcast_var in fcast_var_gen:
 
+            # self.var_order.append(key)
+
             # Convert data into pylim.DataObject and then perform processing
             dobj = self._process_forecast_variable(key, fcast_var, detrend,
                                                    nelem_in_yr, dobj_num_pcs)
 
             # Handle combination into LIMState
-            self._process_lim_state_params(key, dobj, 'data')
+            self._process_lim_state_params(key, dobj)
 
-        calib_state_std = self._combine_lim_state_data()
+        calib_state_std, calib_state_reg = self._combine_lim_state_data()
 
         # Calculate multi-variate EOFs
         [calib_state_eofs,
@@ -79,16 +84,12 @@ class LIMForecaster(BaseForecaster):
         calib_state_variance_stats] = _calc_limstate_eofs(calib_state_std,
                                                           multivar_num_pcs)
         self.calib_eofs = calib_state_eofs
+        ret_variance = calib_state_variance_stats['var_expl_by_ret'] * 100
+        print(f'Variance % retained in multi-variate EOF truncation: '
+              f'{ret_variance:3.1f}%')
 
-        # Collect dobject data for projecting EOFs upon and calibrating LIM
-        # [calib_state_reg,
-        #  _, _] = _combine_dobjs_into_limstate(fcast_calib_dobjs, 'eof_proj')
-        #
-        # # Project unstandardized ata on the calculated EOFs
-        # eof_proj_calib = calib_state_reg @ calib_state_eofs
-
-        # Project unstandardized ata on the calculated EOFs
-        eof_proj_calib = calib_state_std @ calib_state_eofs
+        # Project unstandardized data on the calculated EOFs
+        eof_proj_calib = calib_state_reg @ calib_state_eofs
 
         if fcast_type == 'noise_integrate':
             fit_noise = True
@@ -161,6 +162,7 @@ class LIMForecaster(BaseForecaster):
                 os.makedirs(output_dir)
 
             with open(output_path, 'wb') as f:
+                print(f'Saving pre-calibrated LIM: {output_path}')
                 pickle.dump(lim_obj, f)
 
         lim_obj.print_lim_save_attrs()
@@ -171,10 +173,11 @@ class LIMForecaster(BaseForecaster):
         """Perfect no-noise forecast. Drastically reduces output variance."""
         fcast_state = []
         is_compressed = []
+
         for var_key in self.var_order:
             var, avg_interval = var_key
             prior_var_key = self.prior_map[var]
-            data = state_obj.get_var_data(var_key)
+            data = state_obj.get_var_data((prior_var_key, avg_interval))
             if np.any(np.isnan(data)):
                 # Get the LIM calibration defined mask
                 valid_mask = self.valid_data_mask[var_key]
@@ -285,38 +288,49 @@ class LIMForecaster(BaseForecaster):
 
         # TODO: Fix cell area loading in LMR_gridded
         data_obj.area_weight_data(save=False)
-        data_obj.eof_proj_data(dobj_num_pcs, proj_key=proj_key, save=False)
+        data_obj.eof_proj_data(dobj_num_pcs, proj_key=proj_key, save=True)
         self.var_eofs[key] = data_obj._eofs
         data_obj.standardize_data(save=False)
 
         return data_obj
 
-    def _process_lim_state_params(self, key, data_obj, data_obj_dkey):
+    def _process_lim_state_params(self, key, data_obj):
         self.var_order.append(key)
-        dobj_data = getattr(data_obj, data_obj_dkey)
-        self._pre_concat_data.append(dobj_data)
-        self._end = self._start + dobj_data.shape[1]
+
+        # Standardized data for calculating the multi-variate EOFs
+        dobj_data_std = data_obj.data
+
+        # Regular EOF projected
+        dobj_data_reg = data_obj.eof_proj
+
+        self._pre_concat_data_std.append(dobj_data_std)
+        self._pre_concat_data_reg.append(dobj_data_reg)
+        self._end = self._start + dobj_data_std.shape[1]
         self.var_span[key] = (self._start, self._end)
         self._start = self._end
 
     def _combine_lim_state_data(self):
 
         curr_min = 1e10
-        for var_data in self._pre_concat_data:
+        for var_data in self._pre_concat_data_std:
             curr_min = min(curr_min, var_data.shape[0])
 
-        for i, var_data in enumerate(self._pre_concat_data):
-            shave_yr = var_data.shape[0] - curr_min
+        for i in range(len(self._pre_concat_data_std)):
+            var_data_std = self._pre_concat_data_std[i]
+            var_data_reg = self._pre_concat_data_reg[i]
+
+            shave_yr = var_data_std.shape[0] - curr_min
             if shave_yr > 1:
                 raise ValueError('Havent planned for more than 1 year being '
                                  'removed from data after it is averaged...')
 
-            self._pre_concat_data[i] = var_data[shave_yr:]
+            self._pre_concat_data_std[i] = var_data_std[shave_yr:]
+            self._pre_concat_data_reg[i] = var_data_reg[shave_yr:]
 
-        lim_state_data = np.concatenate(self._pre_concat_data, axis=1)
-        self._pre_concat_data = None
+        lim_state_std = np.concatenate(self._pre_concat_data_std, axis=1)
+        lim_state_reg = np.concatenate(self._pre_concat_data_reg, axis=1)
 
-        return lim_state_data
+        return lim_state_std, lim_state_reg
 
 
 @class_docs_fixer
