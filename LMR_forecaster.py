@@ -55,6 +55,7 @@ class LIMForecaster(BaseForecaster):
         self.var_eofs = {}
         self.var_order = []
         self.var_span = {}
+        self.var_eof_stats = {}
         self._start = 0
         self._end = 0
 
@@ -81,12 +82,14 @@ class LIMForecaster(BaseForecaster):
         # Calculate multi-variate EOFs
         [calib_state_eofs,
         calib_state_svals,
-        calib_state_variance_stats] = _calc_limstate_eofs(calib_state_std,
+        calib_state_eof_stats] = _calc_limstate_eofs(calib_state_std,
                                                           multivar_num_pcs)
         self.calib_eofs = calib_state_eofs
-        ret_variance = calib_state_variance_stats['var_expl_by_ret'] * 100
+        ret_variance = calib_state_eof_stats['var_expl_by_ret'] * 100
         print(f'Variance % retained in multi-variate EOF truncation: '
               f'{ret_variance:3.1f}%')
+
+        self.multi_var_eof_stats = calib_state_eof_stats
 
         # Project unstandardized data on the calculated EOFs
         eof_proj_calib = calib_state_reg @ calib_state_eofs
@@ -291,6 +294,8 @@ class LIMForecaster(BaseForecaster):
         data_obj.eof_proj_data(dobj_num_pcs, proj_key=proj_key, save=True)
         self.var_eofs[key] = data_obj._eofs
         data_obj.standardize_data(save=False)
+
+        self.var_eof_stats[key] = data_obj.get_eof_stats()
 
         return data_obj
 
