@@ -1297,7 +1297,7 @@ class PriorVariable(GriddedVariable):
         return unique_kwargs
 
     @classmethod
-    def load_allvars(cls, prior_config):
+    def load_allvars(cls, prior_config, req_psm_vars=None):
         """
         Load all variables specified in the prior configuration
 
@@ -1325,6 +1325,14 @@ class PriorVariable(GriddedVariable):
             pobj = cls.load(prior_config, vname, anomaly=anomaly)
 
             prior_dict[(vname, avg_interval)] = pobj
+
+        if req_psm_vars is not None:
+            for vname, avg_interval in req_psm_vars:
+
+                prior_config.update_avg_interval(avg_interval)
+                pobj = cls.load(prior_config, vname, anomaly=True)
+
+                prior_dict[(vname, avg_interval)] = pobj
 
         return prior_dict
 
@@ -1550,22 +1558,17 @@ class State(object):
 
     @classmethod
     def from_config(cls, prior_config, req_avg_intervals=None):
-        pvars = PriorVariable.load_allvars(prior_config)
-        base_prior_keys = tuple(pvars.keys())
 
-        if req_avg_intervals is not None:
-            req_psm_pvars = PriorVariable.load_psm_required_vars(prior_config,
-                                                                 req_avg_intervals)
-            psm_prior_keys = tuple(req_psm_pvars.keys())
-            pvars.update(req_psm_pvars)
-        else:
-            psm_prior_keys = None
+        [base_keys,
+         psm_keys] = PriorVariable.get_base_and_psm_req_vars(prior_config,
+                                                             req_avg_intervals)
+        pvars = PriorVariable.load_allvars(prior_config, req_psm_vars=psm_keys)
 
         psm_var_map = prior_config.psm_var_map
 
         return cls(pvars,
-                   base_prior_keys=base_prior_keys,
-                   psm_prior_keys=psm_prior_keys,
+                   base_prior_keys=base_keys,
+                   psm_prior_keys=psm_keys,
                    psm_var_map=psm_var_map)
 
     def get_var_data(self, var_name):
