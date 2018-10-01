@@ -120,7 +120,7 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
             plt.colorbar(cf, cax=cax, orientation='horizontal')
             
     if save_file is not None:
-        plt.savefig(save_file, dpi=150)
+        plt.savefig(save_file, dpi=80)
 
     if INTERACTIVE_PLOT:
         plt.show()
