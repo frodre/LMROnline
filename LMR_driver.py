@@ -73,7 +73,8 @@ import LMR_gridded
 import LMR_outputs as lmr_out
 import LMR_config as BaseCfg
 import LMR_forecaster
-from LMR_DA import enkf_update_array_xb_blend, process_hybrid_static_prior
+from LMR_DA import (enkf_update_array_xb_blend, process_hybrid_static_prior,
+                    get_valid_proxies_info, kalman_optimal)
 
 
 # *** main driver
@@ -272,79 +273,27 @@ def LMR_driver_callable(cfg=None):
         lmr_out.save_field_output(iyr, 'prior', Xb_one, field_hdf5_outputs,
                                   output_def=outputs['prior'])
 
+        ye_vals = Xb_one.get_var_data('ye_vals')
+
+        # Gather proxies / Ye values for the year
+        [p_vals, p_errs,
+         valid_pidxs] = get_valid_proxies_info(t, prox_manager)
+
+        valid_ye_vals = ye_vals[valid_pidxs, :]
+
         # Update Xb with each proxy
-        for iproxy, Y in enumerate(prox_manager.sites_assim_proxy_objs()):
 
-            # Crude check if we have proxy ob for current time
-            try:
-                Y.values[t]
-            except KeyError:
-                continue
+        Xa = kalman_optimal(Xb_one.state, p_vals, p_errs, valid_ye_vals,
+                            verbose=False)
 
-            if verbose > 1:
-                print('--------------- Processing proxy: ' + Y.id)
-            if verbose > 2:
-                print('Site:', Y.id, ':', Y.type)
-                print(' latitude, longitude: ' + str(Y.lat), str(Y.lon))
-
-            loc = None
-            if loc_rad is not None:
-                if verbose > 2:
-                    print('...computing localization...')
-                    raise NotImplementedError('Covariance localization'
-                                              ' not properly implemented'
-                                              ' yet.')
-                    # loc = cov_localization(loc_rad, X, Y)
-
-            # Get Ye values for current proxy
-            Ye = Xb_one.get_var_data('ye_vals')[iproxy]
-
-            # Define the ob error variance
-            ob_err = Y.psm_obj.R
-
-            # TODO: If I ever do subannual forecasts need to adjust this
-            mse = np.mean((Y.values[t] - Ye)**2)
-            y_ye_var = Ye.var(ddof=1) + ob_err
-            ens_calib_check[iproxy, iyr % 5] = mse / y_ye_var
-            if not np.all(np.isfinite(ens_calib_check)):
-                raise FilterDivergenceError('Filter divergence detected'
-                                            ' during year {}. Skipping '
-                                            'iteration.'.format(t))
-
-            # --------------------------------------------------------------
-            # Do the update (assimilation) ---------------------------------
-            # --------------------------------------------------------------
-            if verbose > 2:
-                print(('updating time: ' + str(t) + ' proxy value : ' +
-                       str(Y.values[t]) + ' | mean prior proxy estimate: ' +
-                       str(Ye.mean())))
-
-            # Get static Ye for hybrid update
-            if hybrid_update:
-                Ye_static = Yevals_static[iproxy]
-                hybrid_tup = (Xb_static, Ye_static)
-            else:
-                hybrid_tup = None
-
-            # Update the state
-            Xa = enkf_update_array_xb_blend(Xb_one.state,
-                                            Y.values[t], Ye, ob_err, loc,
-                                            static_prior=hybrid_tup,
-                                            a=hybrid_a_val)
-
-            Xb_one.state = Xa
-
-
-            # check the variance change for sign
-            thistime = time()
-            lasttime = thistime
+        Xb_one.state = Xa
 
 
         # Check for filter divergence
-        if ens_calib_check.mean() > 50:
-            raise FilterDivergenceError('Filter divergence detected'
-                                        ' during year {}. Skipping '
-                                        'iteration.'.format(t))
+        # if ens_calib_check.mean() > 50:
+        #     raise FilterDivergenceError('Filter divergence detected'
+        #                                 ' during year {}. Skipping '
+        #                                 'iteration.'.format(t))
 
         # Calculate and store index values from field
         calc_and_store_scalars(Xb_one, iyr)

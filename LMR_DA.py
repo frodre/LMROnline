@@ -8,6 +8,8 @@
 #==========================================================================================
 
 import numpy as np
+from time import time
+
 import LMR_utils as LMR_utils
 
 def enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None):
@@ -191,9 +193,236 @@ def enkf_update_array_xb_blend(Xb, obvalue, Ye, ob_err, loc=None, inflate=None,
     return Xa
 
 
+def kalman_optimal(Xb, proxy_obs, proxy_errors, ye_ens, num_svals=None,
+                   verbose=False):
+    """
+    Originator
+    ==========
+    Greg Hakim
+    University of Washington
+    26 February 2018
+
+    -- Adapted by AndreP September 2018
+
+    Parameters
+    ----------
+    Xb: ndarray
+        State data to be updated by assimilation (Nx x Nens)
+    proxy_obs: ndarray
+        Proxy obervations used to update the state (Nobs)
+    proxy_errors: ndarray
+        Proxy error values for each proxy (Nobs)
+    ye_ens: ndarray
+        Estimated observations from the state for each proxy (Nobs x Nens)
+    num_svals: int, Optional
+        Number of singular values to use in the transformed update space
+    verbose: bool, Optional
+        Print verbose information about the assimilation update
+
+    Returns
+    -------
+    ndarray
+        The updated state data
+
+    """
+
+    if verbose:
+        print('Updating state using Kalman Optimal solver all at once.')
+
+    begin_time = time()
+
+    nobs = ye_ens.shape[0]
+    nens = ye_ens.shape[1]
+    num_dof = min(nobs, nens)
+
+    if verbose:
+        print(f'number of obs: {nobs:d}')
+        print(f'number of ensemble members: {nens:d}')
+
+    # ensemble prior mean and perturbations
+    xbm = Xb.mean(axis=1, keepdims=True)
+    Xbp = Xb - xbm
+
+    R = np.diag(proxy_errors)
+    Risr = np.diag(1 / np.sqrt(proxy_errors))
+
+    Yem = ye_ens.mean(axis=1, keepdims=True)
+    Yep = ye_ens - Yem
+    Htp = np.dot(Risr, Yep) / np.sqrt(nens - 1)
+    Htm = np.dot(Risr, Yem)
+    Yt = np.dot(Risr, proxy_obs[:, None])
+
+    U, s, VT = np.linalg.svd(Htp, full_matrices=True)
+
+    if not num_svals:
+        num_svals = len(s) - 1
+
+    if verbose:
+        print(f'ndof : {num_dof}')
+        print(f'U : {U.shape}')
+        print(f's : {s.shape}')
+        print(f'V : {VT.shape}')
+        print(f'recontructing using {num_svals} singular values')
+
+    innov = np.dot(U.T, Yt - Htm)
+
+    # Kalman gain
+    Kpre = s[0:num_svals] / (s[0:num_svals] * s[0:num_svals] + 1)
+    K = np.zeros([nens, nobs])
+    np.fill_diagonal(K, Kpre)
+
+    # ensemble-mean analysis increment in transformed space
+    xhatinc = np.dot(K, innov)
+    # ensemble-mean analysis increment in the transformed ensemble space
+    xtinc = np.dot(VT.T, xhatinc) / np.sqrt(nens - 1)
+
+    # ensemble-mean analysis increment in the original space
+    xinc = np.dot(Xbp, xtinc)
+    # ensemble mean analysis in the original space
+    xam = xbm + xinc
+
+    # transform the ensemble perturbations
+    lam = np.zeros([nobs, nens])
+    np.fill_diagonal(lam, s[0:num_svals])
+    tmp = np.linalg.inv(np.dot(lam, lam.T) + np.identity(nobs))
+    sigsq = np.identity(nens) - np.dot(np.dot(lam.T, tmp), lam)
+    sig = np.sqrt(sigsq)
+    T = np.dot(VT.T, sig)
+    Xap = np.dot(Xbp, T)
+
+    # perturbations must have zero mean
+    Xap = Xap - Xap.mean(axis=1, keepdims=True)
+
+    if verbose:
+        print(f'min s: {min(s)}')
+
+    elapsed_time = time() - begin_time
+    if verbose:
+        print('-----------------------------------------------------')
+        print(f'completed in {elapsed_time:2.2f} seconds')
+        print('-----------------------------------------------------')
+
+    readme = '''
+        The SVD dictionary contains the SVD matrices U,s,V where V 
+        is the transpose of what numpy returns. xtinc is the ensemble-mean
+        analysis increment in the intermediate space; *any* state variable 
+        can be reconstructed from this matrix.
+        '''
+    SVD = {'U': U, 's': s, 'V': VT.T, 'xtinc': xtinc, 'readme': readme}
+
+    Xa = xam + Xap
+
+    return Xa
+
+
+def kalman_ensrf_serial():
+    for iproxy, Y in enumerate(prox_manager.sites_assim_proxy_objs()):
+
+        # Crude check if we have proxy ob for current time
+        try:
+            Y.values[t]
+        except KeyError:
+            continue
+
+        if verbose > 1:
+            print('--------------- Processing proxy: ' + Y.id)
+        if verbose > 2:
+            print('Site:', Y.id, ':', Y.type)
+            print(' latitude, longitude: ' + str(Y.lat), str(Y.lon))
+
+        loc = None
+        if loc_rad is not None:
+            if verbose > 2:
+                print('...computing localization...')
+                raise NotImplementedError('Covariance localization'
+                                          ' not properly implemented'
+                                          ' yet.')
+                # loc = cov_localization(loc_rad, X, Y)
+
+        # Get Ye values for current proxy
+        Ye = Xb_one.get_var_data('ye_vals')[iproxy]
+
+        # Define the ob error variance
+        ob_err = Y.psm_obj.R
+
+        # TODO: If I ever do subannual forecasts need to adjust this
+        mse = np.mean((Y.values[t] - Ye) ** 2)
+        y_ye_var = Ye.var(ddof=1) + ob_err
+        ens_calib_check[iproxy, iyr % 5] = mse / y_ye_var
+        if not np.all(np.isfinite(ens_calib_check)):
+            raise FilterDivergenceError('Filter divergence detected'
+                                        ' during year {}. Skipping '
+                                        'iteration.'.format(t))
+
+        # --------------------------------------------------------------
+        # Do the update (assimilation) ---------------------------------
+        # --------------------------------------------------------------
+        if verbose > 2:
+            print(('updating time: ' + str(t) + ' proxy value : ' +
+                   str(Y.values[t]) + ' | mean prior proxy estimate: ' +
+                   str(Ye.mean())))
+
+        # Get static Ye for hybrid update
+        if hybrid_update:
+            Ye_static = Yevals_static[iproxy]
+            hybrid_tup = (Xb_static, Ye_static)
+        else:
+            hybrid_tup = None
+
+        # Update the state
+        Xa = enkf_update_array_xb_blend(Xb_one.state,
+                                        Y.values[t], Ye, ob_err, loc,
+                                        static_prior=hybrid_tup,
+                                        a=hybrid_a_val)
+
+        Xb_one.state = Xa
+
+        # check the variance change for sign
+        thistime = time()
+        lasttime = thistime
+
+
 # ==============================================================================
-#
-#==========================================================================================
+# DA Utility Functions
+# ==============================================================================
+
+
+def get_valid_proxies_info(target_year, proxy_manager, verbose=False):
+
+    begin_time = time()
+
+    if verbose:
+        print(f'Finding proxy records for year: {target_year:4d}')
+
+    proxy_vals = []
+    proxy_errs = []
+    proxy_idxs = []
+
+    for pidx, proxy_obj in enumerate(proxy_manager.sites_assim_proxy_objs()):
+
+        try:
+            proxy_val = proxy_obj.values[target_year]
+        except KeyError:
+            if verbose:
+                print(f'No obs in target year {target_year:4d} for proxy '
+                      f'{proxy_obj.type}.')
+            continue
+
+        proxy_vals.append(proxy_val)
+        proxy_errs.append(proxy_obj.psm_obj.error())
+        proxy_idxs.append(pidx)
+
+    proxy_vals = np.array(proxy_vals)
+    proxy_errs = np.array(proxy_errs)
+
+    elapsed_time = time() - begin_time
+    if verbose:
+        print('-----------------------------------------------------')
+        print(f'completed in {elapsed_time:2.2f} seconds')
+        print('-----------------------------------------------------')
+
+    return proxy_vals, proxy_errs, proxy_idxs
+
 
 def process_hybrid_static_prior(yr_idx, prior_state, blend_prior, hybrid_a_val):
     if yr_idx == 0:

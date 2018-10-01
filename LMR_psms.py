@@ -681,7 +681,7 @@ class LinearPSM_TorP(BasePSM):
 
     # Define the error model for this proxy
     def error(self):
-        return 0.12
+        return self.R
 
     def calibrate(self, calib_obj, proxy, diag_output=False, diag_output_figs=False):
         """
@@ -894,9 +894,8 @@ class BilinearPSM(BasePSM):
         return coef_T*data_T + coef_P*data_P + self.intercept
 
     # Define the error model for this proxy
-    @staticmethod
-    def error():
-        return 0.1
+    def error(self):
+        return self.R
 
     # TODO: Simplify a lot of the actions in the calibration
     def calibrate(self, cobj_T, cobj_P, proxy, diag_output=False, diag_output_figs=False):
