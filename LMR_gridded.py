@@ -373,7 +373,7 @@ class GriddedVariable(object):
         step = 10
         for i in np.arange(0, len(self.data), step=step):
             tmp_data = self.data[i:i+step]
-            mask = tmp_data == self._fill_val
+            mask = self._check_fill_val_mach_eps(tmp_data, self._fill_val)
 
             # Determine if invalid data and set flag to convert to
             # np.ma.MaskedArray
@@ -383,8 +383,17 @@ class GriddedVariable(object):
                 tmp_data[mask] = np.nan
                 self.data[i:i+step] = tmp_data
         if convert_to_masked_array:
-            pass
-            # self.data = np.ma.masked_invalid(self.data)
+            self.data = np.ma.masked_invalid(self.data)
+
+    @staticmethod
+    def _check_fill_val_mach_eps(data, fill_val):
+        eps = np.finfo(data.dtype).eps
+        fill_upper = fill_val + fill_val*eps
+        fill_lower = fill_val - fill_val*eps
+
+        match = (data <= fill_upper) & (data >= fill_lower)
+
+        return match
 
     def nan_to_fill_val(self):
         """
@@ -837,6 +846,7 @@ class GriddedVariable(object):
                                    calib_period=calib_period)
             print('Loaded from file: {}/{}'.format(file_dir, file_name))
 
+        # TODO: This may be unnecessary due to usage in loaders
         var_obj.fill_val_to_nan()
 
         # Do regridding and save if specified
@@ -949,6 +959,8 @@ class GriddedVariable(object):
                           'regridding: {}.'.format(regrid_obj_dir)))
 
             obj.data = obj_data
+
+            obj.fill_val_to_nan()
 
             if (anomaly and obj.climo is None) or anom_ref is not None:
                 if not obj.ref_period == anom_ref:
@@ -1093,6 +1105,8 @@ class GriddedVariable(object):
                            lat_grid=lat_grid, lon_grid=lon_grid,
                            cell_area=cell_area, data_req_frac=data_req_frac,
                            ref_period=anom_ref, **dim_vals)
+
+            grid_obj.fill_val_to_nan()
 
             if anomaly:
                 grid_obj.convert_to_anomaly(ref_period=anom_ref)
@@ -1283,7 +1297,7 @@ class PriorVariable(GriddedVariable):
         return unique_kwargs
 
     @classmethod
-    def load_allvars(cls, prior_config):
+    def load_allvars(cls, prior_config, req_psm_vars=None):
         """
         Load all variables specified in the prior configuration
 
@@ -1300,7 +1314,7 @@ class PriorVariable(GriddedVariable):
 
         """
         var_names = prior_config.state_variables
-        avg_interval = prior_config.avg_interval
+        orig_avg_interval = prior_config.avg_interval
 
         prior_dict = OrderedDict()
         for vname, anomaly in var_names.items():
@@ -1310,7 +1324,17 @@ class PriorVariable(GriddedVariable):
                 anomaly = False
             pobj = cls.load(prior_config, vname, anomaly=anomaly)
 
-            prior_dict[(vname, avg_interval)] = pobj
+            prior_dict[(vname, orig_avg_interval)] = pobj
+
+        if req_psm_vars is not None:
+            for vname, avg_interval in req_psm_vars:
+
+                prior_config.update_avg_interval(avg_interval)
+                pobj = cls.load(prior_config, vname, anomaly=True)
+
+                prior_dict[(vname, avg_interval)] = pobj
+
+        prior_config.update_avg_interval(orig_avg_interval)
 
         return prior_dict
 
@@ -1518,6 +1542,10 @@ class State(object):
             var_end = flat_data.T.shape[0] + var_start
             self.var_view_range[var_key] = (var_start, var_end)
             self.len_state = var_end
+
+            if np.ma.is_masked(flat_data):
+                flat_data = flat_data.filled(np.nan)
+
             state.append(flat_data.T)
 
             if var_name not in self.var_space_shp:
@@ -1532,22 +1560,17 @@ class State(object):
 
     @classmethod
     def from_config(cls, prior_config, req_avg_intervals=None):
-        pvars = PriorVariable.load_allvars(prior_config)
-        base_prior_keys = tuple(pvars.keys())
 
-        if req_avg_intervals is not None:
-            req_psm_pvars = PriorVariable.load_psm_required_vars(prior_config,
-                                                                 req_avg_intervals)
-            psm_prior_keys = tuple(req_psm_pvars.keys())
-            pvars.update(req_psm_pvars)
-        else:
-            psm_prior_keys = None
+        [base_keys,
+         psm_keys] = PriorVariable.get_base_and_psm_req_vars(prior_config,
+                                                             req_avg_intervals)
+        pvars = PriorVariable.load_allvars(prior_config, req_psm_vars=psm_keys)
 
         psm_var_map = prior_config.psm_var_map
 
         return cls(pvars,
-                   base_prior_keys=base_prior_keys,
-                   psm_prior_keys=psm_prior_keys,
+                   base_prior_keys=base_keys,
+                   psm_prior_keys=psm_keys,
                    psm_var_map=psm_var_map)
 
     def get_var_data(self, var_name):

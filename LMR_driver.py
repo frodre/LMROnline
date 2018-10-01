@@ -145,14 +145,6 @@ def LMR_driver_callable(cfg=None):
                                           include_eval=save_analysis_ye)
     req_avg_intervals = prox_manager.avg_interval_by_psm_type
 
-    # Convert the required average interval keys to the prior variable name
-    psm_var_map = prior_cfg.psm_var_map
-    for key in list(req_avg_intervals.keys()):
-        curr_avg_intervals = req_avg_intervals.pop(key)
-        psm_sensitivity, psm_generic_var = key
-        prior_varname = psm_var_map[psm_sensitivity][psm_generic_var]
-        req_avg_intervals[prior_varname] = curr_avg_intervals
-
     type_site_assim = prox_manager.assim_ids_by_group
     # count the total number of proxies
     assim_proxy_count = len(prox_manager.ind_assim)
@@ -242,25 +234,6 @@ def LMR_driver_callable(cfg=None):
     # Extract all the Ye's from master list of proxy objects into numpy array
     ye_all = LMR_proxy.calc_assim_ye_vals(prox_manager, Xb_one)
     Xb_one.augment_state(ye_all)
-
-    # TODO: Switch to cPickled prior object... right now hardcoded for annual
-    # case saving
-    # Dump prior state vector (Xb_one) to file 
-    # filen = workdir + '/' + 'Xb_one'
-    # state = Xb_one.get_var_data('state').copy()
-    # aug_state = Xb_one.state.copy()
-    # nan_vals = np.isnan(state)
-    # if np.any(nan_vals):
-    #     state[nan_vals] = 1.0e20
-    #     aug_state[np.isnan(aug_state)] = 1.0e20
-    # else:
-    #     state = Xb_one.get_var_data('state')
-    #     aug_state = Xb_one.state
-    # np.savez(filen, Xb_one=state,
-    #          Xb_one_aug=aug_state,
-    #          stateDim=state_dim,
-    #          Xb_one_coords=Xb_one.var_coords,
-    #          state_info=Xb_one.old_state_info)
 
     # TODO: replicate single variable prior saving
 

@@ -882,7 +882,7 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
         do_reshape = False
 
     # check for masked values
-    masked_regrid = hasattr(X, 'mask')
+    masked_regrid = hasattr(X, 'mask') and np.any(X.mask)
 
     if masked_regrid:
         print('Mask detected.  Adding mask to src ESMF grid')
@@ -944,7 +944,7 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
     dst_field = ESMF.Field(new_grid, name='dst',
                            staggerloc=ESMF.StaggerLoc.CENTER)
 
-    regrid_output = np.empty((X_nens, target_nlat, target_nlon))
+    regrid_output = np.zeros((X_nens, target_nlat, target_nlon))
     regridder = ESMF.Regrid(src_field, dst_field, regrid_method=use_method,
                             dst_mask_values=mask_values,
                             src_mask_values=mask_values,
@@ -961,14 +961,14 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
 
         # Check for masked values on new grid
         if masked_regrid:
-            out_mask = out_data == 0.0  # if it's exactly zero, it's masked
+            out_mask = np.abs(out_data) == 0.0  # if it's exactly zero,
+            # it's masked
             out_data[out_mask] = np.nan
 
         regrid_output[k] = out_data
 
     if masked_regrid:
-        pass
-        # regrid_output = np.ma.masked_invalid(regrid_output)
+        regrid_output = np.ma.masked_invalid(regrid_output)
 
     if do_reshape:
         regrid_output = regrid_output.reshape(X_nens, -1)
@@ -988,7 +988,8 @@ def _create_grid_ESMF(nlat, nlon, lat_centers, lon_centers, lat_corners,
 
     # Create grid for the input state data
     grid = ESMF.Grid(max_index=np.array((nlon, nlat)),
-                     num_peri_dims=0,
+                     num_peri_dims=1,
+                     periodic_dim=0,
                      pole_dim=1,
                      coord_sys=ESMF.CoordSys.SPH_DEG,
                      coord_typekind=ESMF.TypeKind.R8,
@@ -1004,9 +1005,9 @@ def _create_grid_ESMF(nlat, nlon, lat_centers, lon_centers, lat_corners,
     # Add grid cell corner boundaries
     grid.add_coords(staggerloc=ESMF.StaggerLoc.CORNER)
     grid_x_corner = grid.get_coords(x, staggerloc=ESMF.StaggerLoc.CORNER)
-    grid_x_corner[:] = lon_corners.T
+    grid_x_corner[:] = lon_corners.T[:-1]
     grid_y_corner = grid.get_coords(y, staggerloc=ESMF.StaggerLoc.CORNER)
-    grid_y_corner[:] = lat_corners.T
+    grid_y_corner[:] = lat_corners.T[:-1]
 
     if mask is not None:
         grid_mask = grid.add_item(ESMF.GridItem.MASK)
@@ -1048,7 +1049,7 @@ def regrid_esmpy_grid_object(target_nlat, target_nlon,
     This regridding function supports masked grids
     """
 
-    print ('Regridding using ESMPy....')
+    print('Regridding using ESMPy....')
     print(('    interpolation method: {}'.format(interp_method)))
     print(('    target grid: nlat={}, nlon={}'.format(target_nlat,
                                                       target_nlon)))
@@ -1059,27 +1060,26 @@ def regrid_esmpy_grid_object(target_nlat, target_nlon,
         lon_grid = grid_obj.lon_grid
         lat_grid = grid_obj.lat_grid
 
-
     if grid_obj.climo is not None:
-        new_climo, lat, lon  = regrid_esmpy(target_nlat, target_nlon,
-                                            1,
-                                            grid_obj.climo,
-                                            lat_grid,
-                                            lon_grid,
-                                            len(grid_obj.lat),
-                                            len(grid_obj.lon),
-                                            method=interp_method)
+        new_climo, lat, lon = regrid_esmpy(target_nlat, target_nlon,
+                                           1,
+                                           grid_obj.climo,
+                                           lat_grid,
+                                           lon_grid,
+                                           len(grid_obj.lat),
+                                           len(grid_obj.lon),
+                                           method=interp_method)
     else:
         new_climo = None
 
-    new_data, new_lat, new_lon =regrid_esmpy(target_nlat, target_nlon,
-                                             grid_obj.nsamples,
-                                             grid_obj.data,
-                                             lat_grid,
-                                             lon_grid,
-                                             len(grid_obj.lat),
-                                             len(grid_obj.lon),
-                                             method=interp_method)
+    new_data, new_lat, new_lon = regrid_esmpy(target_nlat, target_nlon,
+                                              grid_obj.nsamples,
+                                              grid_obj.data,
+                                              lat_grid,
+                                              lon_grid,
+                                              len(grid_obj.lat),
+                                              len(grid_obj.lon),
+                                              method=interp_method)
     return new_data, new_lat, new_lon, new_climo
 
 
