@@ -228,11 +228,22 @@ class LIMForecaster(BaseForecaster):
         dobj_npcs = self._save_attrs[2]
         load_vars = self._save_attrs[3:]
 
-        str = (f'Calibrated LIM Attributes:\n'
+        dobj_eof_str = ''
+        for var_key, eof_stats in self.var_eof_stats.items():
+            tot_var_ret = eof_stats['var_expl_by_ret'] * 100
+            dobj_eof_str += f'\t{var_key}: \t{tot_var_ret:3.1f}\n'
+
+        multi_var_pct = self.multi_var_eof_stats['var_expl_by_ret'] * 100
+
+        str = (f'\nCalibrated LIM Attributes:\n'
                f'==========================\n'
                f'data source: {datatag}\n'
                f'dobj num pcs: {dobj_npcs:3d}\n'
+               f'dobj EOF percentage variance retained:\n'
+               f'{dobj_eof_str}'
                f'multivar num pcs: {mvar_npcs:3d}\n'
+               f'percentage of multi-variate variance retained: '
+               f'\t{multi_var_pct:3.1f}\n'
                f'included variable/avg_intervals: {load_vars}\n'
                f'==========================\n')
 

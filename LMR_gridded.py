@@ -1314,7 +1314,7 @@ class PriorVariable(GriddedVariable):
 
         """
         var_names = prior_config.state_variables
-        avg_interval = prior_config.avg_interval
+        orig_avg_interval = prior_config.avg_interval
 
         prior_dict = OrderedDict()
         for vname, anomaly in var_names.items():
@@ -1324,7 +1324,7 @@ class PriorVariable(GriddedVariable):
                 anomaly = False
             pobj = cls.load(prior_config, vname, anomaly=anomaly)
 
-            prior_dict[(vname, avg_interval)] = pobj
+            prior_dict[(vname, orig_avg_interval)] = pobj
 
         if req_psm_vars is not None:
             for vname, avg_interval in req_psm_vars:
@@ -1333,6 +1333,8 @@ class PriorVariable(GriddedVariable):
                 pobj = cls.load(prior_config, vname, anomaly=True)
 
                 prior_dict[(vname, avg_interval)] = pobj
+
+        prior_config.update_avg_interval(orig_avg_interval)
 
         return prior_dict
 
