@@ -10,7 +10,8 @@ import pylim.Stats as plstat
 from LMR_utils import class_docs_fixer
 import LMR_gridded
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
+# logging.basicConfig(level=logging.INFO)
 
 
 class BaseForecaster:
@@ -100,7 +101,7 @@ class LIMForecaster(BaseForecaster):
             fit_noise = False
 
         self.lim = LIM.LIM(eof_proj_calib, nelem_in_tau1=nelem_in_yr,
-                           fit_noise=fit_noise)
+                           fit_noise=fit_noise, max_neg_Qeval=25)
         self.prior_map = prior_map
         self.fcast_lead = fcast_lead
         self.match_prior = match_prior
@@ -266,8 +267,11 @@ class LIMForecaster(BaseForecaster):
 
     def _noise_integration(self, state_arr):
         # TODO: need to add a seed list generated for each recon year
-        return self.lim.noise_integration(state_arr, self.fcast_lead,
-                                          timesteps=1440)
+        out_arr = np.zeros((1441, *state_arr.shape))
+        res = self.lim.noise_integration(state_arr, self.fcast_lead,
+                                         timesteps=1440, out_arr=out_arr)
+        avg = out_arr.mean(axis=0)
+        return avg
 
     def _decompress_field(self, key, data):
         # Simplified pylim.DataObject.inflate_full_grid because I don't want to
@@ -304,6 +308,7 @@ class LIMForecaster(BaseForecaster):
         data_obj.area_weight_data(save=False)
         data_obj.eof_proj_data(dobj_num_pcs, proj_key=proj_key, save=True)
         self.var_eofs[key] = data_obj._eofs
+        data_obj.calc_anomaly(nelem_in_yr, save=False)
         data_obj.standardize_data(save=False)
 
         self.var_eof_stats[key] = data_obj.get_eof_stats()
