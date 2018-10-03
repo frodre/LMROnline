@@ -56,6 +56,7 @@ class LIMForecaster(BaseForecaster):
         self.var_eofs = {}
         self.var_order = []
         self.var_span = {}
+        self.var_std_factor = {}
         self.var_eof_stats = {}
         self._start = 0
         self._end = 0
@@ -93,7 +94,7 @@ class LIMForecaster(BaseForecaster):
         self.multi_var_eof_stats = calib_state_eof_stats
 
         # Project unstandardized data on the calculated EOFs
-        eof_proj_calib = calib_state_reg @ calib_state_eofs
+        eof_proj_calib = calib_state_std @ calib_state_eofs
 
         if fcast_type == 'noise_integrate':
             fit_noise = True
@@ -189,6 +190,7 @@ class LIMForecaster(BaseForecaster):
                 is_compressed.append(var_key)
             # Transposes sampling dimension and projects into EOF space
             eof_proj = np.dot(data.T, self.var_eofs[var_key])
+            eof_proj_std = eof_proj * self.var_std_factor[var_key]
             fcast_state.append(eof_proj)
 
         fcast_state = np.concatenate(fcast_state, axis=-1)
@@ -206,6 +208,7 @@ class LIMForecaster(BaseForecaster):
             prior_var_key = self.prior_map[var]
             fcast_out = _get_var_from_limstate(var_key, fcast_data,
                                                self.var_span)
+            fcast_out_un_std = fcast_out / self.var_std_factor[var_key]
             phys_space_fcast = fcast_out @ self.var_eofs[var_key].T
             if var_key in is_compressed:
                 phys_space_fcast = self._decompress_field(var_key,
@@ -267,10 +270,10 @@ class LIMForecaster(BaseForecaster):
 
     def _noise_integration(self, state_arr):
         # TODO: need to add a seed list generated for each recon year
-        out_arr = np.zeros((1441, *state_arr.shape))
+        out_arr = np.zeros((1441, *state_arr.shape), dtype=np.complex128)
         res = self.lim.noise_integration(state_arr, self.fcast_lead,
                                          timesteps=1440, out_arr=out_arr)
-        avg = out_arr.mean(axis=0)
+        avg = out_arr.real.mean(axis=0)
         return avg
 
     def _decompress_field(self, key, data):
@@ -311,6 +314,7 @@ class LIMForecaster(BaseForecaster):
         data_obj.calc_anomaly(nelem_in_yr, save=False)
         data_obj.standardize_data(save=False)
 
+        self.var_std_factor[key] = data_obj._std_scaling
         self.var_eof_stats[key] = data_obj.get_eof_stats()
 
         return data_obj
