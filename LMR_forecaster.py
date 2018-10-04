@@ -47,7 +47,7 @@ class LIMForecaster(BaseForecaster):
 
     def __init__(self, lim_config, load_vars, nelem_in_yr, dobj_num_pcs,
                  multivar_num_pcs, detrend, fcast_type, prior_map, fcast_lead,
-                 match_prior, save_attrs):
+                 match_prior, save_attrs, std_before_eof_vars=None):
 
         FcastVar = LMR_gridded.ForecasterVariable
         fcast_var_gen = FcastVar.load_all_gen(lim_config, load_vars)
@@ -56,6 +56,7 @@ class LIMForecaster(BaseForecaster):
         self.var_eofs = {}
         self.var_order = []
         self.var_span = {}
+        self.var_eof_std_factor = {}
         self.var_std_factor = {}
         self.var_eof_stats = {}
         self._start = 0
@@ -74,7 +75,8 @@ class LIMForecaster(BaseForecaster):
 
             # Convert data into pylim.DataObject and then perform processing
             dobj = self._process_forecast_variable(key, fcast_var, detrend,
-                                                   nelem_in_yr, dobj_num_pcs)
+                                                   nelem_in_yr, dobj_num_pcs,
+                                                   std_before_eof_vars)
 
             # Handle combination into LIMState
             self._process_lim_state_params(key, dobj)
@@ -130,6 +132,7 @@ class LIMForecaster(BaseForecaster):
         fcast_lead = lim_cfg.fcast_lead
         fcast_type = lim_cfg.fcast_type
         ignore_precalib = lim_cfg.ignore_precalib_lim
+        var_to_std_before_eof = lim_cfg.var_to_std_before_eof
 
         FcastVar = LMR_gridded.ForecasterVariable
 
@@ -161,7 +164,8 @@ class LIMForecaster(BaseForecaster):
             print(e)
             lim_obj = cls(lim_cfg, load_vars, nelem_in_yr, dobj_num_pcs,
                           num_pcs, detrend, fcast_type, prior_map, fcast_lead,
-                          match_prior, save_attrs)
+                          match_prior, save_attrs,
+                          std_before_eof_vars=var_to_std_before_eof)
 
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
@@ -188,10 +192,16 @@ class LIMForecaster(BaseForecaster):
                 valid_mask = self.valid_data_mask[var_key]
                 data = data[valid_mask, :]
                 is_compressed.append(var_key)
+
+            # Standardize prior to projection (helps for fields a lot of small
+            #  values)
+            if var_key in self.var_std_factor:
+                data = data * self.var_std_factor[var_key]
+
             # Transposes sampling dimension and projects into EOF space
             eof_proj = np.dot(data.T, self.var_eofs[var_key])
-            eof_proj_std = eof_proj * self.var_std_factor[var_key]
-            fcast_state.append(eof_proj)
+            eof_proj_std = eof_proj * self.var_eof_std_factor[var_key]
+            fcast_state.append(eof_proj_std)
 
         fcast_state = np.concatenate(fcast_state, axis=-1)
         fcast_state = fcast_state @ self.calib_eofs
@@ -208,8 +218,12 @@ class LIMForecaster(BaseForecaster):
             prior_var_key = self.prior_map[var]
             fcast_out = _get_var_from_limstate(var_key, fcast_data,
                                                self.var_span)
-            fcast_out_un_std = fcast_out / self.var_std_factor[var_key]
-            phys_space_fcast = fcast_out @ self.var_eofs[var_key].T
+            fcast_out_un_std = fcast_out / self.var_eof_std_factor[var_key]
+            phys_space_fcast = fcast_out_un_std @ self.var_eofs[var_key].T
+
+            if var_key in self.var_std_factor:
+                phys_space_fcast = phys_space_fcast / self.var_std_factor[var_key]
+
             if var_key in is_compressed:
                 phys_space_fcast = self._decompress_field(var_key,
                                                           phys_space_fcast)
@@ -274,7 +288,7 @@ class LIMForecaster(BaseForecaster):
         res = self.lim.noise_integration(state_arr, self.fcast_lead,
                                          timesteps=1440, out_arr=out_arr)
         avg = out_arr.real.mean(axis=0)
-        return avg
+        return res
 
     def _decompress_field(self, key, data):
         # Simplified pylim.DataObject.inflate_full_grid because I don't want to
@@ -291,7 +305,9 @@ class LIMForecaster(BaseForecaster):
         return new_data
 
     def _process_forecast_variable(self, key, fcast_var, detrend, nelem_in_yr,
-                                   dobj_num_pcs):
+                                   dobj_num_pcs, std_before_eof_vars):
+
+        varname, avg_interval = key
 
         # Convert data into pylim.DataObject and then perform processing
         data_obj = fcast_var.forecast_var_to_pylim_dataobj()
@@ -307,6 +323,11 @@ class LIMForecaster(BaseForecaster):
         else:
             proj_key = data_obj._ANOMALY
 
+        if std_before_eof_vars is not None and varname in std_before_eof_vars:
+            data_obj.standardize_data(save=True)
+            self.var_std_factor[key] = data_obj._std_scaling
+            proj_key = data_obj._STD
+
         # TODO: Fix cell area loading in LMR_gridded
         data_obj.area_weight_data(save=False)
         data_obj.eof_proj_data(dobj_num_pcs, proj_key=proj_key, save=True)
@@ -314,7 +335,7 @@ class LIMForecaster(BaseForecaster):
         data_obj.calc_anomaly(nelem_in_yr, save=False)
         data_obj.standardize_data(save=False)
 
-        self.var_std_factor[key] = data_obj._std_scaling
+        self.var_eof_std_factor[key] = data_obj._std_scaling
         self.var_eof_stats[key] = data_obj.get_eof_stats()
 
         return data_obj

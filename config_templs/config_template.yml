@@ -391,14 +391,20 @@ forecaster:
 
     fcast_type: 'noise_integrate'
 
+    # List of variables that need to be standardized before parameter reduction
+    # Necessary if a lot of very small values in the field.
+    var_to_std_before_eof: null
+
     datatag: ccsm4_last_millenium
     avg_interval: annual_std
     fcast_varnames: [tas_sfc_Amon]
+
+    # Map the forecast variables to the prior variables
     prior_mapping:
       tas_sfc_Amon: tas_sfc_Amon
 
     fcast_lead: 1
-    fcast_num_pcs: 40
+    fcast_num_pcs: 100
     dobj_num_pcs: 500
     detrend: True
     ignore_precalib_lim: True

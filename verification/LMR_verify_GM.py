@@ -99,7 +99,7 @@ stat_save = False
 #nexp = 'production_mlost_era20c_pagesall_0.75'
 #nexp = 'production_mlost_era20cm_pagesall_0.75'
 # ---
-nexp = 'test_ensrf_noise_lim_optimal'
+nexp = 'test_ensrf_noise_lim_optimal_bilinear_seasonal'
 # ---
 
 # perform verification using all recon. MC realizations ( MCset = None )
