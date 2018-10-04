@@ -320,13 +320,13 @@ def LMR_driver_callable(cfg=None):
 
             forecaster.forecast(Xb_one)
 
-            # Recalculate Ye values
-            ye_all = LMR_proxy.calc_assim_ye_vals(prox_manager, Xb_one)
-            Xb_one.reset_augmented_ye(ye_all)
-
             # Inflation Adjustment
             if reg_inf:
                 Xb_one.reg_inflate_xb(inf_factor)
+
+            # Recalculate Ye values
+            ye_all = LMR_proxy.calc_assim_ye_vals(prox_manager, Xb_one)
+            Xb_one.reset_augmented_ye(ye_all)
 
     end_time = time() - begin_time
 
