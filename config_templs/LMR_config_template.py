@@ -124,6 +124,10 @@ class wrapper(ConfigGroup):
     param_search: dict{str: Iterable} or None
         Names of configuration parameters to iterate over when performing a
         reconstruction experiment
+    datadir_output: str
+        Absolute path to working directory output for LMR
+    archive_dir: str
+        Absolute path to LMR reconstruction archive directory.
 
     Example
     -------
@@ -141,15 +145,34 @@ class wrapper(ConfigGroup):
     param_search = None
     multi_seed = None
 
+    datadir_output = '/home/katabatic2/wperkins/LMR_output/working'
+    archive_dir = '/home/katabatic2/wperkins/LMR_output/testing'
+
+    nexp = 'testdev_persistence'
+
     ##** END User Parameters **##
 
     def __init__(self, **kwargs):
         super(self.__class__, self).__init__(**kwargs)
 
+        self.iter_range = self.iter_range
+
+        num_iters = self.iter_range[1] - self.iter_range[0] + 1
         if self.multi_seed is not None:
-            self.multi_seed = list(self.multi_seed)
+            if isinstance(self.multi_seed, int):
+                np.random.seed(self.multi_seed)
+                self.multi_seed = np.random.randint(0, high=100000,
+                                                    size=num_iters)
+            else:
+                self.multi_seed = list(self.multi_seed)
+
         self.iter_range = self.iter_range
         self.param_search = deepcopy(self.param_search)
+
+        self.datadir_output = self.datadir_output
+        self.archive_dir = self.archive_dir
+
+        self.nexp = self.nexp
 
 class core(ConfigGroup):
     """
@@ -162,13 +185,12 @@ class core(ConfigGroup):
     Attributes
     ----------
     nexp: str
-        Name of reconstruction experiment
+        Name of reconstruction experiment. None defaults to wrapper.nexp
     lmr_path: str
         Absolute path for the experiment
     datadir_output: str
-        Absolute path to working directory output for LMR
-    archive_dir: str
-        Absolute path to LMR reconstruction archive directory.
+        Absolute path to working directory output for LMR. None defaults to
+        wrapper.datadir_output
     online_reconstruction: bool
         Perform reconstruction with (True) or without (False) cycling
     clean_start: bool
@@ -208,10 +230,10 @@ class core(ConfigGroup):
 
     ##** BEGIN User Parameters **##
 
-    nexp = 'testdev_persistence'
     lmr_path = '/home/disk/katabatic2/wperkins/cp_lim_archive/LMR_slim'
-    datadir_output = '/home/katabatic2/wperkins/LMR_output/working'
-    archive_dir = '/home/katabatic2/wperkins/LMR_output/testing'
+
+    nexp = None
+    datadir_output = None
 
     # Whether or not to produce the analysis_Ye.pckl file
     write_posterior_Ye = False
@@ -246,8 +268,6 @@ class core(ConfigGroup):
 
         self.nexp = self.nexp
         self.lmr_path = self.lmr_path
-        self.datadir_output = self.datadir_output
-        self.archive_dir = self.archive_dir
         self.write_posterior_Ye = self.write_posterior_Ye
         self.online_reconstruction = self.online_reconstruction
         self.clean_start = self.clean_start
@@ -268,6 +288,12 @@ class core(ConfigGroup):
             self.curr_iter = wrapper.iter_range[0]
         else:
             self.curr_iter = curr_iter
+
+        if self.datadir_output is None:
+            self.datadir_output = wrapper.datadir_output
+
+        if self.nexp is None:
+            self.nexp = wrapper.nexp
 
 
 class proxies(ConfigGroup):

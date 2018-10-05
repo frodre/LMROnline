@@ -11,14 +11,16 @@ wrapper:
   param_search: null
   multi_seed: null
 
+  datadir_output: /home/disk/katabatic/wperkins/data/LMR/output/working
+  archive_dir: /home/disk/katabatic/wperkins/data/LMR/output/testing
+
+  nexp: test_ensrf_noise_lim_optimal_bilinear_seasonal
+
 core:
   nexp: test_recon
   lmr_path: /home/disk/kalman3/rtardif/LMR
 
-  datadir_output: /home/disk/kalman3/rtardif/LMR/output/wrk
-  archive_dir: /home/disk/kalman3/rtardif/LMR/output
-
-  online_reconstruction: False
+  online_reconstruction: True
   clean_start: True
   use_precalc_ye: False
   recon_period: !!python/tuple [1850, 1860]

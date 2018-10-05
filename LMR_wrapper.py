@@ -39,10 +39,14 @@ if not LMR_config.LEGACY_CONFIG:
 
     LMR_config.initialize_config_yaml(LMR_config, yaml_file)
 
+wrapper_cfg = LMR_config.wrapper()
+
+cfg_dict = None
+
 # Define main experiment output directory
-iter_range = LMR_config.wrapper.iter_range
-expdir = os.path.join(LMR_config.core.datadir_output, LMR_config.core.nexp)
-arc_dir = os.path.join(LMR_config.core.archive_dir, LMR_config.core.nexp)
+iter_range = wrapper_cfg.iter_range
+expdir = os.path.join(wrapper_cfg.datadir_output, wrapper_cfg.nexp)
+arc_dir = os.path.join(wrapper_cfg.archive_dir, wrapper_cfg.nexp)
 
 # Check if it exists, if not, create it
 if not os.path.isdir(expdir):
@@ -54,7 +58,7 @@ MCiters = range(iter_range[0], iter_range[1]+1)
 param_iterables = [MCiters]
 
 # get other parameters to sweep over in the reconstruction
-param_search = LMR_config.wrapper.param_search
+param_search = wrapper_cfg.param_search
 if param_search is not None:
     # sort them by parameter name and combine into a list of iterables
     sort_params = list(param_search.keys())
@@ -62,13 +66,19 @@ if param_search is not None:
     param_values = [param_search[key] for key in sort_params]
     param_iterables = param_values + [MCiters]
 
+
+print('')
+print('=====================================================')
+print('Running LMR reconstruction wrapper')
+print('=====================================================')
+
 for iter_and_params in itertools.product(*param_iterables):
 
     iter_num = iter_and_params[-1]
-    cfg_dict = Util2.param_cfg_update('core.curr_iter', iter_num)
+    print('Monte Carlo iteration : ', iter_num)
 
     if LMR_config.wrapper.multi_seed is not None:
-        curr_seed = LMR_config.wrapper.multi_seed[iter_num]
+        curr_seed = wrapper_cfg.multi_seed[iter_num]
         cfg_dict = Util2.param_cfg_update('core.seed', curr_seed,
                                           cfg_dict=cfg_dict)
         print(('Setting current iteration seed: {}'.format(curr_seed)))
@@ -93,11 +103,6 @@ for iter_and_params in itertools.product(*param_iterables):
 
     cfg = LMR_config.Config(**cfg_params)
 
-    # proceed = validate_config(cfg)
-    # if not proceed:
-    #     raise SystemExit()
-    # else:
-    #     print 'OK!'
     core = cfg.core
 
     # Check if it exists, if not create it
@@ -126,8 +131,8 @@ for iter_and_params in itertools.product(*param_iterables):
     # scrub the monte carlo subdirectory if this is a clean start
     if os.path.isdir(mc_arc_dir):
         if core.clean_start:
-            print (' **** clean start --- removing existing files in'
-                   ' iteration output directory')
+            print(' **** clean start --- removing existing files in'
+                  ' iteration output directory')
             os.system('rm -f -r {}'.format(mc_arc_dir + '/*'))
     else:
         os.makedirs(mc_arc_dir)

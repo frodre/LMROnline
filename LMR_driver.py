@@ -117,7 +117,6 @@ def LMR_driver_callable(cfg=None):
         print('Running LMR reconstruction...')
         print('=====================================================')
         print('Name of experiment: ', nexp)
-        print(' Monte Carlo iter : ', core_cfg.curr_iter)
         print('')
         
     begin_time = time()
