@@ -13,19 +13,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # defaults to config.core.nexp in working directory
-fig_dir = ('/home/disk/p/wperkins/Research/LMR/lim_diagnostics'
-           '/test_ensrf_noise_seasonal')
+fig_dir = None
 
 # Fig Output
 plot_neofs = 5
-plot_eofs = True
+plot_eofs = False
 plot_state_eofs = True
 
 plot_lim_modes = True
 plot_num_lim_modes = 8
 
 plot_lim_noise_eofs = True
-plot_num_noise_modes = 6
+plot_num_noise_modes = 8
 
 # Perfect Forecast Experiments
 do_perfect_fcast = True
@@ -124,7 +123,7 @@ lim = lim_fcaster.lim
 if plot_lim_noise_eofs:
     fig_fname = os.path.join(fig_dir,
                              '{}_noise_eofs.png'.format(regrid_grid))
-    Q_evect = lim.Q_evects[:, :plot_num_noise_modes]
+    Q_evect = lim.Q_evects[:, :plot_num_noise_modes].real
     noise_eofs = {}
     for var_key, var_eofs in lim_fcaster.var_eofs.items():
         multi_eof_var_span = lim_fcaster.var_span[var_key]

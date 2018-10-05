@@ -1568,6 +1568,8 @@ class forecaster(ConfigGroup):
         prior_mapping = {}
         fcast_type = 'perfect'
 
+        var_to_std_before_eof = None
+
         fcast_lead = 1
         fcast_num_pcs = 20
         dobj_num_pcs = 400
@@ -1582,6 +1584,8 @@ class forecaster(ConfigGroup):
             self.regrid_cfg = regrid_cfg
 
             self.match_prior = self.match_prior
+
+            self.var_to_std_before_eof = deepcopy(self.var_to_std_before_eof)
 
             if self.match_prior:
                 self.datatag = prior_config.prior_source
