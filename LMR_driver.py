@@ -73,8 +73,8 @@ import LMR_gridded
 import LMR_outputs as lmr_out
 import LMR_config as BaseCfg
 import LMR_forecaster
-from LMR_DA import (enkf_update_array_xb_blend, process_hybrid_static_prior,
-                    get_valid_proxies_info, kalman_optimal)
+from LMR_DA import (process_hybrid_static_prior, get_valid_proxies_info,
+                    get_solver)
 
 
 # *** main driver
@@ -96,13 +96,13 @@ def LMR_driver_callable(cfg=None):
     workdir = core_cfg.datadir_output
     recon_period = core_cfg.recon_period
     online = core_cfg.online_reconstruction
+    assim_solver_key = core_cfg.assimilation_solver
     hybrid_update = core_cfg.hybrid_update
     hybrid_a_val = core_cfg.hybrid_a
     blend_prior = core_cfg.blend_prior
     reg_inf = core_cfg.reg_inflate
     inf_factor = core_cfg.inflation_factor
     nens = core_cfg.nens
-    loc_rad = core_cfg.loc_rad
     inflation_fact = core_cfg.inflation_factor
     outputs = prior_cfg.outputs
     save_analysis_ye = outputs['analysis_Ye']
@@ -202,11 +202,8 @@ def LMR_driver_callable(cfg=None):
         print('-----------------------------------------------------')
 
     # check covariance inflation from config
-    if inflation_fact is not None and verbose > 2:
+    if reg_inf and verbose > 2:
         print(('\nUsing covariance inflation factor: %8.2f' % inflation_fact))
-
-    # Keep dimension of pre-augmented version of state vector
-    state_dim = Xb_one.shape[0]
 
     if save_analysis_ye:
         assim_ye_path = join(workdir, 'assim_ye_ens_output.zarr')
@@ -243,12 +240,13 @@ def LMR_driver_callable(cfg=None):
         fcastr_class = LMR_forecaster.get_forecaster_class(key)
         forecaster = fcastr_class.from_config(cfg.forecaster, Xb_one.var_keys)
 
+    # Get the solver for the assimilation update
+    assim_solver_func = get_solver(assim_solver_key)
+
     # ==========================================================================
     # Loop over all years and proxies, and perform assimilation ----------------
     # ==========================================================================
     Xb_one.stash_state('orig')
-
-    ens_calib_check = np.zeros((assim_proxy_count, 5))
 
     start_yr, end_yr = recon_period
     assim_times = np.arange(start_yr, end_yr+1)
@@ -256,43 +254,37 @@ def LMR_driver_callable(cfg=None):
     # ---------------------
     # Loop over proxy types
     # ---------------------
-    lasttime = time()
     for iyr, t in enumerate(assim_times):
 
         if verbose > 0:
             print('working on year: ' + str(t))
 
-        if hybrid_update:
+        if hybrid_update and online:
             # Get static climatological Xb_one and blend prior if desired
-            [hybrid_update_kwargs,
+            [Xb_static,
              Xb_one] = process_hybrid_static_prior(iyr, Xb_one, blend_prior,
                                                    hybrid_a_val)
+            solver_kwargs = {'Xb_static': Xb_static,
+                             'hybrid_a_val': hybrid_a_val}
+        else:
+            Xb_static = None
+            solver_kwargs = {}
 
         # Save output fields for the prior
         lmr_out.save_field_output(iyr, 'prior', Xb_one, field_hdf5_outputs,
                                   output_def=outputs['prior'])
 
-        ye_vals = Xb_one.get_var_data('ye_vals')
-
         # Gather proxies / Ye values for the year
         [p_vals, p_errs,
          valid_pidxs] = get_valid_proxies_info(t, prox_manager)
 
-        valid_ye_vals = ye_vals[valid_pidxs, :]
+        ye_start_idx, _ = Xb_one.var_view_range['ye_vals']
 
         # Update Xb with each proxy
-
-        Xa = kalman_optimal(Xb_one.state, p_vals, p_errs, valid_ye_vals,
-                            verbose=False)
+        Xa = assim_solver_func(Xb_one.state, p_vals, p_errs, valid_pidxs,
+                               ye_start_idx, verbose=True, **solver_kwargs)
 
         Xb_one.state = Xa
-
-
-        # Check for filter divergence
-        # if ens_calib_check.mean() > 50:
-        #     raise FilterDivergenceError('Filter divergence detected'
-        #                                 ' during year {}. Skipping '
-        #                                 'iteration.'.format(t))
 
         # Calculate and store index values from field
         calc_and_store_scalars(Xb_one, iyr)

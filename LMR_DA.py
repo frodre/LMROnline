@@ -12,7 +12,7 @@ from time import time
 
 import LMR_utils as LMR_utils
 
-def enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None):
+def enkf_update_array(Xb, obvalue, Ye, ob_err, kalman_gain=None, loc=None):
     """
     Function to do the ensemble square-root filter (EnSRF) update
     (ref: Whitaker and Hamill, Mon. Wea. Rev., 2002)
@@ -26,20 +26,31 @@ def enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None):
                     - changed varye = np.var(Ye) to varye = np.var(Ye,ddof=1) 
                     for an unbiased calculation of the variance. 
                     (G. Hakim - U. Washington)
-    
-    -----------------------------------------------------------------
-     Inputs:
-          Xb: background ensemble estimates of state (Nx x Nens) 
-     obvalue: proxy value
-          Ye: background ensemble estimate of the proxy (Nens)
-      ob_err: proxy error variance
-         loc: localization vector (Nx x 1) [optional]
-     inflate: scalar inflation factor [optional]
-    """
+    October 2018
+      - Generalized the Kalman gain calculation so I could use a single update
+        function for hybrid and regular EnSRF updates. (A. Perkins)
 
-    # Get ensemble size from passed array: Xb has dims [state vect.,
-    # ens. members]
-    nens = Xb.shape[1]
+    Parameters
+    ----------
+    Xb: ndarray
+        background ensemble estimates of state (Nx x Nens)
+    obvalue: float
+        proxy value
+    Ye: ndarray
+        background ensemble estimate of the proxy (Nens)
+    ob_err: float
+        proxy error variance
+    kalman_gain: ndarray, Optional
+        The kalman gain to be used for the update step if a non-standard gain
+        is desired
+    loc: float, Optional
+        The localization radius to enforce for the Kalman gain term
+
+    Returns
+    -------
+    ndarray:
+        The updated ensemble of state (Nx x Nens)
+    """
 
     # ensemble mean background and perturbations
     xbm = Xb.mean(axis=1, keepdims=True)
@@ -53,25 +64,16 @@ def enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None):
     ye = Ye - mye
 
     # innovation
-    try:
-        innov = obvalue - mye
-    except ValueError as e:
-        print(f'innovation error. obvalue = {obvalue} mye = {mye}')
-        print('returning Xb unchanged...')
-        return Xb
-    
-    # innovation variance (denominator of serial Kalman gain)
-    kdenom = (varye + ob_err)
+    innov = obvalue - mye
 
-    # numerator of serial Kalman gain (cov(x,Hx))
-    kcov = np.dot(Xbp, ye) / (nens - 1)
+    if kalman_gain is None:
+        kmat = get_serial_kalman_gain(Xbp, ye, ob_err)
+    else:
+        kmat = kalman_gain
 
     # Option to localize the gain
     if loc is not None:
-        kcov = kcov * loc
-   
-    # Kalman gain
-    kmat = kcov / kdenom
+        kmat = kmat * loc
 
     # update ensemble mean
     xam = xbm + kmat * innov
@@ -79,7 +81,6 @@ def enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None):
     # update the ensemble members using the square-root approach
     beta = 1 / (1 + np.sqrt(ob_err / (varye + ob_err)))
     kmat *= beta
-    kmat = kmat[:, np.newaxis]  # Nx x 1
     ye = ye[np.newaxis]         # 1 x Nens
     Xap = Xbp - np.dot(kmat, ye)
 
@@ -90,111 +91,8 @@ def enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None):
     return Xa
 
 
-def enkf_update_array_xb_blend(Xb, obvalue, Ye, ob_err, loc=None, inflate=None,
-                               static_prior=None, a=1):
-    """
-    Temporary second function to ensure that nothing changes when updating
-    the syntax... AndreP
-
-    Function to do the ensemble square-root filter (EnSRF) update
-    (ref: Whitaker and Hamill, Mon. Wea. Rev., 2002)
-
-    Originator: G. J. Hakim, with code borrowed from L. Madaus
-                Dept. Atmos. Sciences, Univ. of Washington
-    -----------------------------------------------------------------
-     Inputs:
-          Xb: background ensemble estimates of state (Nx x Nens)
-     obvalue: proxy value
-          Ye: background ensemble estimate of the proxy (Nens x 1)
-      ob_err: proxy error variance
-         loc: localization vector (Nx x 1) [optional]
-     inflate: scalar inflation factor [optional]
-    """
-
-    # Get ensemble size from passed array
-    #  Xb has dims [state vect.,ens. members]
-    Nens = Xb.shape[1]
-
-    # ensemble mean background and perturbations
-    xbm = Xb.mean(axis=1)
-    Xbp = Xb - xbm[:, None]  # "None" means replicate in this dimension
-
-    # ensemble mean and variance of the background estimate of the proxy
-    mye = Ye.mean()
-
-    # lowercase ye has ensemble-mean removed
-    ye = Ye - mye
-
-    # innovation  (Why is this in a try except?)
-    try:
-        innov = obvalue - mye
-    except:
-        print(('innovation error. obvalue = ' + str(obvalue) + ' mye = ' +
-               str(mye)))
-        print('returning Xb unchanged...')
-        return Xb
-
-    # numerator of serial Kalman gain (cov(x,Hx))
-    if static_prior is not None:
-        # Hybrid prior update method
-        Xb_static, Ye_static = static_prior
-        xbm_static = Xb_static.mean(axis=1)
-        Xbp_static = Xb_static - xbm_static[:, None]
-        ye_static = Ye_static - Ye_static.mean()
-
-        kcov_f = np.dot(Xbp, ye) / (Nens - 1)
-        kcov_s = np.dot(Xbp_static, ye_static) / (Nens - 1)
-
-        kcov = a * kcov_f + (1-a) * kcov_s
-        varye = a * Ye.var(ddof=1) + (1-a) * Ye_static.var(ddof=1)
-    else:
-        # Standard update method
-        kcov = np.dot(Xbp, ye) / (Nens-1)
-        varye = Ye.var(ddof=1)  # TODO: this should probably switch to unbiased
-
-    # innovation variance (denominator of serial Kalman gain)
-    kdenom = (varye + ob_err)
-
-    # Option to inflate the covariances by a certain factor
-    if inflate is not None:
-        kcov = inflate * kcov
-
-    # Option to localize the gain
-    if loc is not None:
-        kcov = kcov * loc
-
-    # Kalman gain
-    kmat = kcov / kdenom
-
-    # update ensemble mean
-    mean_update = kmat * innov
-    xam = xbm + mean_update
-
-    if static_prior is not None:
-        xam_static = xbm_static + mean_update
-
-    # update the ensemble members using the square-root approach
-    beta = 1. / (1. + np.sqrt(ob_err / (varye + ob_err)))
-    kmat *= beta
-    kmat = kmat[:, np.newaxis]
-
-    if static_prior is not None:
-        ye_static = ye_static[None]
-        Xap_static = Xbp_static - np.dot(kmat, ye_static)
-        Xb_static[:] = Xap_static + xam_static[:, None]
-
-    ye = ye[np.newaxis]
-    Xap = Xbp - np.dot(kmat, ye)
-
-    # full state
-    Xa = xam[:, None] + Xap
-
-    # Return the full state
-    return Xa
-
-
-def kalman_optimal(Xb, proxy_obs, proxy_errors, ye_ens, num_svals=None,
-                   verbose=False):
+def kalman_optimal(Xb, proxy_obs, proxy_errors, valid_proxy_idxs, ye_start_idx,
+                   num_svals=None, verbose=False):
     """
     Originator
     ==========
@@ -207,13 +105,15 @@ def kalman_optimal(Xb, proxy_obs, proxy_errors, ye_ens, num_svals=None,
     Parameters
     ----------
     Xb: ndarray
-        State data to be updated by assimilation (Nx x Nens)
+        background ensemble to be updated during assimilation
     proxy_obs: ndarray
         Proxy obervations used to update the state (Nobs)
     proxy_errors: ndarray
         Proxy error values for each proxy (Nobs)
-    ye_ens: ndarray
-        Estimated observations from the state for each proxy (Nobs x Nens)
+    valid_proxy_idxs: ndarray
+        Indices corresponding to the proxy observations
+    ye_start_idx: int
+        Index where Ye values start in the state array
     num_svals: int, Optional
         Number of singular values to use in the transformed update space
     verbose: bool, Optional
@@ -230,6 +130,9 @@ def kalman_optimal(Xb, proxy_obs, proxy_errors, ye_ens, num_svals=None,
         print('Updating state using Kalman Optimal solver all at once.')
 
     begin_time = time()
+
+    ye_vals = Xb[ye_start_idx:, :]
+    ye_ens = ye_vals[valid_proxy_idxs, :]
 
     nobs = ye_ens.shape[0]
     nens = ye_ens.shape[1]
@@ -315,76 +218,194 @@ def kalman_optimal(Xb, proxy_obs, proxy_errors, ye_ens, num_svals=None,
     return Xa
 
 
-def kalman_ensrf_serial():
-    for iproxy, Y in enumerate(prox_manager.sites_assim_proxy_objs()):
+def kalman_ensrf_serial(Xb, proxy_obs, proxy_errors, valid_proxy_idxs,
+                        ye_start_idx, verbose=False, loc_rad=None,
+                        Xb_static=None, hybrid_a_val=None):
+    """
+    Function to do the ensemble square-root filter (EnSRF) update
+    (ref: Whitaker and Hamill, Mon. Wea. Rev., 2002)
 
-        # Crude check if we have proxy ob for current time
-        try:
-            Y.values[t]
-        except KeyError:
-            continue
+    Originator: G. J. Hakim, with code borrowed from L. Madaus
+                Dept. Atmos. Sciences, Univ. of Washington
 
-        if verbose > 1:
-            print('--------------- Processing proxy: ' + Y.id)
-        if verbose > 2:
-            print('Site:', Y.id, ':', Y.type)
-            print(' latitude, longitude: ' + str(Y.lat), str(Y.lon))
+    -- Adapted by Andre P
 
-        loc = None
-        if loc_rad is not None:
-            if verbose > 2:
-                print('...computing localization...')
-                raise NotImplementedError('Covariance localization'
-                                          ' not properly implemented'
-                                          ' yet.')
-                # loc = cov_localization(loc_rad, X, Y)
+    Xb: ndarray
+        State data to be updated by assimilation (Nx x Nens)
+    proxy_obs: ndarray
+        Proxy obervations used to update the state (Nobs)
+    proxy_errors: ndarray
+        Proxy error values for each proxy (Nobs)
+    ye_ens: ndarray
+        Estimated observations from the state for each proxy (Nobs x Nens)
+    verbose: bool, Optional
+        Print verbose update information
+    loc_rad: float, Optional
+        Localization radius to use during the assimilation update. NOT
+        CURRENTLY IMPLEMENTED
+    Xb_static: ndarray, Optional
+        Climatological data (not forecasted) used for hybrid forecast update
+        as in Perkins & Hakim 2017
+    hybrid_a_val: float, Optional
+        Hybrid blending coefficient between 0.0 and 1.0. Only used if Xb_static
+        is not None
 
-        # Get Ye values for current proxy
-        Ye = Xb_one.get_var_data('ye_vals')[iproxy]
+    Returns
+    -------
+    ndarray
+        The updated state data
+    """
 
-        # Define the ob error variance
-        ob_err = Y.psm_obj.R
+    if verbose:
+        print('Updating state using serial Kalman EnSRF solver')
 
-        # TODO: If I ever do subannual forecasts need to adjust this
-        mse = np.mean((Y.values[t] - Ye) ** 2)
-        y_ye_var = Ye.var(ddof=1) + ob_err
-        ens_calib_check[iproxy, iyr % 5] = mse / y_ye_var
-        if not np.all(np.isfinite(ens_calib_check)):
-            raise FilterDivergenceError('Filter divergence detected'
-                                        ' during year {}. Skipping '
-                                        'iteration.'.format(t))
+    begin_time = time()
 
-        # --------------------------------------------------------------
-        # Do the update (assimilation) ---------------------------------
-        # --------------------------------------------------------------
-        if verbose > 2:
-            print(('updating time: ' + str(t) + ' proxy value : ' +
-                   str(Y.values[t]) + ' | mean prior proxy estimate: ' +
-                   str(Ye.mean())))
+    if loc_rad is not None:
+        raise NotImplementedError('Covariance localization has not yet been '
+                                  'implemented in this version.')
 
-        # Get static Ye for hybrid update
-        if hybrid_update:
-            Ye_static = Yevals_static[iproxy]
-            hybrid_tup = (Xb_static, Ye_static)
+    for i in range(len(proxy_obs)):
+
+        y_val = proxy_obs[i]
+        ob_err = proxy_errors[i]
+        ye_idx = ye_start_idx + valid_proxy_idxs[i]
+        ye_val = Xb[ye_idx]
+
+        if Xb_static is not None:
+            ye_static = Xb_static[ye_idx]
+
+            kalman_gain = get_serial_kalman_gain_hybrid_update(Xb, Xb_static,
+                                                               ye_val,
+                                                               ye_static,
+                                                               ob_err,
+                                                               hybrid_a_val)
         else:
-            hybrid_tup = None
+            # Let default kalman gain in enkf_update do the work
+            kalman_gain = None
 
-        # Update the state
-        Xa = enkf_update_array_xb_blend(Xb_one.state,
-                                        Y.values[t], Ye, ob_err, loc,
-                                        static_prior=hybrid_tup,
-                                        a=hybrid_a_val)
+        Xa = enkf_update_array(Xb, y_val, ye_val, ob_err,
+                               kalman_gain=kalman_gain)
 
-        Xb_one.state = Xa
+        Xb = Xa
 
-        # check the variance change for sign
-        thistime = time()
-        lasttime = thistime
+    elapsed_time = time() - begin_time
+    if verbose:
+        print('-----------------------------------------------------')
+        print(f'completed in {elapsed_time:2.2f} seconds')
+        print('-----------------------------------------------------')
+
+    return Xa
 
 
 # ==============================================================================
 # DA Utility Functions
+#
+#
 # ==============================================================================
+
+
+def get_solver(solver_key):
+    if solver_key == 'serial':
+        return kalman_ensrf_serial
+    elif solver_key == 'optimal':
+        return kalman_optimal
+    else:
+        raise KeyError('Unrecognized solver specification for data '
+                       'assimilation: {}'.format(solver_key))
+
+
+def get_serial_kalman_gain(Xb, ye, ob_error):
+    """
+    Determine the kalman gain term for the serial EnSRF update.
+    Parameters
+    ----------
+    Xb: ndarray
+        State array composed of field values being updated. (Nx x Nens)
+    ye: ndarray
+        Ensemble of estimated observations. (Nens)
+    ob_error: float
+        Error of the observation being used to compute the innovation
+
+    Returns
+    -------
+    ndarray
+        Kalman gain matrix computed from the state and ye_vals
+
+    """
+
+    Xbp = Xb - Xb.mean(axis=1, keepdims=True)
+    yep = ye - ye.mean()
+
+    nens = Xbp.shape[1]
+    var_ye = yep.var(ddof=1)
+
+    # innovation variance (denominator of serial Kalman gain)
+    kdenom = (var_ye + ob_error)
+
+    # numerator of serial Kalman gain (cov(x,Hx))
+    kcov = np.dot(Xbp, yep) / (nens - 1)
+
+    # Kalman gain
+    kmat = kcov / kdenom
+
+    kmat = kmat[:, None]
+
+    return kmat
+
+
+def get_serial_kalman_gain_hybrid_update(Xb, Xb_static, ye, ye_static,
+                                         ob_error, a):
+    """
+    Determine the kalman gain term for the serial EnSRF update using the
+    hybrid blending between forecast and static climatological data.
+
+    Parameters
+    ----------
+    Xb: ndarray
+        State array composed of field values being updated (Nx x Nens)
+    Xb_static: ndarray
+        Same as Xb_pert, but the static climatological state
+    ye: ndarray
+        Ensemble of estimated observations.
+        (Nens)
+    ye_static: ndarray
+        Same as ye_pert but ye values from the static climatological state.
+    ob_error: float
+        Error of the observation being used to compute the innovation
+    a: float
+        Blending coefficient for the hybrid update between 0.0 and 1.0.
+
+    Returns
+    -------
+    ndarray
+        Kalman gain matrix computed from the state and ye_vals
+
+    """
+
+    nens = Xb.shape[1]
+
+    Xbp = Xb - Xb.mean(axis=1, keepdims=True)
+    yep = ye - ye.mean()
+
+    Xbp_static = Xb_static - Xb_static.mean(axis=1, keepdims=True)
+    yep_static = ye_static - ye_static.mean()
+
+    kcov_f = np.dot(Xbp, yep) / (nens - 1)
+    kcov_s = np.dot(Xbp_static, yep_static) / (nens - 1)
+
+    ye_var = yep.var(ddof=1)
+    ye_static_var = yep_static.var(ddof=1)
+
+    var_ye_blend = a * ye_var + (1 - a) * ye_static_var
+
+    kcov = a * kcov_f + (1 - a) * kcov_s
+
+    kmat = kcov / (var_ye_blend + ob_error)
+
+    kmat = kmat[:, None]
+
+    return kmat
 
 
 def get_valid_proxies_info(target_year, proxy_manager, verbose=False):
@@ -530,6 +551,5 @@ def cov_localization(locRad, Y, X, X_coords):
     # values for distances very near the localization radius
     # TODO: revisit calculations to minimize round-off errors
     covLoc[covLoc < 0.0] = 0.0
-
 
     return covLoc

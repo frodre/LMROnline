@@ -24,19 +24,20 @@ core:
   clean_start: True
   use_precalc_ye: False
   recon_period: !!python/tuple [1850, 1860]
-#  recon_period: !!python/tuple [-120000, 2000]
   recon_timescale: 1
-#  recon_timescale: 250
   nens: 100
   seed: null
   loc_rad: null
-  inflation_factor: null
 
+  # Which solver to use, 'serial' or 'optimal'
+  assimilation_solver: optimal
+
+  # Hybrid update option for serial, online assimilation
   hybrid_update: True
   hybrid_a: 0.85
   blend_prior: True
 
-  adaptive_inflate: False
+  # Variance inflation after the forecast step
   reg_inflate: False
   inflation_factor: 1.1
 

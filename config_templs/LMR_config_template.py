@@ -209,6 +209,10 @@ class core(ConfigGroup):
         record sampling)  Overridden by wrapper.multi_seed.
     loc_rad: float
         Localization radius for DA (in km)
+    assimilation_solver: str
+        Which solver to use for data assimilation. 'Serial' uses the serial
+        EnSRF solver which allows localization (slower), and 'optimal' uses the
+        optimal transorm EnKF method to update fields all at once.
     hybrid_update: bool
         Use hybrid data assimilation technique for blending forecast and
         static information sources
@@ -245,8 +249,8 @@ class core(ConfigGroup):
     nens = 10
     recon_timescale = 1  # annual
     seed = None
-
     loc_rad = None
+    assimilation_solver = 'optimal'
 
     # Forecasting Hybrid Update
     hybrid_update = True
@@ -277,6 +281,7 @@ class core(ConfigGroup):
         self.recon_timescale = self.recon_timescale
         self.seed = self.seed
         self.loc_rad = self.loc_rad
+        self.assimilation_solver = self.assimilation_solver
         self.hybrid_update = self.hybrid_update
         self.hybrid_a = self.hybrid_a
         self.blend_prior = self.blend_prior
