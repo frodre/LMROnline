@@ -157,12 +157,16 @@ class wrapper(ConfigGroup):
 
         self.iter_range = self.iter_range
 
-        num_iters = self.iter_range[1] - self.iter_range[0] + 1
+        # Create long list so that iterations can be split, note that
+        # iteration amounts larger than 1000 cannot have reliably different
+        # seed lists with iteration splitting due current implementation
+        num_multi_seed = self.iter_range[1] - self.iter_range[0] + 1
+        num_multi_seed = max(num_multi_seed, 1000)
         if self.multi_seed is not None:
             if isinstance(self.multi_seed, int):
                 np.random.seed(self.multi_seed)
                 self.multi_seed = np.random.randint(0, high=100000,
-                                                    size=num_iters)
+                                                    size=num_multi_seed)
             else:
                 self.multi_seed = list(self.multi_seed)
 
