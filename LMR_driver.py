@@ -259,7 +259,8 @@ def LMR_driver_callable(cfg=None):
         if verbose > 0:
             print('working on year: ' + str(t))
 
-        if hybrid_update and online:
+        # TODO: I feel like this should be moved into LMR_DA?
+        if hybrid_update and online and assim_solver_key == 'serial':
             # Get static climatological Xb_one and blend prior if desired
             [Xb_static,
              Xb_one] = process_hybrid_static_prior(iyr, Xb_one, blend_prior,
