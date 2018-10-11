@@ -6,6 +6,7 @@ file_types:
   datafram: DF
 
 avg_interval:
+  # Average intervals for monthly data
   annual_std:
     nelem_in_yr: 12
     elem_to_avg: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
@@ -34,6 +35,10 @@ avg_interval:
     nelem_in_yr: 12
     elem_to_avg: [3, 4, 5]
     nyears: 1
+  djfmam:
+    nelem_in_yr: 12
+    elem_to_avg: [-12, 1, 2, 3, 4, 5]
+    nyears: 1
   jja:
     nelem_in_yr: 12
     elem_to_avg: [6, 7, 8]
@@ -41,6 +46,10 @@ avg_interval:
   son:
     nelem_in_yr: 12
     elem_to_avg: [9, 10, 11]
+    nyears: 1
+  jjason:
+    nelem_in_yr: 12
+    elem_to_avg: [6, 7, 8, 9, 10, 11]
     nyears: 1
   decadal:
     nelem_in_yr: 12
