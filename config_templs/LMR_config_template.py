@@ -608,14 +608,15 @@ class proxies(ConfigGroup):
         
         # DO NOT CHANGE *FORMAT* BELOW
         proxy_order = [
-#old            'Tree Rings_WidthPages',
             'Tree Rings_WidthPages2',
             'Tree Rings_WidthBreit',
-            'Tree Rings_WoodDensity',
             'Tree Rings_Isotopes',
+            'Tree Rings_Temperature',
             'Corals and Sclerosponges_d18O',
             'Corals and Sclerosponges_SrCa',
             'Corals and Sclerosponges_Rates',
+            'Corals and Sclerosponges_Composite',
+            # 'Corals and Sclerosponges_Temperature',
             'Ice Cores_d18O',
             'Ice Cores_dD',
             'Ice Cores_Accumulation',
@@ -625,8 +626,10 @@ class proxies(ConfigGroup):
             'Lake Cores_GeoChem',
             'Lake Cores_Misc',
             'Marine Cores_d18O',
+            'Marine Cores_tex86',
+            'Marine Cores_uk37',
             'Bivalve_d18O',
-            'Speleothems_d18O',
+            'Speleothems_d18O'
             ]
 
         # Assignment of psm type per proxy type
@@ -652,7 +655,6 @@ class proxies(ConfigGroup):
             'Marine Cores_d18O'             : 'linear',
             'Tree Rings_WidthBreit'         : 'linear',
             'Tree Rings_WidthPages2'        : 'linear',
-#old            'Tree Rings_WidthPages'         : 'linear',
             'Tree Rings_WoodDensity'        : 'linear',
             'Tree Rings_Isotopes'           : 'linear',
             'Speleothems_d18O'              : 'linear',
@@ -660,42 +662,45 @@ class proxies(ConfigGroup):
          
         proxy_assim2 = {
             'Bivalve_d18O'                  : ['d18O'],
-            'Corals and Sclerosponges_d18O' : ['d18O', 'delta18O', 'd18o',
-                                               'd18O_stk', 'd18O_int',
-                                               'd18O_norm', 'd18o_avg',
-                                               'd18o_ave', 'dO18',
-                                               'd18O_4'],
-            'Corals and Sclerosponges_SrCa' : ['Sr/Ca', 'Sr_Ca', 'Sr/Ca_norm',
-                                               'Sr/Ca_anom', 'Sr/Ca_int'],
-            'Corals and Sclerosponges_Rates': ['ext','calc','calcification','calcification rate',
-                                               'composite'],
-            'Ice Cores_d18O'                : ['d18O', 'delta18O', 'delta18o',
-                                               'd18o', 'd18o_int', 'd18O_int',
-                                               'd18O_norm', 'd18o_norm', 'dO18',
+            'Corals and Sclerosponges_d18O' : ['d18O','delta18O','d18o','d18O_stk','d18O_int','d18O_norm',
+                                               'd18o_avg','d18o_ave','dO18','d18O_4'],
+            'Corals and Sclerosponges_Rates': ['ext','calc','calcification','calcification rate','composite'],
+            'Corals and Sclerosponges_SrCa' : ['Sr/Ca','Sr_Ca','Sr/Ca_norm','Sr/Ca_anom','Sr/Ca_int'],\
+            'Corals and Sclerosponges_d14C' : ['d14C','d14c','ac_d14c'],
+            'Corals and Sclerosponges_d13C' : ['d13C','d13c','d13c_ave','d13c_ann_ave','d13C_int'],
+            'Corals and Sclerosponges_Sr'   : ['Sr'],
+            'Corals and Sclerosponges_BaCa' : ['Ba/Ca'],
+            'Corals and Sclerosponges_CdCa' : ['Cd/Ca'],
+            'Corals and Sclerosponges_MgCa' : ['Mg/Ca'],
+            'Corals and Sclerosponges_UCa'  : ['U/Ca','U/Ca_anom'],
+            'Corals and Sclerosponges_Pb'   : ['Pb'],
+            'Ice Cores_d18O'                : ['d18O','delta18O','delta18o','d18o','dO18',
+                                               'd18o_int','d18O_int',
+                                               'd18O_norm','d18o_norm',
                                                'd18O_anom'],
-            'Ice Cores_dD'                  : ['deltaD', 'delD', 'dD'],
-            'Ice Cores_Accumulation'        : ['accum', 'accumu'],
+            'Ice Cores_dD'                  : ['deltaD','delD','dD'],
+            'Ice Cores_Accumulation'        : ['accum','accumu'],
             'Ice Cores_MeltFeature'         : ['MFP','melt'],
-            'Lake Cores_Varve'              : ['varve', 'varve_thickness',
-                                               'varve thickness', 'thickness'],
-            'Lake Cores_BioMarkers'         : ['Uk37', 'TEX86','tex86'],
+            'Lake Cores_Varve'              : ['varve', 'varve_thickness', 'varve thickness','thickness'],
+            'Lake Cores_BioMarkers'         : ['Uk37', 'TEX86', 'tex86'],
             'Lake Cores_GeoChem'            : ['Sr/Ca', 'Mg/Ca', 'Cl_cont'],
             'Lake Cores_Misc'               : ['RABD660_670','X_radiograph_dark_layer','massacum'],
             'Marine Cores_d18O'             : ['d18O'],
+            'Marine Cores_tex86'            : ['tex86'],
+            'Marine Cores_uk37'             : ['uk37','UK37'],
+            'Speleothems_d18O'              : ['d18O'],
+            'Speleothems_d13C'              : ['d13C'],
             'Tree Rings_WidthBreit'         : ['trsgi_breit'],
             'Tree Rings_WidthPages2'        : ['trsgi'],
-#old            'Tree Rings_WidthPages'         : ['TRW',
-#old                                              'ERW',
-#old                                              'LRW'],
-            'Tree Rings_WoodDensity'        : ['max_d',
-                                               'min_d',
-                                               'early_d',
-                                               'earl_d',
-                                               'density',
-                                               'late_d',
+            'Tree Rings_WoodDensity'        : ['max_d', 'min_d', 'early_d',
+                                               'earl_d', 'late_d', 'density',
                                                'MXD'],
             'Tree Rings_Isotopes'           : ['d18O'],
-            'Speleothems_d18O'              : ['d18O'],
+            'Tree Rings_Temperature'        : ['temperature'],
+            'bivalve_d18O'                  : ['d18O'],
+            'borehole_Temperature'          : ['temperature'],
+            'documents_Temperature'         : ['temperature'],
+            'hybrid_Temperature'            : ['temperature'],
         }
 
         # A blacklist on proxy records, to prevent assimilation of specific
@@ -863,6 +868,7 @@ class psm(ConfigGroup):
         datatag = 'GISTEMP'
 
         pre_calib_datafile = None
+        ignore_pre_calib = False
 
         avg_type = 'annual'
         # avg_type = 'season
@@ -885,6 +891,7 @@ class psm(ConfigGroup):
 
             self.datatag = self.datatag
             self.regrid_cfg = regrid_cfg
+            self.ignore_pre_calib = self.ignore_pre_calib
 
             dataset_descr = _DataInfo.get_info(self.datatag)
             self.datainfo = dataset_descr['info']
@@ -1019,6 +1026,7 @@ class psm(ConfigGroup):
 
         pre_calib_datafile_T = None
         pre_calib_datafile_P = None
+        ignore_pre_calib = False
 
         psm_r_crit = 0.0
 
@@ -1044,11 +1052,13 @@ class psm(ConfigGroup):
 
             temp_kwarg = {'datatag': self.datatag_T,
                           'pre_calib_datafile': self.pre_calib_datafile_T,
+                          'ignore_pre_calib': self.ignore_pre_calib,
                           'avg_type': self.avg_type,
                           'season_source': self.season_source,
                           'min_data_req_frac': self.min_data_req_frac}
             mois_kwarg = {'datatag': self.datatag_P,
                           'pre_calib_datafile': self.pre_calib_datafile_P,
+                          'ignore_pre_calib': self.ignore_pre_calib,
                           'avg_type': self.avg_type,
                           'season_source': self.season_source,
                           'min_data_req_frac': self.min_data_req_frac}
@@ -1125,6 +1135,8 @@ class psm(ConfigGroup):
         # season_source = 'psm_calib'
 
         pre_calib_datafile = None
+        ignore_pre_calib = False
+
         psm_r_crit = 0.0
 
         min_data_req_frac = 1.0
@@ -1172,7 +1184,8 @@ class psm(ConfigGroup):
                                        **mois_kwarg)
 
             self.psm_r_crit = self.psm_r_crit
-                
+
+            self.ignore_pre_calib = self.ignore_pre_calib
             if self.pre_calib_datafile is None:
 
                 dbversion = proxies.LMRdb.dbversion
