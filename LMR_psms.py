@@ -175,6 +175,19 @@ class BasePSM(metaclass=ABCMeta):
 
         return tmp_dat
 
+    @staticmethod
+    @lru_cache(maxsize=8)
+    def _load_psm_data(pre_calib_file):
+        """Helper method for loading from dataframe"""
+
+        if pre_calib_file is None:
+            raise IOError('No pre-calibration file specified.')
+
+        with open(pre_calib_file, mode='rb') as f:
+            data = pickle.load(f)
+
+        return data
+
     def _get_gridpoint_data_from_state(self, var_key, state_object):
         var_data = state_object.get_var_data(var_key)
         var_name, avg_interval = var_key
@@ -182,6 +195,13 @@ class BasePSM(metaclass=ABCMeta):
         var_lon = state_object.var_coords[var_name]['lon']
 
         return self.get_close_grid_point_data(var_data.T, var_lon, var_lat)
+
+    def _handle_single_input_avg_key(self, avg_key, psm_config, specific_config):
+        avg_kwargs = psm_config.get_avg_def(avg_key)
+        elem_to_avg = avg_kwargs['elem_to_avg']
+        specific_config.update_avg_interval(avg_key, avg_kwargs)
+
+        return elem_to_avg
 
 
 @class_docs_fixer
@@ -224,10 +244,13 @@ class LinearPSM(BasePSM):
 
     def __init__(self, psm_config, proxy_obj, psm_data=None,
                  calib_obj=None, diag_out=None, diag_fig=None,
+                 avg_key=None,
                  on_the_fly_calib=False):
 
         self.psm_key = 'linear'
         linear_psm_cfg = psm_config.linear
+
+        ignore_pre_calib = linear_psm_cfg.ignore_pre_calib
 
         proxy = proxy_obj.type
         site = proxy_obj.id
@@ -241,23 +264,6 @@ class LinearPSM(BasePSM):
 
         self.datatag = linear_psm_cfg.datatag
         self.avg_type = linear_psm_cfg.avg_type
-
-        # Get the averaging interval information from the configuration
-        if self.avg_type == 'annual':
-            self.avg_interval = 'annual_std'
-            avg_interval_kwargs = psm_config.get_avg_def(self.avg_interval)
-        elif self.avg_type == 'seasonal':
-            elem_to_avg = proxy_obj.seasonality
-            [self.avg_interval,
-             avg_interval_kwargs] = psm_config.handle_proxy_elem_list(elem_to_avg)
-        else:
-            raise KeyError('Unrecognized average type in PSM initialization...'
-                           '\nExpected "annual" or "seasonal". Got {}'
-                           ''.format(self.avg_type))
-
-        # Set the averaging interval information for calibration
-        linear_psm_cfg.update_avg_interval(self.avg_interval,
-                                           avg_interval_kwargs)
 
         self.datainfo = linear_psm_cfg.datainfo
         # Variable mapping connected to state information set in the
@@ -284,6 +290,9 @@ class LinearPSM(BasePSM):
         self.calib_proxy_fit = None
 
         try:
+            if ignore_pre_calib:
+                raise IOError('Ignore pre-calibrated PSMs is specified.')
+
             # Try using pre-calibrated psm_data
             if psm_data is None:
                 pre_calib_fpath = linear_psm_cfg.pre_calib_datafile
@@ -307,6 +316,25 @@ class LinearPSM(BasePSM):
                 raise e
             else:
                 print(' ... calibrating on the fly')
+
+                # Get the averaging interval information from the configuration
+                if self.avg_type == 'annual':
+                    avg_key = 'annual_std'
+                elif self.avg_type == 'seasonal':
+                    if avg_key is None:
+                        elem_to_avg = proxy_obj.seasonality
+                        [avg_key, _] = psm_config.handle_proxy_elem_list(
+                            elem_to_avg)
+                else:
+                    raise KeyError(
+                        'Unrecognized average type in PSM initialization...'
+                        '\nExpected "annual" or "seasonal". Got {}'
+                        ''.format(self.avg_type))
+
+                # Handle seasonality
+                self.seasonality = self._handle_single_input_avg_key(avg_key,
+                                                                     psm_config,
+                                                                     linear_psm_cfg)
 
                 if calib_obj is None:
                     source = linear_psm_cfg.datatag
@@ -580,7 +608,7 @@ class LinearPSM_TorP(BasePSM):
 
     def __init__(self, psm_config, proxy_obj, psm_data_T=None,
                  psm_data_P=None, diag_out=None, diag_fig=None,
-                 on_the_fly_calib=False):
+                 avg_key=None, on_the_fly_calib=False):
 
         self.psm_key = 'linear_TorP'
         linearTorP_cfg = psm_config.linear_TorP
@@ -600,26 +628,26 @@ class LinearPSM_TorP(BasePSM):
 
         # Get the averaging interval information from the configuration
         if self.avg_type == 'annual':
-            self.avg_interval = 'annual_std'
-            avg_interval_kwargs = psm_config.get_avg_def(self.avg_interval)
+            avg_key = 'annual_std'
         elif self.avg_type == 'seasonal':
-            elem_to_avg = proxy_obj.seasonality
-            [self.avg_interval,
-             avg_interval_kwargs] = psm_config.handle_proxy_elem_list(
-                elem_to_avg)
+            if avg_key is None:
+                elem_to_avg = proxy_obj.seasonality
+                [avg_key, _] = psm_config.handle_proxy_elem_list(elem_to_avg)
         else:
             raise KeyError('Unrecognized average type in PSM initialization...'
                            '\nExpected "annual" or "seasonal". Got {}'
                            ''.format(self.avg_type))
 
-        # Set the averaging interval information for calibration
-        linearTorP_cfg.update_avg_interval(self.avg_interval,
-                                           avg_interval_kwargs)
+        # Update seasonality
+        self.seasonality = self._handle_single_input_avg_key(avg_key,
+                                                             psm_config,
+                                                             linearTorP_cfg)
 
         try:
             psm_obj_T = LinearPSM(linearTorP_cfg.tempearature,
                                   proxy_obj, psm_data=psm_data_T,
                                   diag_out=diag_out, diag_fig=diag_fig,
+                                  avg_key=avg_key,
                                   on_the_fly_calib=on_the_fly_calib)
         except (IOError, ValueError) as e:
             psm_obj_T = None
@@ -628,6 +656,7 @@ class LinearPSM_TorP(BasePSM):
             psm_obj_P = LinearPSM(linearTorP_cfg.moisture, proxy_obj,
                                   psm_data=psm_data_P,
                                   diag_out=diag_out, diag_fig=diag_fig,
+                                  avg_key=avg_key,
                                   on_the_fly_calib=on_the_fly_calib)
         except (IOError, ValueError) as e:
             psm_obj_P = None
@@ -742,10 +771,14 @@ class BilinearPSM(BasePSM):
     """
 
     def __init__(self, psm_config, proxy_obj, psm_data=None,
-                 calib_obj_T=None, calib_obj_P=None, on_the_fly_calib=False):
+                 avg_key_T=None, calib_obj_T=None,
+                 avg_key_P=None, calib_obj_P=None,
+                 on_the_fly_calib=False):
 
         self.psm_key = 'bilinear'
         bilinear_cfg = psm_config.bilinear
+
+        ignore_pre_calib = bilinear_cfg.ignore_pre_calib
 
         proxy = proxy_obj.type
         site = proxy_obj.id
@@ -755,24 +788,6 @@ class BilinearPSM(BasePSM):
         self.elev = proxy_obj.elev
 
         self.avg_type = bilinear_cfg.avg_type
-
-        # Get the averaging interval information from the configuration
-        if self.avg_type == 'annual':
-            self.avg_interval = 'annual_std'
-            avg_interval_kwargs = psm_config.get_avg_def(self.avg_interval)
-        elif self.avg_type == 'seasonal':
-            elem_to_avg = proxy_obj.seasonality
-            [self.avg_interval,
-             avg_interval_kwargs] = psm_config.handle_proxy_elem_list(
-                elem_to_avg)
-        else:
-            raise KeyError('Unrecognized average type in PSM initialization...'
-                           '\nExpected "annual" or "seasonal". Got {}'
-                           ''.format(self.avg_type))
-
-        # Set the averaging interval information for calibration
-        bilinear_cfg.update_avg_interval(self.avg_interval,
-                                         avg_interval_kwargs)
 
         self.psm_vartype_T = bilinear_cfg.temperature.datainfo['psm_vartype']
         self.psm_vartype_P = bilinear_cfg.moisture.datainfo['psm_vartype']
@@ -797,8 +812,14 @@ class BilinearPSM(BasePSM):
 
         # Try using pre-calibrated psm_data
         try:
+            if ignore_pre_calib:
+                raise IOError('Ignore pre-calibrated PSMs is specified.')
+
+            # Try using pre-calibrated psm_data
             if psm_data is None:
-                psm_data = self._load_psm_data(bilinear_cfg)
+                pre_calib_fpath = bilinear_cfg.pre_calib_datafile
+                psm_data = self._load_psm_data(pre_calib_fpath)
+
             psm_site_data = psm_data[(proxy, site)]
 
             self.corr = psm_site_data['PSMcorrel']
@@ -813,7 +834,14 @@ class BilinearPSM(BasePSM):
             # check if seasonality defined in the psm data
             # if it is, return as an attribute of psm object
             if 'Seasonality' in list(psm_site_data.keys()):
-                self.seasonality = psm_site_data['Seasonality']
+                self.seasonality_T = psm_site_data['Seasonality']
+                self.seasonality_P = self.seasonality_T
+
+            if 'Seasonality_T' in list(psm_site_data.keys()):
+                self.seasonality_T = psm_site_data['Seasonality_T']
+
+            if 'Seasonality_P' in list(psm_site_data.keys()):
+                self.seasonality_P = psm_site_data['Seasonality_p']
 
         except KeyError as e:
             raise KeyError('Proxy in database but not found in pre-calibration '
@@ -826,6 +854,26 @@ class BilinearPSM(BasePSM):
                 raise e
             else:
                 print(' ... calibrating on the fly')
+
+                # Get the averaging interval information from the configuration
+                if self.avg_type == 'annual':
+                    avg_key_T = 'annual_std'
+                    avg_key_P = None
+                elif self.avg_type == 'seasonal':
+                    if avg_key_T is None and avg_key_P is None:
+                        elem_to_avg = proxy_obj.seasonality
+                        [avg_key_T, _] = psm_config.handle_proxy_elem_list(
+                            elem_to_avg)
+                        avg_key_P = None
+                else:
+                    raise KeyError(
+                        'Unrecognized average type in PSM initialization...'
+                        '\nExpected "annual" or "seasonal". Got {}'
+                        ''.format(self.avg_type))
+
+                # Set the seasonality based on averaging keys
+                self._handle_input_avg_keys(avg_key_T, avg_key_P, psm_config,
+                                            bilinear_cfg)
 
                 if calib_obj_T is None:
                     source = bilinear_cfg.temperature.datatag
@@ -847,6 +895,23 @@ class BilinearPSM(BasePSM):
                                        'not meet critical threshold ({:.2f}).'
                                        ''.format(self.corr, r_crit))
 
+    def _handle_input_avg_keys(self, avg_key_T, avg_key_P, psm_config,
+                               bilinear_cfg):
+
+        if avg_key_T is not None and avg_key_P is None:
+            avg_key_P = avg_key_T
+        elif avg_key_P is not None and avg_key_T is None:
+            avg_key_T = avg_key_P
+
+        seasonality_T = self._handle_single_input_avg_key(avg_key_T,
+                                                          psm_config,
+                                                          bilinear_cfg.temperature)
+        seasonality_P = self._handle_single_input_avg_key(avg_key_P,
+                                                          psm_config,
+                                                          bilinear_cfg.moisture)
+
+        self.seasonality_T = seasonality_T
+        self.seasonality_P = seasonality_P
 
     # TODO: Ideally prior state info and coordinates should all be in single obj
     def psm(self, state_object):
@@ -874,8 +939,8 @@ class BilinearPSM(BasePSM):
         state_var_T = state_object.get_psm_var_key(self.psm_vartype_T)
         state_var_P = state_object.get_psm_var_key(self.psm_vartype_P)
 
-        var_avg_key_T = (state_var_T, self.avg_interval)
-        var_avg_key_P = (state_var_P, self.avg_interval)
+        var_avg_key_T = (state_var_T, self.avg_interval_T)
+        var_avg_key_P = (state_var_P, self.avg_interval_P)
 
         gridpoint_data_T = self._get_gridpoint_data_from_state(var_avg_key_T,
                                                                state_object)
@@ -1060,21 +1125,6 @@ class BilinearPSM(BasePSM):
         except IOError as e:
             print(e)
             return {}
-
-    @staticmethod
-    @lru_cache(maxsize=16)
-    def _load_psm_data(bilinear_psm_cfg):
-        """Helper method for loading from dataframe"""
-
-        pre_calib_file = bilinear_psm_cfg.pre_calib_datafile
-
-        if pre_calib_file is None:
-            raise IOError('No pre-calibration file specified.')
-
-        with open(pre_calib_file, mode='rb') as f:
-            data = pickle.load(f)
-
-        return data
 
 
 class h_interpPSM(BasePSM):

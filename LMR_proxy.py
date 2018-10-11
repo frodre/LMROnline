@@ -253,9 +253,7 @@ class BaseProxyObject(metaclass=ABCMeta):
         self.lon = fix_lon(lon)
         self.elev = elev
         self.time = time
-
-        if seasonality is not None:
-            self.seasonality = get_averaging_period(seasonality, 12)
+        self.seasonality = get_averaging_period(seasonality, 12)
 
         # Retrieve appropriate PSM function
         self.psm_config = psm_config
@@ -403,7 +401,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
         lat = site_meta['Lat (N)'].iloc[0]
         lon = site_meta['Lon (E)'].iloc[0]
         elev = 0.0  # elev not info available in PAGES2kS1 data
-        seasonality = None  # not defined in PAGES2kS1 metadata
+        seasonality = 'annual_std'  # not defined in PAGES2kS1 metadata
         site_data = data_src[site]
 
         if data_range is not None:
