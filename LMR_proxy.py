@@ -133,9 +133,7 @@ class ProxyManager:
             pobj_gen = self.sites_assim_proxy_objs()
 
         for proxy_obj in pobj_gen:
-            for psm_type in proxy_obj.psm_obj.psm_req_types:
-                psm_type = tuple(psm_type.items())[0]
-                avg_interval = proxy_obj.psm_obj.avg_interval
+            for psm_type, avg_interval in proxy_obj.psm_obj.req_avg_intervals.items():
 
                 # Update set for current psm_type to include the avg_interval
                 self.avg_interval_by_psm_type[psm_type].update({avg_interval})

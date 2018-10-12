@@ -346,6 +346,9 @@ class LinearPSM(BasePSM):
                 self.calibrate(calib_obj, proxy_obj,
                                diag_output=diag_out, diag_output_figs=diag_fig)
 
+        vartype_as_tuple = tuple(self.psm_vartype.items())[0]
+        self.req_avg_intervals = {vartype_as_tuple: self.avg_interval}
+
         # Raise exception if critical correlation value not met
         if abs(self.corr) < r_crit:
             raise PSMFitThresholdError('Proxy model correlation ({:.2f}) does '
@@ -705,6 +708,9 @@ class LinearPSM_TorP(BasePSM):
         self.R = self.psm_obj.R
         self.seasonality = self.psm_obj.seasonality
 
+        vartype_as_tuple = tuple(self.psm_vartype.items())[0]
+        self.req_avg_intervals = {vartype_as_tuple: self.avg_interval}
+
         # Raise exception if critical correlation value not met
         if abs(self.psm_obj.corr) < r_crit:
             raise PSMFitThresholdError('Proxy model correlation ({:.2f}) does '
@@ -849,7 +855,7 @@ class BilinearPSM(BasePSM):
                 self.avg_interval_T = psm_site_data['avg_interval_T']
 
             if 'Seasonality_P' in list(psm_site_data.keys()):
-                self.seasonality_P = psm_site_data['Seasonality_p']
+                self.seasonality_P = psm_site_data['Seasonality_P']
                 self.avg_interval_P = psm_site_data['avg_interval_P']
 
         except KeyError as e:
@@ -898,6 +904,11 @@ class BilinearPSM(BasePSM):
 
             self.calibrate(calib_obj_T, calib_obj_P, proxy_obj)
 
+        vartype_as_tuple_T = tuple(self.psm_vartype_T.items())[0]
+        vartype_as_tuple_P = tuple(self.psm_vartype_P.items())[0]
+        self.req_avg_intervals = {vartype_as_tuple_T: self.avg_interval_T,
+                                  vartype_as_tuple_P: self.avg_interval_P}
+
         # Raise exception if critical correlation value not met
         if abs(self.corr) < r_crit:
             raise PSMFitThresholdError('Proxy model correlation ({:.2f}) does '
@@ -921,6 +932,8 @@ class BilinearPSM(BasePSM):
 
         self.seasonality_T = seasonality_T
         self.seasonality_P = seasonality_P
+        self.avg_interval_T = avg_key_T
+        self.avg_interval_P = avg_key_P
 
     # TODO: Ideally prior state info and coordinates should all be in single obj
     def psm(self, state_object):
