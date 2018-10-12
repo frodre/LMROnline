@@ -306,6 +306,7 @@ class LinearPSM(BasePSM):
             self.avg_interval = psm_site_data['avg_interval']
             # TODO: Set seasonality for calibration on the fly?
             self.seasonality = psm_site_data.get('Seasonality', None)
+            psm_config.handle_proxy_elem_list(self.seasonality)
 
         except KeyError:
             raise KeyError('Proxy in database but not found in '
@@ -853,10 +854,12 @@ class BilinearPSM(BasePSM):
             if 'Seasonality_T' in list(psm_site_data.keys()):
                 self.seasonality_T = psm_site_data['Seasonality_T']
                 self.avg_interval_T = psm_site_data['avg_interval_T']
+                psm_config.handle_proxy_elem_list(self.seasonality_T)
 
             if 'Seasonality_P' in list(psm_site_data.keys()):
                 self.seasonality_P = psm_site_data['Seasonality_P']
                 self.avg_interval_P = psm_site_data['avg_interval_P']
+                psm_config.handle_proxy_elem_list(self.seasonality_P)
 
         except KeyError as e:
             raise KeyError('Proxy in database but not found in pre-calibration '
