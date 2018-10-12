@@ -18,9 +18,14 @@ import datetime
 from time import time
 from copy import deepcopy
 from collections import defaultdict
+from itertools import product
+
 
 import LMR_proxy as LMR_proxy
 import LMR_config
+import LMR_gridded
+import LMR_psms
+from LMR_utils import PSMTooFewObsError, PSMFitThresholdError
 
 
 # =========================================================================================
@@ -56,7 +61,7 @@ min_data_req_frac = 1.0
 # Perform a series of calibrations using pre-defined seasons in order to
 # determine an objective proxy seasonality definition.  Only used when
 # avg_type='seasonal'.
-test_proxy_seasonality = False
+test_proxy_seasonality = True
 
 # Years over which calibration and proxy data are considered for fits
 calib_period = (1850, 2015)
@@ -93,21 +98,36 @@ if avg_type == 'seasonal':
     else:
         season_source = 'proxy_metadata'
 else:
+    test_proxy_seasonality = False
     season_source = None
 
 load_psm_with_proxies = not test_proxy_seasonality
 
 
-lmrdb_proxy_types = ['Bivalve_d18O', 'Corals and Sclerosponges_d18O',
-                     'Corals and Sclerosponges_SrCa',
-                     'Corals and Sclerosponges_Rates', 'Ice Cores_d18O',
-                     'Ice Cores_dD', 'Ice Cores_Accumulation',
-                     'Ice Cores_MeltFeature',
-                     'Lake Cores_Varve', 'Lake Cores_BioMarkers',
-                     'Lake Cores_GeoChem', 'Lake Cores_Misc',
-                     'Marine Cores_d18O', 'Tree Rings_WidthBreit',
-                     'Tree Rings_WidthPages2', 'Tree Rings_WoodDensity',
-                     'Tree Rings_Isotopes', 'Speleothems_d18O']
+lmrdb_proxy_types = [
+            'Tree Rings_WidthPages2',
+            'Tree Rings_WidthBreit',
+            'Tree Rings_Isotopes',
+            'Tree Rings_Temperature',
+            'Tree Rings_WoodDensity'
+            'Corals and Sclerosponges_d18O',
+            'Corals and Sclerosponges_SrCa',
+            'Corals and Sclerosponges_Rates',
+            # 'Corals and Sclerosponges_Composite',
+            # 'Corals and Sclerosponges_Temperature',
+            'Ice Cores_d18O',
+            'Ice Cores_dD',
+            'Ice Cores_Accumulation',
+            'Ice Cores_MeltFeature',
+            'Lake Cores_Varve',
+            'Lake Cores_BioMarkers',
+            'Lake Cores_GeoChem',
+            'Lake Cores_Misc',
+            'Marine Cores_d18O',
+            'Marine Cores_tex86',
+            'Marine Cores_uk37',
+            'Bivalve_d18O',
+            'Speleothems_d18O']
 
 pages_proxy_types = ['Tree ring_Width', 'Tree ring_Density', 'Ice core_d18O',
                      'Ice core_d2H', 'Ice core_Accumulation', 'Coral_d18O',
@@ -126,91 +146,44 @@ proxy_kwargs = {'use_from': use_from,
                 'PAGES2kv1': {'proxy_psm_type': pages_psm_map},
                 'LMRdb': {'proxy_psm_type': lmrdb_psm_map}}
 
-psm_kwargs = {'calib_period': calib_period,
-              'anom_reference_period': anom_reference_period,
+psm_cfg_kwargs = {'calib_period': calib_period,
+                  'anom_reference_period': anom_reference_period,
 
-              'linear': {'datatag': linear_datatag,
-                         'avg_type': avg_type,
-                         'season_source': season_source,
-                         'psm_r_crit': 0.0,
-                         'min_data_req_frac': min_data_req_frac},
-              'bilinear': {'datatag_T': bilinear_datatag_T,
-                           'datatag_P': bilinear_datatag_P,
-                           'avg_type': avg_type,
-                           'season_source': season_source,
-                           'psm_r_crit': 0.0,
-                           'min_data_req_frac': min_data_req_frac}}
+                  'linear': {'datatag': linear_datatag,
+                             'ignore_pre_calib': True,
+                             'avg_type': avg_type,
+                             'season_source': season_source,
+                             'psm_r_crit': 0.0,
+                             'min_data_req_frac': min_data_req_frac},
+                  'bilinear': {'datatag_T': bilinear_datatag_T,
+                               'datatag_P': bilinear_datatag_P,
+                               'ignore_pre_calib': True,
+                               'avg_type': avg_type,
+                               'season_source': season_source,
+                               'psm_r_crit': 0.0,
+                               'min_data_req_frac': min_data_req_frac}}
 
 regrid_kwargs = {'regrid_method': regrid_method,
                  'esmpy_regrid_to': regrid_grid,
                  'esmpy_interp_method': esmpy_interp_method}
 
-proxy_psm_seasonality_pages = {
-    'Tree ring_Width': {'flag': True,
-                        'seasons': [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                                    [6, 7, 8], [6, 7, 8, 9, 10, 11],
-                                    [-12, 1, 2], [-12, 1, 2, 3, 4, 5]]},
-    'Tree ring_Density': {'flag': True,
-                          'seasons': [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                                      [6, 7, 8], [6, 7, 8, 9, 10, 11],
-                                      [-12, 1, 2], [-12, 1, 2, 3, 4, 5]]},
-}
+test_seasons = ['annual_std', 'jja', 'jjason', 'djf', 'djfmam',
+                'sh_growing', 'nh_growing']
+default_season = 'annual_std'
 
-proxy_psm_seasonality_lmrdb = {
-    'Tree Rings_WidthBreit': {'flag':True,
-                              'seasons_T': [[1,2,3,4,5,6,7,8,9,10,11,12],
-                                            [6,7,8], [3,4,5,6,7,8],
-                                            [6,7,8,9,10,11],[-12,1,2],
-                                            [-9,-10,-11,-12,1,2],
-                                            [-12,1,2,3,4,5]],
-                              'seasons_M': [[1,2,3,4,5,6,7,8,9,10,11,12],
-                                            [6,7,8],[3,4,5,6,7,8],
-                                            [6,7,8,9,10,11],[-12,1,2],
-                                            [-9,-10,-11,-12,1,2],
-                                            [-12,1,2,3,4,5]]},
-    'Tree Rings_WidthPages2': {'flag': True,
-                               'seasons_T': [
-                                   [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                                   [6, 7, 8], [3, 4, 5, 6, 7, 8],
-                                   [6, 7, 8, 9, 10, 11], [-12, 1, 2],
-                                   [-9, -10, -11, -12, 1, 2],
-                                   [-12, 1, 2, 3, 4, 5]],
-                               'seasons_M': [
-                                   [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                                   [6, 7, 8], [3, 4, 5, 6, 7, 8],
-                                   [6, 7, 8, 9, 10, 11], [-12, 1, 2],
-                                   [-9, -10, -11, -12, 1, 2],
-                                   [-12, 1, 2, 3, 4, 5]]},
-    'Tree Rings_WoodDensity': {'flag': True,
-                               'seasons_T': [
-                                   [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                                   [6, 7, 8], [3, 4, 5, 6, 7, 8],
-                                   [6, 7, 8, 9, 10, 11], [-12, 1, 2],
-                                   [-9, -10, -11, -12, 1, 2],
-                                   [-12, 1, 2, 3, 4, 5]],
-                               'seasons_M': [
-                                   [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                                   [6, 7, 8], [3, 4, 5, 6, 7, 8],
-                                   [6, 7, 8, 9, 10, 11], [-12, 1, 2],
-                                   [-9, -10, -11, -12, 1, 2],
-                                   [-12, 1, 2, 3, 4, 5]]},
-    'Tree Rings_Isotopes': {'flag': True,
-                            'seasons_T': [
-                                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                                [6, 7, 8], [3, 4, 5, 6, 7, 8],
-                                [6, 7, 8, 9, 10, 11], [-12, 1, 2],
-                                [-9, -10, -11, -12, 1, 2],
-                                [-12, 1, 2, 3, 4, 5]],
-                            'seasons_M': [
-                                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                                [6, 7, 8], [3, 4, 5, 6, 7, 8],
-                                [6, 7, 8, 9, 10, 11], [-12, 1, 2],
-                                [-9, -10, -11, -12, 1, 2],
-                                [-12, 1, 2, 3, 4, 5]]},
-}
+if use_from == 'PAGES2kv1':
+    test_season_proxy_types = [
+    #    'Tree ring_Width',
+        'Tree ring_Density'
+    ]
+else:
+    test_season_proxy_types = ['Tree Rings_WidthBreit',
+                               'Tree Rings_WidthPages2',
+                               'Tree Rings_WoodDensity',
+                               'Tree Rings_Isotopes']
 
 
-def save_calib_no_testing(proxies, psm_file, psm_file_diag):
+def save_calib_no_testing(proxies, psm_file, psm_file_diag, psm_type):
     pids_by_ptype = defaultdict(list)
     psm_dict = defaultdict(dict)
     psm_dict_diag = {}
@@ -228,18 +201,18 @@ def save_calib_no_testing(proxies, psm_file, psm_file_diag):
         site_psm['elev'] = curr_psm.elev
 
         # selected PSM info into dictionary
-        site_psm['Seasonality'] = proxy.seasonality
         site_psm['NbCalPts'] = curr_psm.NbPts
         site_psm['PSMintercept'] = curr_psm.intercept
         site_psm['PSMcorrel'] = curr_psm.corr
         site_psm['PSMmse'] = curr_psm.R
 
         if psm_type == 'linear':
+            site_psm['Seasonality'] = curr_psm.seasonality
             site_psm['calib'] = linear_datatag
             site_psm['PSMslope'] = curr_psm.slope
 
             print('=>',
-                  "{:20s}\t".format(curr_psm.avg_interval),
+                  "{:20s}\t".format(proxy.id),
                   "a={:12.4f}\t".format(curr_psm.slope),
                   "b={:12.4f}\t".format(curr_psm.intercept),
                   "corr={:12.4f}\t".format(curr_psm.corr),
@@ -247,13 +220,15 @@ def save_calib_no_testing(proxies, psm_file, psm_file_diag):
                   '(', "{:10.5f}".format(curr_psm.R2adj), ')')
 
         elif psm_type == 'bilinear':
+            site_psm['Seasonality_T'] = curr_psm.seasonality_T
+            site_psm['Seasonality_P'] = curr_psm.seasonality_P
             site_psm['calib_temperature'] = bilinear_datatag_T
             site_psm['calib_moisture'] = bilinear_datatag_P
             site_psm['PSMslope_temperature'] = curr_psm.slope_temperature
             site_psm['PSMslope_moisture'] = curr_psm.slope_moisture
 
             print('=>',
-                  "{:20s}\t".format(curr_psm.avg_interval),
+                  "{:20s}\t".format(proxy.id),
                   "a1={:12.4f}\t".format(curr_psm.slope_temperature),
                   "a2={:12.4f}\t".format(curr_psm.slope_moisture),
                   "b={:12.4f}\t".format(curr_psm.intercept),
@@ -313,15 +288,132 @@ def save_calib_no_testing(proxies, psm_file, psm_file_diag):
         pickle.dump(psm_dict_diag, f, protocol=4)
 
 
-def calib_seasonality_test(proxies):
-    NotImplementedError()
+def load_analysis_var(seasonality, avg_kwargs, datatag, psm_config):
+    AnalysisVariable = LMR_gridded.get_analysis_var_class(datatag)
+    psm_config.update_avg_interval(seasonality, avg_kwargs)
+    return AnalysisVariable.load(psm_config, anomaly=True)
+
+
+def get_calib_objects(psm_config, season_defs, seasonality_list):
+
+    datatag = psm_config.datatag
+
+    calib_objs = {}
+    for seasonality in seasonality_list:
+        avg_kwargs = season_defs[seasonality]
+        analysis_var = load_analysis_var(seasonality, avg_kwargs, datatag,
+                                         psm_config)
+        calib_objs[seasonality] = analysis_var
+
+    return calib_objs
+
+
+def calib_seasonality_test(proxies, psm_config, seasonality_list, psm_type):
+
+    season_defs = psm_config._avg_def_constants
+
+    if psm_type == 'bilinear':
+        specific_config = psm_config.bilinear
+        temp_objs = get_calib_objects(specific_config.temperature,
+                                      season_defs,
+                                      seasonality_list)
+        moist_objs = get_calib_objects(specific_config.moisture,
+                                       season_defs,
+                                       seasonality_list)
+        test_combos = {}
+        for t_key, m_key in product(temp_objs.keys(), moist_objs.keys()):
+            comb_key = (t_key, m_key)
+            comb_val = {'avg_key_T': t_key,
+                        'calib_obj_T': temp_objs[t_key],
+                        'avg_key_P': m_key,
+                        'calib_obj_P': moist_objs[m_key]}
+            test_combos[comb_key] = comb_val
+
+    else:
+        specific_config = psm_config.linear
+        temp_objs = get_calib_objects(specific_config,
+                                      season_defs,
+                                      seasonality_list)
+        test_combos = {}
+        for t_key, calib_obj in temp_objs.items():
+            test_combos[t_key] = {'avg_key': t_key,
+                                  'calib_obj': calib_obj}
+
+    psm_class = LMR_psms.get_psm_class(psm_type)
+    num_to_compare = len(test_combos)
+    valid_proxies_with_psm = []
+
+    for proxy in proxies:
+        test_psms = {}
+        psm_compare_metric = np.zeros((num_to_compare)) * np.nan
+        idx_to_key = {}
+
+        for i, (key, psm_kwargs) in enumerate(test_combos.items()):
+            idx_to_key[i] = key
+            try:
+                psm_obj = psm_class(psm_config, proxy,
+                                    on_the_fly_calib=True, **psm_kwargs)
+                test_psms[key] = psm_obj
+                psm_compare_metric[i] = psm_obj.R2adj
+            except (PSMFitThresholdError, PSMTooFewObsError) as e:
+                print('Could not calibrate test season(s) {} for {}'
+                      ''.format(key, proxy.id))
+                pass
+
+        if np.any(np.isfinite(psm_compare_metric)):
+            max_idx = np.nanargmax(psm_compare_metric)
+            best_key = idx_to_key[max_idx]
+            proxy.psm_obj = test_psms[best_key]
+            valid_proxies_with_psm.append(proxy)
+
+    return valid_proxies_with_psm
+
+
+def calib_default_seasonality(proxies, psm_config, psm_type,
+                              default_season):
+
+    season_defs = psm_config._avg_def_constants
+
+    psm_class = LMR_psms.get_psm_class(psm_type)
+
+    if psm_type == 'bilinear':
+        temp_objs = get_calib_objects(psm_config.bilinear.temperature,
+                                      season_defs, [default_season])
+        avg_key_T, cobj_T = temp_objs.popitem()
+
+        moist_objs = get_calib_objects(psm_config.bilinear.moisture,
+                                       season_defs, [default_season])
+        avg_key_P, cobj_P = moist_objs.popitem()
+
+        psm_kwargs = {'avg_key_T': avg_key_T,
+                      'calib_obj_T': cobj_T,
+                      'avg_key_P': avg_key_P,
+                      'calib_obj_P': cobj_P}
+    else:
+        temp_objs = get_calib_objects(psm_config.linear,
+                                      season_defs, [default_season])
+        avg_key_T, cobj_T = temp_objs.popitem()
+        psm_kwargs = {'avg_key': avg_key_T,
+                      'calib_obj': cobj_T}
+
+    valid_proxies_with_psm = []
+    for proxy in proxies:
+        try:
+            psm_obj = psm_class(psm_config, proxy,
+                                on_the_fly_calib=True, **psm_kwargs)
+            proxy.psm_obj = psm_obj
+            valid_proxies_with_psm.append(proxy)
+        except (PSMFitThresholdError, PSMTooFewObsError) as e:
+            print(e)
+
+    return valid_proxies_with_psm
 
 
 def main():
     regrid_config = LMR_config.regrid(**regrid_kwargs)
     psm_config = LMR_config.psm(regrid_config, lmr_path=lmr_path,
                                 proxy_use_from=use_from,
-                                **psm_kwargs)
+                                **psm_cfg_kwargs)
     proxy_config = LMR_config.proxies(lmr_path=lmr_path,
                                       **proxy_kwargs)
 
@@ -363,10 +455,29 @@ def main():
             os.system(command)
 
     proxy_class = LMR_proxy.get_proxy_class(use_from)
-    proxies = proxy_class.load_all_annual_no_filtering(proxy_config,
-                                                       psm_config)
 
-    save_calib_no_testing(proxies, psm_file, psm_file_diag)
+    proxies = proxy_class.load_all_annual_no_filtering(proxy_config, psm_config)
+
+    if test_proxy_seasonality:
+
+        test_proxies = []
+        non_test_proxies = []
+        for proxy in proxies:
+            if proxy.type in test_season_proxy_types:
+                test_proxies.append(proxy)
+            else:
+                non_test_proxies.append(proxy)
+
+        test_proxies = calib_seasonality_test(test_proxies, psm_config,
+                                              test_seasons, psm_type)
+
+        non_test_proxies = calib_default_seasonality(non_test_proxies,
+                                                     psm_config,
+                                                     psm_type,
+                                                     default_season)
+        proxies = test_proxies + non_test_proxies
+
+    save_calib_no_testing(proxies, psm_file, psm_file_diag, psm_type)
 
     end_time = time() - begin_time
     print('=========================================================')

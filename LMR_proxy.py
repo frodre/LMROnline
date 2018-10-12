@@ -401,7 +401,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
         lat = site_meta['Lat (N)'].iloc[0]
         lon = site_meta['Lon (E)'].iloc[0]
         elev = 0.0  # elev not info available in PAGES2kS1 data
-        seasonality = 'annual_std'  # not defined in PAGES2kS1 metadata
+        seasonality = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]  # not defined in PAGES2kS1 metadata
         site_data = data_src[site]
 
         if data_range is not None:
@@ -424,7 +424,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
                         start_yr, end_yr, lat, lon, elev, seasonality, values,
                         times, load_psm_obj=load_psm)
 
-        proxy_obj._constrain_to_date_range(data_range)
+        # proxy_obj._constrain_to_date_range(data_range)
 
         if len(proxy_obj.values) == 0:
             raise NoProxyObsError('No proxy observations in time '
@@ -585,7 +585,7 @@ class ProxyPAGES2kv1(BaseProxyObject):
         proxy_objs = []
         for site in proxy_ids:
             try:
-                pobj = cls.load_site(proxy_config, psm_config,
+                pobj = cls.load_site(pages2kv1_cfg, psm_config,
                                      site,
                                      meta_src=meta_src, data_src=data_src,
                                      load_psm=load_psm,

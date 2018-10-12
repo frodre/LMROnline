@@ -610,6 +610,7 @@ class proxies(ConfigGroup):
         proxy_order = [
             'Tree Rings_WidthPages2',
             'Tree Rings_WidthBreit',
+            'Tree Rings_WoodDensity',
             'Tree Rings_Isotopes',
             'Tree Rings_Temperature',
             'Corals and Sclerosponges_d18O',
