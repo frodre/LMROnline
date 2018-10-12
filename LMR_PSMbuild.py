@@ -208,6 +208,7 @@ def save_calib_no_testing(proxies, psm_file, psm_file_diag, psm_type):
 
         if psm_type == 'linear':
             site_psm['Seasonality'] = curr_psm.seasonality
+            site_psm['avg_interval'] = curr_psm.avg_interval
             site_psm['calib'] = linear_datatag
             site_psm['PSMslope'] = curr_psm.slope
 
@@ -222,6 +223,8 @@ def save_calib_no_testing(proxies, psm_file, psm_file_diag, psm_type):
         elif psm_type == 'bilinear':
             site_psm['Seasonality_T'] = curr_psm.seasonality_T
             site_psm['Seasonality_P'] = curr_psm.seasonality_P
+            site_psm['avg_interval_T'] = curr_psm.avg_interval_T
+            site_psm['avg_interval_P'] = curr_psm.avg_interval_P
             site_psm['calib_temperature'] = bilinear_datatag_T
             site_psm['calib_moisture'] = bilinear_datatag_P
             site_psm['PSMslope_temperature'] = curr_psm.slope_temperature

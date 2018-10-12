@@ -303,6 +303,7 @@ class LinearPSM(BasePSM):
             self.slope = psm_site_data['PSMslope']
             self.intercept = psm_site_data['PSMintercept']
             self.R = psm_site_data['PSMmse']
+            self.avg_interval = psm_site_data['avg_interval']
             # TODO: Set seasonality for calibration on the fly?
             self.seasonality = psm_site_data.get('Seasonality', None)
 
@@ -332,6 +333,7 @@ class LinearPSM(BasePSM):
                         ''.format(self.avg_type))
 
                 # Handle seasonality
+                self.avg_interval = avg_key
                 self.seasonality = self._handle_single_input_avg_key(avg_key,
                                                                      psm_config,
                                                                      linear_psm_cfg)
@@ -638,6 +640,7 @@ class LinearPSM_TorP(BasePSM):
                            '\nExpected "annual" or "seasonal". Got {}'
                            ''.format(self.avg_type))
 
+        self.avg_interval = avg_key
         # Update seasonality
         self.seasonality = self._handle_single_input_avg_key(avg_key,
                                                              psm_config,
@@ -837,11 +840,17 @@ class BilinearPSM(BasePSM):
                 self.seasonality_T = psm_site_data['Seasonality']
                 self.seasonality_P = self.seasonality_T
 
+                avg_interval, _ = psm_config.handle_proxy_elem_list(self.seasonality_T)
+                self.avg_interval_T = avg_interval
+                self.avg_interval_P = avg_interval
+
             if 'Seasonality_T' in list(psm_site_data.keys()):
                 self.seasonality_T = psm_site_data['Seasonality_T']
+                self.avg_interval_T = psm_site_data['avg_interval_T']
 
             if 'Seasonality_P' in list(psm_site_data.keys()):
                 self.seasonality_P = psm_site_data['Seasonality_p']
+                self.avg_interval_P = psm_site_data['avg_interval_P']
 
         except KeyError as e:
             raise KeyError('Proxy in database but not found in pre-calibration '
