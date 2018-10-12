@@ -109,7 +109,7 @@ lmrdb_proxy_types = [
             'Tree Rings_WidthBreit',
             'Tree Rings_Isotopes',
             'Tree Rings_Temperature',
-            'Tree Rings_WoodDensity'
+            'Tree Rings_WoodDensity',
             'Corals and Sclerosponges_d18O',
             'Corals and Sclerosponges_SrCa',
             'Corals and Sclerosponges_Rates',
