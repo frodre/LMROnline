@@ -291,7 +291,8 @@ def save_calib_no_testing(proxies, psm_file, psm_file_diag, psm_type):
         pickle.dump(psm_dict_diag, f, protocol=4)
 
 
-def load_analysis_var(seasonality, avg_kwargs, datatag, psm_config):
+def load_analysis_var(seasonality, avg_kwargs, psm_config):
+    datatag = psm_config.datatag
     AnalysisVariable = LMR_gridded.get_analysis_var_class(datatag)
     psm_config.update_avg_interval(seasonality, avg_kwargs)
     return AnalysisVariable.load(psm_config, anomaly=True)
@@ -299,16 +300,67 @@ def load_analysis_var(seasonality, avg_kwargs, datatag, psm_config):
 
 def get_calib_objects(psm_config, season_defs, seasonality_list):
 
-    datatag = psm_config.datatag
-
     calib_objs = {}
     for seasonality in seasonality_list:
         avg_kwargs = season_defs[seasonality]
-        analysis_var = load_analysis_var(seasonality, avg_kwargs, datatag,
-                                         psm_config)
+        analysis_var = load_analysis_var(seasonality, avg_kwargs, psm_config)
         calib_objs[seasonality] = analysis_var
 
     return calib_objs
+
+
+def load_proxy_seasonal_calibs(proxies, seasonality_list, psm_config):
+
+    proxy_calib_objs = {}
+    for proxy in proxies:
+        seasonality = proxy.seasonality
+        [avg_interval,
+         avg_int_kwarg] = psm_config.handle_proxy_elem_list(seasonality)
+
+        if avg_interval not in seasonality_list:
+            calib_obj = _load_proxy_calib(avg_interval, avg_int_kwarg,
+                                          psm_config)
+            proxy_calib_objs[proxy.id] = {avg_interval: calib_obj}
+
+    return proxy_calib_objs
+
+
+def _load_proxy_calib(seasonality, avg_kwargs, psm_config):
+
+    if psm_type == 'bilinear':
+        specific_config = psm_config.bilinear
+        load_cfgs = [specific_config.temperature,
+                     specific_config.moisture]
+    else:
+        specific_config = psm_config.linear
+        load_cfgs = [specific_config]
+
+    calibs = [load_analysis_var(seasonality, avg_kwargs, cfg)
+              for cfg in load_cfgs]
+
+    return calibs
+
+
+def _get_bil_arg_combos(temp_objs, moist_objs):
+    test_combos = {}
+    for t_key, m_key in product(temp_objs.keys(), moist_objs.keys()):
+        comb_key = (t_key, m_key)
+        comb_val = {'avg_key_T': t_key,
+                    'calib_obj_T': temp_objs[t_key],
+                    'avg_key_P': m_key,
+                    'calib_obj_P': moist_objs[m_key]}
+        test_combos[comb_key] = comb_val
+
+    return test_combos
+
+
+def _get_lin_arg_combos(objs):
+    test_combos = {}
+    for t_key, calib_obj in objs.items():
+        test_combos[t_key] = {'avg_key': t_key,
+                              'calib_obj': calib_obj}
+
+    return test_combos
 
 
 def calib_seasonality_test(proxies, psm_config, seasonality_list, psm_type):
@@ -323,32 +375,48 @@ def calib_seasonality_test(proxies, psm_config, seasonality_list, psm_type):
         moist_objs = get_calib_objects(specific_config.moisture,
                                        season_defs,
                                        seasonality_list)
-        test_combos = {}
-        for t_key, m_key in product(temp_objs.keys(), moist_objs.keys()):
-            comb_key = (t_key, m_key)
-            comb_val = {'avg_key_T': t_key,
-                        'calib_obj_T': temp_objs[t_key],
-                        'avg_key_P': m_key,
-                        'calib_obj_P': moist_objs[m_key]}
-            test_combos[comb_key] = comb_val
+
+        combo_func = _get_bil_arg_combos
+        test_combos = combo_func(temp_objs, moist_objs)
 
     else:
         specific_config = psm_config.linear
         temp_objs = get_calib_objects(specific_config,
                                       season_defs,
                                       seasonality_list)
-        test_combos = {}
-        for t_key, calib_obj in temp_objs.items():
-            test_combos[t_key] = {'avg_key': t_key,
-                                  'calib_obj': calib_obj}
+        combo_func = _get_lin_arg_combos
+        test_combos = combo_func(temp_objs)
+
+    # Seasonal calibrations for specific proxies that aren't in the test list
+    proxy_req_objs = load_proxy_seasonal_calibs(proxies, seasonality_list,
+                                                psm_config)
 
     psm_class = LMR_psms.get_psm_class(psm_type)
-    num_to_compare = len(test_combos)
     valid_proxies_with_psm = []
 
     for proxy in proxies:
+        if proxy.id in proxy_req_objs:
+            proxy_calib_dict = proxy_req_objs[proxy.id]
+            avg_key = list(proxy_calib_dict.keys())[0]
+            pcalib_objs = proxy_calib_dict[avg_key]
+
+            # Create new test combination
+            if len(pcalib_objs) > 1:
+                t_obj, m_obj = pcalib_objs
+                combined_temp = {avg_key: t_obj}
+                combined_temp.update(temp_objs)
+                combined_moisture = {avg_key: m_obj}
+                combined_moisture.update(moist_objs)
+                test_combos = combo_func(combined_temp, combined_moisture)
+            else:
+                new_calib_dict = {}
+                new_calib_dict.update(proxy_calib_dict)
+                new_calib_dict.update(temp_objs)
+                test_combos = combo_func(proxy_calib_dict)
+
+        num_to_compare = len(test_combos)
         test_psms = {}
-        psm_compare_metric = np.zeros((num_to_compare)) * np.nan
+        psm_compare_metric = np.zeros(num_to_compare) * np.nan
         idx_to_key = {}
 
         for i, (key, psm_kwargs) in enumerate(test_combos.items()):
@@ -379,28 +447,32 @@ def calib_default_seasonality(proxies, psm_config, psm_type,
 
     psm_class = LMR_psms.get_psm_class(psm_type)
 
-    if psm_type == 'bilinear':
-        temp_objs = get_calib_objects(psm_config.bilinear.temperature,
-                                      season_defs, [default_season])
-        avg_key_T, cobj_T = temp_objs.popitem()
-
-        moist_objs = get_calib_objects(psm_config.bilinear.moisture,
-                                       season_defs, [default_season])
-        avg_key_P, cobj_P = moist_objs.popitem()
-
-        psm_kwargs = {'avg_key_T': avg_key_T,
-                      'calib_obj_T': cobj_T,
-                      'avg_key_P': avg_key_P,
-                      'calib_obj_P': cobj_P}
-    else:
-        temp_objs = get_calib_objects(psm_config.linear,
-                                      season_defs, [default_season])
-        avg_key_T, cobj_T = temp_objs.popitem()
-        psm_kwargs = {'avg_key': avg_key_T,
-                      'calib_obj': cobj_T}
-
     valid_proxies_with_psm = []
     for proxy in proxies:
+
+        seasonality = proxy.seasonality
+        avg_interval, avg_kwargs = psm_config.handle_proxy_elem_list(seasonality)
+
+        if psm_type == 'bilinear':
+            temp_objs = get_calib_objects(psm_config.bilinear.temperature,
+                                          season_defs, [avg_interval])
+            avg_key_T, cobj_T = temp_objs.popitem()
+
+            moist_objs = get_calib_objects(psm_config.bilinear.moisture,
+                                           season_defs, [avg_interval])
+            avg_key_P, cobj_P = moist_objs.popitem()
+
+            psm_kwargs = {'avg_key_T': avg_key_T,
+                          'calib_obj_T': cobj_T,
+                          'avg_key_P': avg_key_P,
+                          'calib_obj_P': cobj_P}
+        else:
+            temp_objs = get_calib_objects(psm_config.linear,
+                                          season_defs, [avg_interval])
+            avg_key_T, cobj_T = temp_objs.popitem()
+            psm_kwargs = {'avg_key': avg_key_T,
+                          'calib_obj': cobj_T}
+
         try:
             psm_obj = psm_class(psm_config, proxy,
                                 on_the_fly_calib=True, **psm_kwargs)
