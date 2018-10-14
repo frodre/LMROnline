@@ -47,8 +47,8 @@ use_from = 'LMRdb'
 output_dir = '/home/katabatic/wperkins/data/LMR/PSM/'
 
 # Which type of PSM to create pre-calibrated data for
-# psm_type = 'linear'
-psm_type = 'bilinear'
+psm_type = 'linear'
+# psm_type = 'bilinear'
 
 # Use annual or seasonal distinctions to calibrate PSMs
 # avg_type = 'annual'
@@ -411,7 +411,7 @@ def calib_seasonality_test(proxies, psm_config, seasonality_list, psm_type):
             else:
                 new_calib_dict = {avg_key: pcalib_objs[0]}
                 new_calib_dict.update(temp_objs)
-                test_combos = combo_func(proxy_calib_dict)
+                test_combos = combo_func(new_calib_dict)
 
         num_to_compare = len(test_combos)
         test_psms = {}
