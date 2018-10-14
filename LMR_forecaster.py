@@ -56,6 +56,7 @@ class LIMForecaster(BaseForecaster):
         self.var_eofs = {}
         self.var_order = []
         self.var_span = {}
+        self.calib_yr_range = {}
         self.var_eof_std_factor = {}
         self.var_std_factor = {}
         self.var_eof_stats = {}
@@ -309,6 +310,9 @@ class LIMForecaster(BaseForecaster):
 
         varname, avg_interval = key
 
+        yr_start = fcast_var.time[0].year
+        yr_end = fcast_var.time[-1].year
+        self.calib_yr_range[key] = (yr_start, yr_end)
         # Convert data into pylim.DataObject and then perform processing
         data_obj = fcast_var.forecast_var_to_pylim_dataobj()
 
@@ -357,21 +361,28 @@ class LIMForecaster(BaseForecaster):
 
     def _combine_lim_state_data(self):
 
-        curr_min = 1e10
-        for var_data in self._pre_concat_data_std:
-            curr_min = min(curr_min, var_data.shape[0])
+        late_start = -1e10
+        early_end = 1e10
+        for key, (yr_start, yr_end) in self.calib_yr_range.items():
+            late_start = max(late_start, yr_start)
+            early_end = min(early_end, yr_end)
 
-        for i in range(len(self._pre_concat_data_std)):
-            var_data_std = self._pre_concat_data_std[i]
+        for i, key in enumerate(self.var_order):
             var_data_reg = self._pre_concat_data_reg[i]
+            var_data_std = self._pre_concat_data_std[i]
 
-            shave_yr = var_data_std.shape[0] - curr_min
-            if shave_yr > 1:
-                raise ValueError('Havent planned for more than 1 year being '
-                                 'removed from data after it is averaged...')
+            yr_start, yr_end = self.calib_yr_range[key]
 
-            self._pre_concat_data_std[i] = var_data_std[shave_yr:]
-            self._pre_concat_data_reg[i] = var_data_reg[shave_yr:]
+            shave_start = late_start - yr_start
+            shave_end = early_end - yr_end
+
+            if shave_end == 0:
+                shave_end = None
+
+            adj_slice = slice(shave_start, shave_end)
+
+            self._pre_concat_data_reg[i] = var_data_reg[adj_slice]
+            self._pre_concat_data_std[i] = var_data_std[adj_slice]
 
         lim_state_std = np.concatenate(self._pre_concat_data_std, axis=1)
         lim_state_reg = np.concatenate(self._pre_concat_data_reg, axis=1)

@@ -476,7 +476,7 @@ class GriddedVariable(object):
         sample_idxs = []
         for sample_yr in sample_years:
 
-            curr_idx = years.find(sample_yr)
+            curr_idx = years.index(sample_yr)
 
             if years.count(sample_yr) > 1:
                 raise ValueError('Sampling by year does not work on '
