@@ -19,7 +19,7 @@ from time import time
 from copy import deepcopy
 from collections import defaultdict
 from itertools import product
-
+from multiprocessing import Pool
 
 import LMR_proxy as LMR_proxy
 import LMR_config
@@ -61,7 +61,7 @@ min_data_req_frac = 1.0
 # Perform a series of calibrations using pre-defined seasons in order to
 # determine an objective proxy seasonality definition.  Only used when
 # avg_type='seasonal'.
-test_proxy_seasonality = True
+test_proxy_seasonality = False
 
 # Years over which calibration and proxy data are considered for fits
 calib_period = (1850, 2015)
@@ -386,15 +386,34 @@ def calib_seasonality_test(proxies, psm_config, seasonality_list, psm_type):
                                       seasonality_list)
         combo_func = _get_lin_arg_combos
         test_combos = combo_func(temp_objs)
+        moist_objs = None
 
     # Seasonal calibrations for specific proxies that aren't in the test list
     proxy_req_objs = load_proxy_seasonal_calibs(proxies, seasonality_list,
                                                 psm_config)
 
     psm_class = LMR_psms.get_psm_class(psm_type)
-    valid_proxies_with_psm = []
 
-    for proxy in proxies:
+    pool = Pool(processes=2)
+    arg_gen = _proxy_test_pool_func_arg_gen(proxies, proxy_req_objs,
+                                            temp_objs, moist_objs,
+                                            combo_func, psm_class, psm_config,
+                                            test_combos)
+    calib_test_res = pool.map(_proxy_test_pool_func, arg_gen)
+    pool.close()
+    pool.join()
+
+    valid_proxies_with_psm = [valid_proxy for valid_proxy in calib_test_res
+                              if valid_proxy is not None]
+
+    return valid_proxies_with_psm
+
+
+def _proxy_test_pool_func_arg_gen(proxy_list, proxy_req_objs, temp_objs,
+                                  moist_objs, combo_func, psm_class,
+                                  psm_config, test_combos):
+
+    for proxy in proxy_list:
         if proxy.id in proxy_req_objs:
             proxy_calib_dict = proxy_req_objs[proxy.id]
             avg_key = list(proxy_calib_dict.keys())[0]
@@ -413,30 +432,36 @@ def calib_seasonality_test(proxies, psm_config, seasonality_list, psm_type):
                 new_calib_dict.update(temp_objs)
                 test_combos = combo_func(new_calib_dict)
 
-        num_to_compare = len(test_combos)
-        test_psms = {}
-        psm_compare_metric = np.zeros(num_to_compare) * np.nan
-        idx_to_key = {}
+        yield proxy, test_combos, psm_class, psm_config
 
-        for i, (key, psm_kwargs) in enumerate(test_combos.items()):
-            idx_to_key[i] = key
-            try:
-                psm_obj = psm_class(psm_config, proxy,
-                                    on_the_fly_calib=True, **psm_kwargs)
-                test_psms[key] = psm_obj
-                psm_compare_metric[i] = psm_obj.BIC
-            except (PSMFitThresholdError, PSMTooFewObsError) as e:
-                print('Could not calibrate test season(s) {} for {}'
-                      ''.format(key, proxy.id))
-                pass
 
-        if np.any(np.isfinite(psm_compare_metric)):
-            min_idx = np.nanargmin(psm_compare_metric)
-            best_key = idx_to_key[min_idx]
-            proxy.psm_obj = test_psms[best_key]
-            valid_proxies_with_psm.append(proxy)
+def _proxy_test_pool_func(args):
+    [proxy, test_combos, psm_class, psm_config] = args
 
-    return valid_proxies_with_psm
+    num_to_compare = len(test_combos)
+    test_psms = {}
+    psm_compare_metric = np.zeros(num_to_compare) * np.nan
+    idx_to_key = {}
+
+    for i, (key, psm_kwargs) in enumerate(test_combos.items()):
+        idx_to_key[i] = key
+        try:
+            psm_obj = psm_class(psm_config, proxy,
+                                on_the_fly_calib=True, **psm_kwargs)
+            test_psms[key] = psm_obj
+            psm_compare_metric[i] = psm_obj.BIC
+        except (PSMFitThresholdError, PSMTooFewObsError) as e:
+            print('Could not calibrate test season(s) {} for {}'
+                  ''.format(key, proxy.id))
+            pass
+
+    if np.any(np.isfinite(psm_compare_metric)):
+        min_idx = np.nanargmin(psm_compare_metric)
+        best_key = idx_to_key[min_idx]
+        proxy.psm_obj = test_psms[best_key]
+        return proxy
+    else:
+        return None
 
 
 def calib_default_seasonality(proxies, psm_config, psm_type,
