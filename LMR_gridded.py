@@ -1288,8 +1288,25 @@ class GriddedVariable(object):
         data = data.reshape(total_avg_periods, nyears, nelem_in_yr,
                             *spatial_shape)
 
+        # Find whether to take representative time as start or end of avg period
+        yr_start_idx, = np.where(np.array(elem_to_avg) % nelem_in_yr == 0)
+        if yr_start_idx.shape[0] > 1:
+            raise ValueError('More than one calendar year detected.')
+        elif yr_start_idx.shape[0] == 0:
+            take_orig_yr = True
+        elif yr_start_idx[0] != 0:
+            num_elem_in_orig_yr = yr_start_idx[0]
+            num_elem_in_following_yr = len(elem_to_avg) - yr_start_idx[0]
+
+            take_orig_yr = num_elem_in_orig_yr >= num_elem_in_following_yr
+        else:
+            take_orig_yr = True
+
         # Average the data
-        new_times = time_vals[:, 0, 0]  # Definition is start of time period
+        if take_orig_yr:
+            new_times = time_vals[:, 0, 0]  # Definition is start of time period
+        else:
+            new_times = time_vals[:, -1, -1]
         data = data[:, :, 0:len_of_sample]
 
         # Average over multi-annual and annual (with sub-annual specification)
