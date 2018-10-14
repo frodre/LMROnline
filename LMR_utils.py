@@ -886,11 +886,21 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
 
     if masked_regrid:
         print('Mask detected.  Adding mask to src ESMF grid')
+
+        # Determine if mask is static in time
+        num_masked = X.mask.sum(axis=0)
+        num_masked = num_masked[num_masked > 0]
+        dynamic_mask = not np.all(num_masked == num_masked[0])
+
+        if dynamic_mask:
+            print('Mask is dynamic in time. Defaulting to slower regrid '
+                  'style...')
         X_mask = X[0].mask.astype(np.int16)
         mask_values = np.array([1])
     else:
         X_mask = None
         mask_values = None
+        dynamic_mask = False
 
     grid = _create_grid_ESMF(X_nlat, X_nlon,
                              mask=X_mask,
@@ -940,19 +950,36 @@ def regrid_esmpy(target_nlat, target_nlon, X_nens, X, X_lat2D, X_lon2D, X_nlat,
         new_grid_mask[:] = out_mask
 
     # create src and dst fields
-    src_field = ESMF.Field(grid, name='src', staggerloc=ESMF.StaggerLoc.CENTER)
     dst_field = ESMF.Field(new_grid, name='dst',
+                           staggerloc=ESMF.StaggerLoc.CENTER)
+    src_field = ESMF.Field(grid, name='src',
                            staggerloc=ESMF.StaggerLoc.CENTER)
 
     regrid_output = np.zeros((X_nens, target_nlat, target_nlon))
-    regridder = ESMF.Regrid(src_field, dst_field, regrid_method=use_method,
-                            dst_mask_values=mask_values,
-                            src_mask_values=mask_values,
-                            unmapped_action=ESMF.UnmappedAction.IGNORE)
+
+    if not dynamic_mask:
+
+        regridder = ESMF.Regrid(src_field, dst_field, regrid_method=use_method,
+                                dst_mask_values=mask_values,
+                                src_mask_values=mask_values,
+                                unmapped_action=ESMF.UnmappedAction.IGNORE)
 
     # Regrid each ensemble member
     for k in range(X_nens):
         grid_data = X[k]
+
+        # Alter mask on the fly
+        if masked_regrid and dynamic_mask:
+
+            mask = grid.get_item(ESMF.GridItem.MASK)
+            mask[:] = grid_data.mask.T
+
+            regridder = ESMF.Regrid(src_field, dst_field,
+                                    regrid_method=use_method,
+                                    dst_mask_values=mask_values,
+                                    src_mask_values=mask_values,
+                                    unmapped_action=ESMF.UnmappedAction.IGNORE)
+
         src_field.data[:] = grid_data.T
 
         regridder(src_field, dst_field)
