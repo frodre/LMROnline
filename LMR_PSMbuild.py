@@ -409,8 +409,7 @@ def calib_seasonality_test(proxies, psm_config, seasonality_list, psm_type):
                 combined_moisture.update(moist_objs)
                 test_combos = combo_func(combined_temp, combined_moisture)
             else:
-                new_calib_dict = {}
-                new_calib_dict.update(proxy_calib_dict)
+                new_calib_dict = {avg_key: pcalib_objs[0]}
                 new_calib_dict.update(temp_objs)
                 test_combos = combo_func(proxy_calib_dict)
 
