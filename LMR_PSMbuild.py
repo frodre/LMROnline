@@ -357,15 +357,15 @@ def calib_seasonality_test(proxies, psm_config, seasonality_list, psm_type):
                 psm_obj = psm_class(psm_config, proxy,
                                     on_the_fly_calib=True, **psm_kwargs)
                 test_psms[key] = psm_obj
-                psm_compare_metric[i] = psm_obj.R2adj
+                psm_compare_metric[i] = psm_obj.BIC
             except (PSMFitThresholdError, PSMTooFewObsError) as e:
                 print('Could not calibrate test season(s) {} for {}'
                       ''.format(key, proxy.id))
                 pass
 
         if np.any(np.isfinite(psm_compare_metric)):
-            max_idx = np.nanargmax(psm_compare_metric)
-            best_key = idx_to_key[max_idx]
+            min_idx = np.nanargmin(psm_compare_metric)
+            best_key = idx_to_key[min_idx]
             proxy.psm_obj = test_psms[best_key]
             valid_proxies_with_psm.append(proxy)
 
