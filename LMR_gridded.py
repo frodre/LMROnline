@@ -438,7 +438,7 @@ class GriddedVariable(object):
 
         return flat_data, flat_coords
 
-    def random_sample(self, nens, seed=None):
+    def random_sample(self, nens, seed=None, sample_omit_edge=False):
         """
         Take a random sample along the sampling dimension of the data.
 
@@ -448,6 +448,8 @@ class GriddedVariable(object):
             Size of sample
         seed: int, optional
             Seed for the random number generator
+        sample_omit_edge: bool, optional
+            Remove the first and last element from the pool of possible samples
 
         Returns
         -------
@@ -455,10 +457,40 @@ class GriddedVariable(object):
             New gridded variable object with the sampled data.
 
         """
-        sample_range = list(range(self.data.shape[0]))
+        if sample_omit_edge:
+            sample_range = list(range(1, self.data.shape[0] - 1))
+        else:
+            sample_range = list(range(self.data.shape[0]))
+
         random.seed(seed)
         sample = random.sample(sample_range, nens)
         return self.sample_from_idx(sample)
+
+    def _get_yr_indices(self, sample_years):
+
+        years = [time.year for time in self.time]
+
+        if not isinstance(sample_years[0], int):
+            sample_years = [time.year for time in sample_years]
+
+        sample_idxs = []
+        for sample_yr in sample_years:
+
+            curr_idx = years.find(sample_yr)
+
+            if years.count(sample_yr) > 1:
+                raise ValueError('Sampling by year does not work on '
+                                 'sub-annual data.')
+
+            sample_idxs.append(curr_idx)
+
+        return sample_idxs
+
+    def sample_from_yr(self, sample_years):
+
+        yr_idxs = self._get_yr_indices(sample_years)
+
+        return self.sample_from_idx(yr_idxs)
 
     def sample_from_idx(self, sample_idxs):
         """
@@ -523,6 +555,9 @@ class GriddedVariable(object):
             return False
         else:
             return True
+
+    def get_sample_years(self):
+        return self.time
 
     @staticmethod
     def _get_time_range_idx(time, start, end):
@@ -659,7 +694,7 @@ class GriddedVariable(object):
 
     @classmethod
     def load(cls, gridded_config, varname=None,
-             anomaly=False, sample=None, **kwargs):
+             anomaly=False, sample=None, sample_omit_edge=False, **kwargs):
         """
         Load a single variable as a GriddedVariable
 
@@ -672,9 +707,12 @@ class GriddedVariable(object):
             variables an error is raised.
         anomaly: bool, Optional
             Whether to convert data to an anomaly format.
-        sample: list[int], Optional
-            List of integer indices representing a sample to be taken over the
-            time dimension
+        sample: list of times, Optional
+            List of times to take as a sample.  Only works for annual or
+            longer time deltas due to reliance on year.
+        sample_omit_edge: bool, Optional
+            If taking a random sample of the data, omit the first time which
+            is safe for multiple averaging intervals removing years
         nens: int, Optional
             The number of ensemble members to randomly sample from the data
         seed: int, Optional
@@ -755,6 +793,7 @@ class GriddedVariable(object):
 
         return cls._main_load_helper(file_dir, file_name, varname, file_type,
                                      sample=sample,
+                                     sample_omit_edge=sample_omit_edge,
                                      save=save,
                                      ignore_pre_avg=ignore_pre_avg,
                                      avg_interval=avg_interval,
@@ -788,6 +827,7 @@ class GriddedVariable(object):
     @classmethod
     def _main_load_helper(cls, file_dir, file_name, varname, file_type,
                           nens=None, seed=None, sample=None,
+                          sample_omit_edge=False,
                           avg_interval=None, avg_interval_kwargs=None,
                           regrid_method=None, regrid_grid=None,
                           esmpy_kwargs=None,
@@ -824,6 +864,7 @@ class GriddedVariable(object):
                                             anomaly=anomaly,
                                             nens=nens,
                                             sample=sample,
+                                            sample_omit_edge=sample_omit_edge,
                                             seed=seed,
                                             interp_method=interp_method,
                                             anom_ref=anom_reference_period,
@@ -867,9 +908,10 @@ class GriddedVariable(object):
         if not var_obj.is_sampled() and (nens is not None or sample is not None):
 
             if sample is not None:
-                var_obj = var_obj.sample_from_idx(sample)
+                var_obj = var_obj.sample_from_yr(sample)
             else:
-                var_obj = var_obj.random_sample(nens, seed)
+                var_obj = var_obj.random_sample(nens, seed=seed,
+                                                sample_omit_edge=sample_omit_edge)
 
         return var_obj
 
@@ -893,6 +935,7 @@ class GriddedVariable(object):
     def _load_pre_avg_obj(cls, dir_name, filename, varname, avg_interval=None,
                           regrid_method=None, regrid_grid=None,
                           anomaly=False, nens=None, sample=None,
+                          sample_omit_edge=False,
                           seed=None, interp_method=None, anom_ref=None,
                           calib_period=None, data_req_frac=None):
         """
@@ -974,9 +1017,10 @@ class GriddedVariable(object):
             # case.
             if do_sample:
                 if sample is not None:
-                    obj = obj.sample_from_idx(sample)
+                    obj = obj.sample_from_yr(sample)
                 elif nens is not None:
-                    obj = obj.random_sample(nens, seed)
+                    obj = obj.random_sample(nens, seed=seed,
+                                            sample_omit_edge=sample_omit_edge)
                 else:
                     try:
                         obj.data = obj.data.read()
@@ -1316,21 +1360,33 @@ class PriorVariable(GriddedVariable):
         var_names = prior_config.state_variables
         orig_avg_interval = prior_config.avg_interval
 
+        # If more required psms variables need to be loaded take the
+        # conservative sample that omits the edges of sample range
+        edge_omit = req_psm_vars is not None
+
         prior_dict = OrderedDict()
         for vname, anomaly in var_names.items():
             if anomaly == 'anom':
                 anomaly = True
             else:
                 anomaly = False
-            pobj = cls.load(prior_config, vname, anomaly=anomaly)
+            pobj = cls.load(prior_config, vname, anomaly=anomaly,
+                            sample_omit_edge=edge_omit)
 
             prior_dict[(vname, orig_avg_interval)] = pobj
+
+        arbitrary_pobj = next(iter(prior_dict.values()))
+        if arbitrary_pobj.is_sampled():
+            sample_years = arbitrary_pobj.time
+        else:
+            sample_years = None
 
         if req_psm_vars is not None:
             for vname, avg_interval in req_psm_vars:
 
                 prior_config.update_avg_interval(avg_interval)
-                pobj = cls.load(prior_config, vname, anomaly=True)
+                pobj = cls.load(prior_config, vname, sample=sample_years,
+                                anomaly=True)
 
                 prior_dict[(vname, avg_interval)] = pobj
 
