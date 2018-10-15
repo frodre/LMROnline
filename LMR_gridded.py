@@ -388,8 +388,9 @@ class GriddedVariable(object):
     @staticmethod
     def _check_fill_val_mach_eps(data, fill_val):
         eps = np.finfo(data.dtype).eps
-        fill_upper = fill_val + fill_val*eps
-        fill_lower = fill_val - fill_val*eps
+        delta = abs(fill_val*eps)
+        fill_upper = fill_val + delta
+        fill_lower = fill_val - delta
 
         match = (data <= fill_upper) & (data >= fill_lower)
 
