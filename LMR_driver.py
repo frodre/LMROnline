@@ -209,13 +209,13 @@ def LMR_driver_callable(cfg=None):
         assim_ye_path = join(workdir, 'assim_ye_ens_output.zarr')
         assim_ye_out = lmr_out.create_Ye_output(assim_ye_path,
                                                 assim_proxy_count,
-                                                nens, ntimes)
+                                                nens, ntimes, recon_period)
 
         if eval_proxy_count is not None:
             eval_ye_path = join(workdir, 'eval_ye_ens_output.zarr')
             eval_ye_out = lmr_out.create_Ye_output(eval_ye_path,
                                                    eval_proxy_count,
-                                                   nens, ntimes)
+                                                   nens, ntimes, recon_period)
         else:
             eval_ye_out = None
     else:

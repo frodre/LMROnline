@@ -334,7 +334,7 @@ def _gather_proxy_object_info(pobj_list, status):
     return proxy_info
 
 
-def create_Ye_output(out_path, nproxies, nens, nyears):
+def create_Ye_output(out_path, nproxies, nens, nyears, recon_yr_range):
     nbytes_in_nens = nens * 8
     n_units_in_mb = 5 / (nbytes_in_nens / 1024**2) #number of nens chunks in 5mb
 
@@ -355,6 +355,7 @@ def create_Ye_output(out_path, nproxies, nens, nyears):
     ye_arr = zarr.open(out_path, mode='w',
                        shape=(nproxies, nyears, nens), chunks=chunk_shape,
                        compressor=compressor, dtype=np.float64)
+    ye_arr.attrs['recon_time_range'] = recon_yr_range
 
     return ye_arr
 
