@@ -235,7 +235,7 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
             return ens
     elif isinstance(option, int):
         # first element + number of time step fits into total nens
-        stored_nens = (nens // option) + 1
+        stored_nens = (nens // option)
 
         def grab_ens_members(state_data):
             step = option
