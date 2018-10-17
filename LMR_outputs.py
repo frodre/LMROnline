@@ -336,12 +336,12 @@ def _gather_proxy_object_info(pobj_list, status):
 
 def create_Ye_output(out_path, nproxies, nens, nyears):
     nbytes_in_nens = nens * 8
-    n_units_in_mb = 1 / (nbytes_in_nens / 1024**2)
+    n_units_in_mb = 5 / (nbytes_in_nens / 1024**2) #number of nens chunks in 5mb
 
-    # chunk along proxy and year dimension with 2:1 ratio
-    base_chunk_len = n_units_in_mb // 3
-    nproxy_chunk = 2 * base_chunk_len
-    nyr_chunk = base_chunk_len
+
+    base_chunk_size = np.sqrt(n_units_in_mb / 2)
+    nyr_chunk = int(base_chunk_size)
+    nproxy_chunk = 2 * nyr_chunk
 
     if nyr_chunk > nyears:
         nyr_chunk = nyears
