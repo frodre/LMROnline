@@ -99,7 +99,8 @@ stat_save = False
 #nexp = 'production_mlost_era20c_pagesall_0.75'
 #nexp = 'production_mlost_era20cm_pagesall_0.75'
 # ---
-nexp = 'test_ensrf_noise_lim_optimal_bilinear_seasonal'
+nexp = 'testdev_ccsm4_bilinear_gisgpcc_LMRdb_objPSM_pfrac75_last1000'
+#nexp = 'testdev_ccsm4_bilinear_gisgpcc_PAGESv2_metaPSM_pfrac75'
 # ---
 
 # perform verification using all recon. MC realizations ( MCset = None )
@@ -715,7 +716,8 @@ if iplot:
     plt.ylabel('Ensemble calibration ratio')
     ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     plt.title('Global-mean temperature ensemble calibration')
-    plt.savefig(nexp+'_GMT_ensemble_calibration.png')
+    if fsave:
+        plt.savefig(nexp+'_GMT_ensemble_calibration.png')
 
 
 # ========================================================
@@ -1464,7 +1466,8 @@ if iplot:
         
         fig.tight_layout()
         fname = nexp+'_GMT_'+str(xl[0])+'-'+str(xl[1])+'_MCensemble_rank_histogram.png'
-        plt.savefig(fname)
+        if fsave:
+            plt.savefig(fname)
 
 
 #  Summary "table" figures
@@ -1636,7 +1639,8 @@ plt.axis('off') # remove the axes that came with imshow
 
 fname =  nexp+'_GMT_'+str(xl[0])+'-'+str(xl[1])+'_corr_table'
 #plt.savefig(fname+'.png')
-plt.savefig(fname+'.pdf',format='pdf',dpi=300,bbox_inches='tight')
+if fsave:
+    plt.savefig(fname+'.pdf',format='pdf',dpi=300,bbox_inches='tight')
 
 
 #
@@ -1682,7 +1686,8 @@ plt.axis('off') # remove the axes that came with imshow
 
 fname =  nexp+'_GMT_'+str(xl[0])+'-'+str(xl[1])+'_ce_table'
 #plt.savefig(fname+'.png')
-plt.savefig(fname+'.pdf',format='pdf',dpi=300,bbox_inches='tight')
+if fsave:
+    plt.savefig(fname+'.pdf',format='pdf',dpi=300,bbox_inches='tight')
 
     
 # ---------------------------------------------------------
