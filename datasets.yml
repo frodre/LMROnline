@@ -119,6 +119,43 @@ SPEI:
   datafile: spei_monthly_v2.4_190001-201412.nc
   dataformat: NCD
 
+
+## Ocean Analysis Vars
+
+GFDLECDA:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: [sst_, ohc_0-700m_]
+
+  cell_area: null
+  datadir: null
+  datafile: '[vardef_template]GFDLECDAv3.1_196101-201012.nc'
+  dataformat: NCD
+
+SODA:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: [sst_, ohc_0-700m_]
+
+  cell_area: null
+  datadir: null
+  datafile: '[vardef_template]SODAv2.2.4_187101-200812.nc'
+  dataformat: NCD
+
+ORAS4:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: [sst_, ohc_0-700m_]
+
+  cell_area: null
+  datadir: null
+  datafile: '[vardef_template]ORAS4_195801-200912.nc'
+  dataformat: NCD
+
+
 # ===============================================================
 # Model Output Datasets (used for prior information)
 # ===============================================================
