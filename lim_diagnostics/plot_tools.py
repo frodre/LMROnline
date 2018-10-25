@@ -191,7 +191,7 @@ def plot_single_spatial_field(dobj, field, title, data_bnds=None,
         plt.show()
 
 
-def get_single_mode_plot(mode_num, l_eval, l_evect, state,
+def get_single_mode_plot(mode_num, l_eval, l_evect, lat, lon, spatial_shape,
                          lim_fcaster, partial_title=None):
     l_eval = l_eval.real
     l_evect = l_evect.real
@@ -222,11 +222,7 @@ def get_single_mode_plot(mode_num, l_eval, l_evect, state,
         else:
             full_space = data
 
-        spatial_shape = state.var_space_shp[varname]
         full_space = full_space.reshape(spatial_shape)
-
-        lat = state.var_coords[varname]['lat']
-        lon = state.var_coords[varname]['lon']
         lat = lat.reshape(spatial_shape)
         lon = lon.reshape(spatial_shape)
         lat_bnds, lon_bnds = mutils.calculate_latlon_bnds(lat, lon, lat_ax=0)
@@ -241,7 +237,7 @@ def get_single_mode_plot(mode_num, l_eval, l_evect, state,
     return plot_args
 
 
-def plot_multi_lim_modes(lim_obj, state, lim_fcaster, row_limit=20,
+def plot_multi_lim_modes(lim_obj, lat, lon, sptl_shape, lim_fcaster, row_limit=20,
                          save_file=None):
 
     # Get eigenvectors/values for G1
@@ -297,14 +293,14 @@ def plot_multi_lim_modes(lim_obj, state, lim_fcaster, row_limit=20,
             pargs1 = get_single_mode_plot(mode_str,
                                           curr_eval,
                                           cos_phase,
-                                          state,
+                                          lat, lon, sptl_shape,
                                           lim_fcaster,
                                           partial_title=dual_title.format('COS',
                                                                           period))
             pargs2 = get_single_mode_plot(mode_str,
                                           curr_eval,
                                           sin_phase,
-                                          state,
+                                          lat, lon, sptl_shape,
                                           lim_fcaster,
                                           partial_title=dual_title.format('SIN',
                                                                           period))
@@ -318,7 +314,8 @@ def plot_multi_lim_modes(lim_obj, state, lim_fcaster, row_limit=20,
             curr_eval = l_evals[mode_num]
 
             pargs = get_single_mode_plot(mode_num, curr_eval,
-                                         curr_evect_basis, state, lim_fcaster)
+                                         curr_evect_basis,
+                                         lat, lon, sptl_shape, lim_fcaster)
             plot_arg_tups.append(pargs)
             i += 1
 
