@@ -2,12 +2,17 @@ import LMR_proxy
 import LMR_gridded
 import LMR_forecaster
 import LMR_config
+import LMR_outputs
 
 import logging
 import sys
 import os
+import pickle
+import numpy as np
 
 import lim_diagnostics.plot_tools as ptools
+import lim_diagnostics.lim_utils as lutils
+import lim_diagnostics.verif_utils as vutils
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,16 +23,16 @@ fig_dir = None
 # Fig Output
 plot_neofs = 5
 plot_eofs = False
-plot_state_eofs = True
+plot_state_eofs = False
 
-plot_lim_modes = True
+plot_lim_modes = False
 plot_num_lim_modes = 8
 
-plot_lim_noise_eofs = True
+plot_lim_noise_eofs = False
 plot_num_noise_modes = 8
 
 # Perfect Forecast Experiments
-do_perfect_fcast = True
+do_perfect_fcast = False
 fcast_outputs = {'tas': ['glob_mean'],
                  'tos': ['glob_mean',
                          'enso',
@@ -38,14 +43,14 @@ plot_scalar_verif = True
 plot_spatial_verif = True
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = True
+do_ens_fcast = False
 do_hist = True
 do_reliability = True
 
 # Long integration forecast experiments
 do_long_integration = True
-integration_len_yr = 1000
-integration_iters = 1000
+integration_len_yr = 100
+integration_iters = 5
 
 # ========================
 # END USER PARAMS
@@ -144,3 +149,62 @@ if plot_lim_modes:
     ptools.plot_multi_lim_modes(lim, state, lim_fcaster,
                                 row_limit=plot_num_lim_modes,
                                 save_file=fig_fname)
+
+
+if do_long_integration:
+
+    fcast_state = lim_fcaster.phys_space_data_to_fcast_space(state)
+    t0 = fcast_state[0:1, :]
+
+    # long integration with buffer of 50 years to forget initial state
+    last = lutils.ens_long_integration(integration_iters,
+                                       integration_len_yr+50,
+                                       lim, t0)
+
+    last = last[50:]
+
+    fname = 'long_integration_output_{}.npy'.format(regrid_grid)
+    path = os.path.join(fig_dir, fname)
+    np.save(path, last)
+
+    scalar_outdef = cfg.prior.outputs['scalar_ens']
+    [func_by_var, scalar_output_containers] = \
+        LMR_outputs.prepare_scalar_calculations(scalar_outdef,
+                                                state, cfg.prior,
+                                                integration_len_yr,
+                                                integration_iters)
+
+    # Calculate scalar output values defined in config
+    for _var_key, scalar_funcs in func_by_var.items():
+
+        curr_containers = scalar_output_containers[_var_key]
+
+        eof_var_span = lim_fcaster.var_span(_var_key)
+        var_slice = slice(*eof_var_span)
+        multi_eof_var = lim_fcaster.calib_eofs[var_slice, :]
+        var_eof = lim_fcaster.var_eofs[_var_key]
+
+        _varname, _avg_interval = _var_key
+        var_fcast_out = LMR_forecaster._get_var_from_limstate(_var_key, last,
+                                                              lim_fcaster.var_span)
+
+        time_chk = 10
+        for start in np.arange(0, integration_len_yr, time_chk):
+
+            end = start + time_chk
+            if end >= integration_len_yr:
+                end = None
+
+            time_slice = slice(start, end)
+            curr_dat = last[time_slice]
+
+            phys_proj = multi_eof_var.T @ var_eof
+            phys_curr_dat = curr_dat @ phys_proj
+
+            for _measure, _measure_func in scalar_funcs.items():
+                scalar_data = _measure_func(curr_dat)
+                _container = curr_containers[_measure]
+                _container[time_slice] = scalar_data
+
+    LMR_outputs.save_scalar_ensembles(fig_dir, np.arange(integration_len_yr),
+                                      scalar_output_containers)

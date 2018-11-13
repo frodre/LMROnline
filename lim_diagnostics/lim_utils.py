@@ -108,12 +108,26 @@ class LIMState(object):
         
         self.data = self.untruncated
         self.is_eof_proj = False
-        
-    def proj_data_into_orig_basis(self, data):
-        return data @ self.eofs.T
-    
+
+    def proj_data_into_orig_basis(self, data, unstandardize=False):
+        orig_basis = data @ self.eofs.T
+
+        if unstandardize:
+            orig_basis = self.unstandardize_data(orig_basis)
+
+        return orig_basis
+
     def proj_data_into_eof_basis(self, data):
         return data @ self.eofs
+
+    def unstandardize_data(self, state_data):
+        for key, dobj in self.dobjs.items():
+            std_factor = dobj._std_scaling
+            data = self.get_var_from_state(key, data=state_data)
+            unstd_data = data / std_factor
+            data[:] = unstd_data
+
+        return state_data
 
 
 # Mode Calculation
@@ -272,7 +286,7 @@ def fcast_1yr_state(lim, orig_state, new_state, nelem_in_yr):
 
     fcast_1yr = lim.forecast(init_t0, [1])[0]
 
-    fcast_1yr_full = orig_state.proj_data_into_orig_basis(fcast_1yr)
+    fcast_1yr_full = orig_state.proj_data_into_orig_basis(fcast_1yr, unstandardize=True)
     init_t0_full = new_state.data[:-nelem_in_yr]
 
     return fcast_1yr_full, init_t0_full
@@ -293,22 +307,21 @@ def ens_1yr_fcast(nens, lim, t0, timesteps=1440):
 def ens_long_integration(nens, length, lim, t0, timesteps=1440):
 
     ens_t0 = np.tile(t0, (nens, 1))
-    ens_out = np.empty((1441, nens, t0.shape[1]))
+    # ens_out = np.empty((1441, nens, t0.shape[1]))
     long_int_out = np.zeros((length, nens, t0.shape[1]))
-    long_int_out_avg = np.zeros_like(long_int_out)
+    # long_int_out_avg = np.zeros_like(long_int_out)
 
     for i in range(length):
 
-        ens_t0 = lim.noise_integration(ens_t0, 1,
-                                       timesteps=timesteps,
-                                       out_arr=ens_out)
-        end_val = ens_out[-1]
-        avg = ens_out.mean(axis=0)
+        ens_t1 = lim.noise_integration(ens_t0, 1,
+                                       timesteps=timesteps)
+        end_val = ens_t1
+        # avg = ens_out.mean(axis=0)
 
         long_int_out[i] = end_val
-        long_int_out_avg[i] = avg
+        # long_int_out_avg[i] = avg
 
-    return long_int_out, long_int_out_avg
+    return long_int_out
 
 
 def _noise_int_func(args):
