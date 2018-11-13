@@ -83,6 +83,19 @@ NOAA:
   datafile: er-ghcn-sst.nc
   dataformat: NCD
 
+HadSST:
+  info:
+    multiple_vars: False
+    template: null
+    available_vars: [sst]
+    cell_area: null
+    psm_vartype:
+       temperature: tos
+
+  datadir: null
+  datafile: HadSST.3.1.1.0.median.nc 
+  dataformat: NCD
+
 GPCC:
   info:
     multiple_vars: False
