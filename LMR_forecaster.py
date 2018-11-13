@@ -86,9 +86,9 @@ class LIMForecaster(BaseForecaster):
 
         # Calculate multi-variate EOFs
         [calib_state_eofs,
-        calib_state_svals,
-        calib_state_eof_stats] = _calc_limstate_eofs(calib_state_std,
-                                                          multivar_num_pcs)
+         calib_state_svals,
+         calib_state_eof_stats] = _calc_limstate_eofs(calib_state_std,
+                                                      multivar_num_pcs)
         self.calib_eofs = calib_state_eofs
         ret_variance = calib_state_eof_stats['var_expl_by_ret'] * 100
         print(f'Variance % retained in multi-variate EOF truncation: '
@@ -181,6 +181,28 @@ class LIMForecaster(BaseForecaster):
 
     def forecast(self, state_obj):
         """Perfect no-noise forecast. Drastically reduces output variance."""
+
+        # Translate state into LIM space for forecasting
+        fcast_state, is_compressed = self.phys_space_data_to_fcast_space(state_obj)
+
+        # Forecast data in LIM space
+        fcast_data_trunc = self._fcast_func(fcast_state)
+
+        # Translate data in LIM space back to physical space
+        fcast_state_out = self.fcast_space_data_to_phys_space(fcast_data_trunc,
+                                                              is_compressed)
+
+        # restore original data (climatological) when forecast prior vars
+        # do not necessarily match full state data
+        if not self.match_prior:
+            state_obj.restore_orig_state()
+
+        # Overwrite forecasted state data
+        state_obj.update_var_data(fcast_state_out)
+
+        return state_obj
+
+    def phys_space_data_to_fcast_space(self, state_obj):
         fcast_state = []
         is_compressed = []
 
@@ -207,8 +229,9 @@ class LIMForecaster(BaseForecaster):
         fcast_state = np.concatenate(fcast_state, axis=-1)
         fcast_state = fcast_state @ self.calib_eofs
 
-        fcast_data = self._fcast_func(fcast_state)
+        return fcast_state, is_compressed
 
+    def fcast_space_data_to_phys_space(self, fcast_data, compressed_keys):
         # translate forecast out of state eof basis
         fcast_data = fcast_data @ self.calib_eofs.T
 
@@ -223,23 +246,16 @@ class LIMForecaster(BaseForecaster):
             phys_space_fcast = fcast_out_un_std @ self.var_eofs[var_key].T
 
             if var_key in self.var_std_factor:
-                phys_space_fcast = phys_space_fcast / self.var_std_factor[var_key]
+                phys_space_fcast = phys_space_fcast / self.var_std_factor[
+                    var_key]
 
-            if var_key in is_compressed:
+            if var_key in compressed_keys:
                 phys_space_fcast = self._decompress_field(var_key,
                                                           phys_space_fcast)
 
             fcast_state_out[(prior_var_key, avg_interval)] = phys_space_fcast.T
 
-        # restore original data (climatological) when forecast prior vars
-        # do not necessarily match full state data
-        if not self.match_prior:
-            state_obj.restore_orig_state()
-
-        # Overwrite forecasted state data
-        state_obj.update_var_data(fcast_state_out)
-
-        return state_obj
+        return fcast_state_out
 
     def print_lim_save_attrs(self):
         datatag = self._save_attrs[0]
