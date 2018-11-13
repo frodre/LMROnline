@@ -11,7 +11,8 @@ import pylim.Stats as ST
 from os.path import join
 
 
-def prepare_scalar_calculations(scalar_outdef, state, prior_cfg, ntimes, nens):
+def prepare_scalar_calculations(scalar_outdef, state, prior_cfg, ntimes, nens,
+                                return_insert_func=True):
 
     func_by_var = {}
     scalar_containers_by_var = {}
@@ -41,7 +42,10 @@ def prepare_scalar_calculations(scalar_outdef, state, prior_cfg, ntimes, nens):
                 _container = scalar_containers_by_var[_varkey][_measure]
                 _container[idx] = scalar
 
-    return insert_scalars, scalar_containers_by_var
+    if return_insert_func:
+        return insert_scalars, scalar_containers_by_var
+    else:
+        return func_by_var, scalar_containers_by_var
 
 
 def save_scalar_ensembles(workdir, times, containers_by_var):
