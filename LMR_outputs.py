@@ -194,7 +194,7 @@ def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
                                    createparents=True)
         out_shape = (ntimes, *sptl_shape)
 
-        lat = state.var_coords[var_name]['lon'].reshape(sptl_shape)
+        lat = state.var_coords[var_name]['lat'].reshape(sptl_shape)
         lon = state.var_coords[var_name]['lon'].reshape(sptl_shape)
 
         var_to_hdf5_carray(h5f, var_grp, 'lat', lat)
