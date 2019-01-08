@@ -32,7 +32,7 @@ plot_lim_noise_eofs = False
 plot_num_noise_modes = 8
 
 # Perfect Forecast Experiments
-do_perfect_fcast = False
+do_perfect_fcast = True
 fcast_outputs = {'tas': ['glob_mean'],
                  'tos': ['glob_mean',
                          'enso',
@@ -43,14 +43,14 @@ plot_scalar_verif = True
 plot_spatial_verif = True
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = False
+do_ens_fcast = True
 do_hist = True
 do_reliability = True
 
 # Long integration forecast experiments
 do_long_integration = True
-integration_len_yr = 100
-integration_iters = 5
+integration_len_yr = 1000
+integration_iters = 500
 
 # ========================
 # END USER PARAMS
@@ -153,7 +153,7 @@ if plot_lim_modes:
 
 if do_long_integration:
 
-    fcast_state = lim_fcaster.phys_space_data_to_fcast_space(state)
+    fcast_state, is_compressed = lim_fcaster.phys_space_data_to_fcast_space(state)
     t0 = fcast_state[0:1, :]
 
     # long integration with buffer of 50 years to forget initial state
@@ -172,23 +172,34 @@ if do_long_integration:
         LMR_outputs.prepare_scalar_calculations(scalar_outdef,
                                                 state, cfg.prior,
                                                 integration_len_yr,
-                                                integration_iters)
+                                                integration_iters,
+                                                return_insert_func=False)
 
     # Calculate scalar output values defined in config
     for _var_key, scalar_funcs in func_by_var.items():
 
         curr_containers = scalar_output_containers[_var_key]
 
-        eof_var_span = lim_fcaster.var_span(_var_key)
+        eof_var_span = lim_fcaster.var_span[_var_key]
         var_slice = slice(*eof_var_span)
         multi_eof_var = lim_fcaster.calib_eofs[var_slice, :]
         var_eof = lim_fcaster.var_eofs[_var_key]
 
         _varname, _avg_interval = _var_key
-        var_fcast_out = LMR_forecaster._get_var_from_limstate(_var_key, last,
-                                                              lim_fcaster.var_span)
 
-        time_chk = 10
+        std_factor = lim_fcaster.var_eof_std_factor[_var_key]
+        last_var_eofspace = last @ multi_eof_var.T
+        last_var_eofspace = last_var_eofspace / std_factor
+
+        decompress = _var_key in lim_fcaster.valid_data_mask
+
+        if _var_key in lim_fcaster.var_std_factor:
+            var_std_factor = lim_fcaster.var_std_factor[_var_key]
+        else:
+            var_std_factor = None
+
+        time_chk = 100
+
         for start in np.arange(0, integration_len_yr, time_chk):
 
             end = start + time_chk
@@ -196,13 +207,22 @@ if do_long_integration:
                 end = None
 
             time_slice = slice(start, end)
-            curr_dat = last[time_slice]
+            curr_dat = last_var_eofspace[time_slice]
 
-            phys_proj = multi_eof_var.T @ var_eof
-            phys_curr_dat = curr_dat @ phys_proj
+            phys_curr_dat = curr_dat @ var_eof.T
+            ens_yr_shp = phys_curr_dat.shape[:-1]
+            sptl_shp = phys_curr_dat.shape[-1]
+            phys_curr_dat = phys_curr_dat.reshape(-1, sptl_shp)
 
+            if var_std_factor is not None:
+                phys_curr_dat = phys_curr_dat / var_std_factor
+
+            if decompress:
+                phys_curr_dat = lim_fcaster._decompress_field(_var_key,
+                                                              phys_curr_dat)
             for _measure, _measure_func in scalar_funcs.items():
-                scalar_data = _measure_func(curr_dat)
+                scalar_data = _measure_func(phys_curr_dat.T)
+                scalar_data = scalar_data.reshape(*ens_yr_shp)
                 _container = curr_containers[_measure]
                 _container[time_slice] = scalar_data
 

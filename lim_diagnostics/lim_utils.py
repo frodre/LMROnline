@@ -320,6 +320,7 @@ def ens_long_integration(nens, length, lim, t0, timesteps=1440):
 
         long_int_out[i] = end_val
         # long_int_out_avg[i] = avg
+        ens_t0 = ens_t1
 
     return long_int_out
 

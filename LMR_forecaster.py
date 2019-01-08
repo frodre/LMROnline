@@ -312,12 +312,9 @@ class LIMForecaster(BaseForecaster):
         # store the entire calibration object for each field
 
         valid_data = self.valid_data_mask[key]
-
-        if data.ndim > 2:
-            raise AttributeError('Function created to work for 2D data only.')
-
-        new_data = np.empty((data.shape[0], len(valid_data))) * np.nan
-        new_data[:, valid_data] = data
+        
+        new_data = np.empty((*data.shape[:-1], len(valid_data))) * np.nan
+        new_data[..., valid_data] = data
 
         return new_data
 
