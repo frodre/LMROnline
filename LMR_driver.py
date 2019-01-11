@@ -341,8 +341,6 @@ def LMR_driver_callable(cfg=None):
     lmr_out.save_scalar_ensembles(workdir, recon_times, scalar_containers)
     lmr_out.save_recon_proxy_information(prox_manager, workdir)
 
-    field_hdf5_outputs.close()
-
     exp_end_time = time() - begin_time
     if verbose > 0:
         print('')
