@@ -180,20 +180,15 @@ def LMR_driver_callable(cfg=None):
     # Create initial state vector of desired variables at smallest time res
     Xb_one = LMR_gridded.State.from_config(prior_cfg,
                                            req_avg_intervals=req_avg_intervals)
-    state_vars = '_'.join([var_key[0]
-                           for var_key in Xb_one.base_prior_keys])
-    h5f_path = join(workdir,
-                    'recon_output_{}_{}.h5'.format(state_vars,
-                                                   output_avg_interval))
 
     [calc_and_store_scalars,
      scalar_containers] = \
         lmr_out.prepare_scalar_calculations(outputs['scalar_ens'], Xb_one,
                                             prior_cfg, ntimes, nens)
 
-    [field_hdf5_outputs,
+    [field_zarr_outputs,
      field_get_ens_func] = lmr_out.prepare_field_output(outputs, Xb_one, ntimes,
-                                                        nens, h5f_path)
+                                                        nens, workdir)
 
     load_time = time() - begin_time
     if verbose > 2:
@@ -272,7 +267,7 @@ def LMR_driver_callable(cfg=None):
             solver_kwargs = {}
 
         # Save output fields for the prior
-        lmr_out.save_field_output(iyr, 'prior', Xb_one, field_hdf5_outputs,
+        lmr_out.save_field_output(iyr, 'prior', Xb_one, field_zarr_outputs,
                                   output_def=outputs['prior'])
 
         # Gather proxies / Ye values for the year

@@ -177,36 +177,49 @@ def _gen_pdo_index(prior_cfg, varname):
     return pdo_index
 
 
-def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
+def prepare_field_output(outputs, state, ntimes, nens, output_dir):
 
     # create h5 file for field outputs
     # TODO: potentially make the output files per variable (easier to id)
-    filters = tb.Filters(complevel=4, complib='blosc')
-    h5f = tb.open_file(h5f_path, mode='w', filters=filters)
-    dtype = state.state.dtype
-    atom = tb.Atom.from_dtype(dtype)
-    ens_get_func = None
+    compressor = Blosc(cname='zstd', clevel=4, shuffle=Blosc.BITSHUFFLE)
+
+    ens_get_func_by_var = {}
+    zarr_files_by_var = {}
     for var_key in state.base_prior_keys:
 
         var_name, avg_interval = var_key
         sptl_shape = state.var_space_shp[var_name]
-        var_grp = h5f.create_group('/' + var_name, avg_interval,
-                                   createparents=True)
+
+        var_filename = 'field_out_{}_{}.zarr'.format(var_name, avg_interval)
         out_shape = (ntimes, *sptl_shape)
+
+        # TODO: Check if this is okay for chunking
+        state_dtype = state.state.dtype
+        element_nbytes = state_dtype.itemsize
+        nelem_in_map = np.prod(np.array(sptl_shape))
+        ntimes_in_5mb = int(5 / (element_nbytes * nelem_in_map // 1024**2))
+        chunk_shape = (ntimes_in_5mb, *[None]*len(sptl_shape))
+
+        store = zarr.DirectoryStore(var_filename)
+        root = zarr.group(store=store, overwrite=True)
 
         lat = state.var_coords[var_name]['lat'].reshape(sptl_shape)
         lon = state.var_coords[var_name]['lon'].reshape(sptl_shape)
 
-        var_to_hdf5_carray(h5f, var_grp, 'lat', lat)
-        var_to_hdf5_carray(h5f, var_grp, 'lon', lon)
+        zarr.save_group(root, lat=lat, lon=lon)
 
-        prior_grp = h5f.create_group(var_grp, 'prior')
+        prior_grp = root.create_group('prior', overwrite=True)
         for measure in outputs['prior']:
-            empty_hdf5_carray(h5f, prior_grp, measure, atom, out_shape)
+            prior_grp.create_dataset(measure, shape=out_shape,
+                                     chunks=chunk_shape, compressor=compressor,
+                                     dtype=state_dtype)
 
-        posterior_grp = h5f.create_group(var_grp, 'posterior')
+        posterior_grp = root.create_group('posterior', overwrite=True)
         for measure in outputs['posterior']:
-            empty_hdf5_carray(h5f, posterior_grp, measure, atom, out_shape)
+            posterior_grp.create_dataset(measure, shape=out_shape,
+                                         chunks=chunk_shape,
+                                         compressor=compressor,
+                                         dtype=state_dtype)
 
         fullfield_opt = outputs['field_ens_output']
         if fullfield_opt is not None:
@@ -215,11 +228,26 @@ def prepare_field_output(outputs, state, ntimes, nens, h5f_path):
                                                       sptl_shape,
                                                       nens,
                                                       ntimes)
-            node = empty_hdf5_carray(h5f, var_grp, 'field_ens_output', atom,
-                                     out_shp)
-            node._v_attrs.opt = fullfield_opt
 
-    return h5f, ens_get_func
+            nens_in_ntimes = ntimes_in_5mb / nens
+            if nens_in_ntimes > 1:
+
+                ens_chunk_shp = (np.round(nens_in_ntimes),
+                                 None,
+                                 *[None]*len(sptl_shape))
+            else:
+                ens_chunk_shp = (1, int(nens_in_ntimes * nens),
+                                 *[None]*len(sptl_shape))
+            root.create_dataset('field_ens_output', shape=out_shp,
+                                chunks=ens_chunk_shp, compressor=compressor,
+                                dtype=state_dtype)
+            root.attrs['options'] = fullfield_opt
+
+            ens_get_func_by_var[var_key] = ens_get_func
+
+        zarr_files_by_var[var_key] = root
+
+    return zarr_files_by_var, ens_get_func_by_var
 
 
 def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
@@ -256,7 +284,7 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
     return full_out_shp, grab_ens_members
 
 
-def save_field_output(idx, field_type, state, h5f,
+def save_field_output(idx, field_type, state, zarr_var_files,
                       output_def=None, ens_out_func=None):
 
     for var_key in state.base_prior_keys:
@@ -264,16 +292,17 @@ def save_field_output(idx, field_type, state, h5f,
         data = state.get_var_data(var_key)
         var_name, avg_interval = var_key
         sptl_shape = state.var_space_shp[var_name]
+        file_out = zarr_var_files[var_key]
 
         if field_type == 'prior' or field_type == 'posterior':
 
             for measure in output_def:
-                path = join('/', *var_key, field_type, measure)
-                node = h5f.get_node(path)
+                path = join(field_type, measure)
+                out_zarr_node = file_out[path]
 
                 output = field_output_reduction(measure, data, sptl_shape)
 
-                node[idx] = output
+                out_zarr_node[idx] = output
 
         elif field_type == 'field_ens_output':
             if ens_out_func is None:
@@ -282,11 +311,9 @@ def save_field_output(idx, field_type, state, h5f,
                                  'is specified...')
 
             ens_out = ens_out_func(data)
+            ens_out_zarr_node = file_out[field_type]
 
-            path = join('/', *var_key, field_type)
-            node = h5f.get_node(path)
-
-            node[idx] = ens_out
+            ens_out_zarr_node[idx] = ens_out
 
 
 def field_output_reduction(measure, state_data, sptl_shp):
@@ -340,8 +367,9 @@ def _gather_proxy_object_info(pobj_list, status):
 
 def create_Ye_output(out_path, nproxies, nens, nyears, recon_yr_range):
     nbytes_in_nens = nens * 8
-    n_units_in_mb = 5 / (nbytes_in_nens / 1024**2) #number of nens chunks in 5mb
 
+    # number of nens chunks in 5mb
+    n_units_in_mb = 5 / (nbytes_in_nens / 1024**2)
 
     base_chunk_size = np.sqrt(n_units_in_mb / 2)
     nyr_chunk = int(base_chunk_size)
