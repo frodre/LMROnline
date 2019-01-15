@@ -191,22 +191,23 @@ def prepare_field_output(outputs, state, ntimes, nens, output_dir):
         sptl_shape = state.var_space_shp[var_name]
 
         var_filename = 'field_out_{}_{}.zarr'.format(var_name, avg_interval)
+        var_filepath = join(output_dir, var_filename)
         out_shape = (ntimes, *sptl_shape)
 
         # TODO: Check if this is okay for chunking
         state_dtype = state.state.dtype
         element_nbytes = state_dtype.itemsize
         nelem_in_map = np.prod(np.array(sptl_shape))
-        ntimes_in_5mb = int(5 / (element_nbytes * nelem_in_map // 1024**2))
+        ntimes_in_5mb = int(5 / (element_nbytes * nelem_in_map / 1024**2))
         chunk_shape = (ntimes_in_5mb, *[None]*len(sptl_shape))
 
-        store = zarr.DirectoryStore(var_filename)
+        store = zarr.DirectoryStore(var_filepath)
         root = zarr.group(store=store, overwrite=True)
 
         lat = state.var_coords[var_name]['lat'].reshape(sptl_shape)
         lon = state.var_coords[var_name]['lon'].reshape(sptl_shape)
 
-        zarr.save_group(root, lat=lat, lon=lon)
+        zarr.save_group(store, lat=lat, lon=lon)
 
         prior_grp = root.create_group('prior', overwrite=True)
         for measure in outputs['prior']:
@@ -229,14 +230,15 @@ def prepare_field_output(outputs, state, ntimes, nens, output_dir):
                                                       nens,
                                                       ntimes)
 
-            nens_in_ntimes = ntimes_in_5mb / nens
+            nens_out = out_shp[1]
+            nens_in_ntimes = ntimes_in_5mb / nens_out
             if nens_in_ntimes > 1:
 
                 ens_chunk_shp = (np.round(nens_in_ntimes),
                                  None,
                                  *[None]*len(sptl_shape))
             else:
-                ens_chunk_shp = (1, int(nens_in_ntimes * nens),
+                ens_chunk_shp = (1, int(nens_in_ntimes * nens_out),
                                  *[None]*len(sptl_shape))
             root.create_dataset('field_ens_output', shape=out_shp,
                                 chunks=ens_chunk_shp, compressor=compressor,
@@ -285,7 +287,7 @@ def _get_ensout_shp_and_func(option, sptl_shape, nens, ntimes):
 
 
 def save_field_output(idx, field_type, state, zarr_var_files,
-                      output_def=None, ens_out_func=None):
+                      output_def=None, ens_out_funcs=None):
 
     for var_key in state.base_prior_keys:
 
@@ -305,6 +307,8 @@ def save_field_output(idx, field_type, state, zarr_var_files,
                 out_zarr_node[idx] = output
 
         elif field_type == 'field_ens_output':
+
+            ens_out_func = ens_out_funcs[var_key]
             if ens_out_func is None:
                 raise ValueError('Ensemble reduction function is required '
                                  'when to this function when "field_ens_out" '

@@ -285,14 +285,14 @@ def LMR_driver_callable(cfg=None):
         # Calculate and store index values from field
         calc_and_store_scalars(Xb_one, iyr)
         # Calculate and store posterior field reductions
-        lmr_out.save_field_output(iyr, 'posterior', Xb_one, field_hdf5_outputs,
+        lmr_out.save_field_output(iyr, 'posterior', Xb_one, field_zarr_outputs,
                                   output_def=outputs['posterior'])
 
         # Save field ensemble members
         if outputs['field_ens_output'] is not None:
             lmr_out.save_field_output(iyr, 'field_ens_output', Xb_one,
-                                      field_hdf5_outputs,
-                                      ens_out_func=field_get_ens_func)
+                                      field_zarr_outputs,
+                                      ens_out_funcs=field_get_ens_func)
 
         # Save Ye Information
         if save_analysis_ye:
