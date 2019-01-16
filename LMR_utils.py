@@ -2899,3 +2899,31 @@ def moving_average(data, xvals, window=5):
     xvals_smoothed = xvals[edge:-edge]
 
     return data_smoothed, xvals_smoothed
+
+
+def get_chunk_shape(shape, dtype, mb_in_chunk):
+    # Get a chunk shape preferring chunking across leading dims
+
+    nbyte_in_dtype = dtype.itemsize
+
+    bytes_in_chunk = mb_in_chunk * 1024 ** 2
+    tot_size = nbyte_in_dtype
+
+    for i, dim_len in enumerate(shape[::-1]):
+        tot_size *= dim_len
+
+        ratio = bytes_in_chunk / tot_size
+
+        if ratio < 1:
+            break
+    else:
+        # entire shape fits in chunk size
+        return shape
+
+    num_none = i
+    ratio_idx = len(shape) - (i + 1)
+    chk_len = np.round(ratio * dim_len)
+
+    chunk_shape = (*[1]*ratio_idx, chk_len, *[None]*num_none)
+    return chunk_shape
+

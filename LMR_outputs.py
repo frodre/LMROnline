@@ -179,8 +179,7 @@ def _gen_pdo_index(prior_cfg, varname):
 
 def prepare_field_output(outputs, state, ntimes, nens, output_dir):
 
-    # create h5 file for field outputs
-    # TODO: potentially make the output files per variable (easier to id)
+    # create zarr output files
     compressor = Blosc(cname='zstd', clevel=4, shuffle=Blosc.BITSHUFFLE)
 
     ens_get_func_by_var = {}

@@ -9,17 +9,19 @@ from abc import abstractmethod, ABCMeta
 from netCDF4 import Dataset, num2date
 from datetime import datetime, timedelta
 from collections import OrderedDict
+from os.path import join
+from numcodecs import Blosc, Pickle
 import numpy as np
 import warnings
 import os
-from os.path import join
 import random
-import tables as tb
+import zarr
 import pylim.DataTools as DT
 
 import LMR_config
 from LMR_utils import (regrid_sphere_gridded_object, var_to_hdf5_carray,
-                       empty_hdf5_carray, regrid_esmpy_grid_object, ReqDataFractionMismatchError)
+                       empty_hdf5_carray, regrid_esmpy_grid_object,
+                       get_chunk_shape, ReqDataFractionMismatchError)
 from LMR_utils import fix_lon, regular_cov_infl
 # import pylim.DataTools as DT
 
@@ -51,7 +53,7 @@ class GriddedVariable(object):
     Object for holding and manipulating gridded data of a single variable.
     """
 
-    PRE_PROCESSED_FILETAG = '.pre_{}.h5'
+    PRE_PROCESSED_FILETAG = '.pre_{}.zarr'
     PRE_PROCESSED_FILEDIR = 'pre_proc_files'
     PRE_PROCESSED_OBJ_NODENAME = 'grid_object'
     PRE_PROCESSED_DATA_NODENAME = 'grid_object_data'
@@ -241,46 +243,35 @@ class GriddedVariable(object):
         path_pieces = [avg_interval, regrid_method, regrid_grid, esmpy_interp]
         path_pieces = [str(piece) for piece in path_pieces if piece is not None]
 
-        data_path = join('/', *path_pieces)
+        data_path = join(*path_pieces)
 
-        print(('Saving pre-processed data file: {}'.format(filename)))
-        print(('Storing data under HDF5 path: {}'.format(data_path)))
+        print(('Pre-processed data filename: {}'.format(filename)))
+        print(('Zarr output group storage path: {}'.format(data_path)))
 
         obj_node_name = self.PRE_PROCESSED_OBJ_NODENAME
         data_node_name = self.PRE_PROCESSED_DATA_NODENAME
 
-        if os.path.exists(filename):
-            mode = 'a'
-        else:
-            mode = 'w'
+        compressor = Blosc(cname='zstd', clevel=4, shuffle=Blosc.BITSHUFFLE)
+        root = zarr.open(filename, mode='a')
 
-        with tb.open_file(filename, mode=mode,
-                          filters=tb.Filters(complib='blosc',
-                                             complevel=2)) as h5f:
+        # Create save file, overwrites the data group at the same path
+        group_node = root.create_group(data_path, overwrite=True)
+        obj_node = group_node.empty(obj_node_name, shape=1, dtype=object,
+                                    object_codec=Pickle())
 
-            # If the node exists already at the path remove it, else create
-            # the group
-            try:
-                h5f.get_node(data_path, name=obj_node_name)
-                h5f.remove_node(data_path, name=obj_node_name)
-                h5f.remove_node(data_path, name=data_node_name)
-            except tb.NoSuchNodeError:
-                root, name = os.path.split(data_path)
-                h5f.create_group(root, name=name, createparents=True)
+        data_chunks = get_chunk_shape(self.data.shape, self.data.dtype, 5)
 
-            obj_out = h5f.create_vlarray(data_path, name=obj_node_name,
-                                         atom=tb.ObjectAtom())
+        data_node = group_node.empty_like(data_node_name, self.data,
+                                          chunks=data_chunks,
+                                          compressor=compressor,
+                                          dtype=self.data.dtype)
+        data_node[:] = self.data
+        print(data_node.info)
 
-            # Save the data to a CArray
-            self.nan_to_fill_val()
-            var_to_hdf5_carray(h5f, data_path, data_node_name, self.data)
-            self.fill_val_to_nan()
-
-            # Save self object to a VLArray (
-            tmp_dat = self.data
-            del self.data
-            obj_out.append(self)
-            self.data = tmp_dat
+        tmp_dat = self.data
+        del self.data
+        obj_node[0] = self
+        self.data = tmp_dat
 
     def print_data_stats(self):
         """
@@ -871,8 +862,7 @@ class GriddedVariable(object):
                                             anom_ref=anom_reference_period,
                                             calib_period=calib_period,
                                             data_req_frac=data_req_frac)
-        except (IOError, tb.exceptions.NoSuchNodeError,
-                ReqDataFractionMismatchError) as e:
+        except (IOError, KeyError, ReqDataFractionMismatchError) as e:
             print(e)
             print(('No equivalent pre-averaged file found ({}) or '
                    'ignore specified ... '.format(varname)))
@@ -958,76 +948,67 @@ class GriddedVariable(object):
         if not os.path.exists(path):
             raise IOError('No pre-averaged file found for given specifications')
 
-        # Load prior object
-        with tb.open_file(path, 'a') as h5f:
+        root = zarr.open(path, mode='r')
+        obj_node_name = cls.PRE_PROCESSED_OBJ_NODENAME
+        data_node_name = cls.PRE_PROCESSED_DATA_NODENAME
 
-            obj_node_name = cls.PRE_PROCESSED_OBJ_NODENAME
-            data_node_name = cls.PRE_PROCESSED_DATA_NODENAME
+        avg_int_group = root[avg_interval]
+        obj = avg_int_group[obj_node_name][0]
+        obj_data = avg_int_group[data_node_name]
+        print(('Found node for avg_interval path: {}'.format(avg_interval)))
 
-            # Get nodes for pre-processed grid object with correct averaging
-            obj_dir = join('/', avg_interval)
-            obj = h5f.get_node(obj_dir, name=obj_node_name)[0]
-            obj_data = h5f.get_node(obj_dir, name=data_node_name)
-            print(('Found node for avg_interval path: {}'.format(obj_dir)))
+        if data_req_frac is not None and obj._data_req_frac != data_req_frac:
+            raise ReqDataFractionMismatchError(
+                'Requested minimum data fraction is not equivalent to '
+                'the pre-averaged object. obj{:1.2f} != req{:1.2f}'
+                ''.format(obj._data_req_frac, data_req_frac)
+            )
 
-            if data_req_frac is not None and obj._data_req_frac != data_req_frac:
-                raise ReqDataFractionMismatchError(
-                    'Requested minimum data fraction is not equivalent to '
-                    'the pre-averaged object. obj{:1.2f} != req{:1.2f}'
-                    ''.format(obj._data_req_frac, data_req_frac)
-                )
+        do_sample = True
+        if regrid_method is not None:
+            regrid_path = [regrid_method, regrid_grid, interp_method]
+            regrid_path = [str(path_piece) for path_piece in regrid_path
+                           if path_piece is not None]
+            regrid_obj_dir = join(avg_interval, *regrid_path)
 
-            # Look for pre-regridded data if specified
-            do_sample = True
-            if regrid_method is not None:
-                # TODO: This won't alarm user if grid_def is changing
-                regrid_path = [regrid_method, regrid_grid, interp_method]
-                regrid_path = [str(path_piece) for path_piece in regrid_path
-                               if path_piece is not None]
-                regrid_obj_dir = join(obj_dir, *regrid_path)
+            try:
+                regrid_obj_grp = root[regrid_obj_dir]
+                regrid_obj = regrid_obj_grp[obj_node_name]
+                regrid_obj_data = regrid_obj_grp[data_node_name]
 
-                try:
-                    regrid_obj = h5f.get_node(regrid_obj_dir,
-                                              name=obj_node_name)[0]
-                    regrid_obj_data = h5f.get_node(regrid_obj_dir,
-                                                   name=data_node_name)
-                    print(('Found node for regridded data under path: '
-                           '{}'.format(regrid_obj_dir)))
-                    obj = regrid_obj
-                    obj_data = regrid_obj_data
-                except tb.NoSuchNodeError:
-                    # Do not sample, since regrid specified and might save
-                    do_sample = False
-                    obj_data = obj_data.read()
-                    print(('Regridded pre-processed grid object not found for '
-                          'regridding: {}.'.format(regrid_obj_dir)))
+                print(('Found node for regridded data under path: '
+                       '{}'.format(regrid_obj_dir)))
 
-            obj.data = obj_data
+                obj = regrid_obj[0]
+                obj_data = regrid_obj_data
 
-            obj.fill_val_to_nan()
+            except KeyError:
+                # Do not sample, since regrid specified and might save
+                do_sample = False
+                obj_data = obj_data[:]
+                print(('Regridded pre-processed grid object not found for '
+                      'regridding: {}.'.format(regrid_obj_dir)))
 
-            if (anomaly and obj.climo is None) or anom_ref is not None:
-                if not obj.ref_period == anom_ref:
-                    obj.convert_to_anomaly(ref_period=anom_ref)
+        obj.data = obj_data
 
-            if calib_period is not None:
-                obj.reduce_to_time_period(calib_period)
+        if (anomaly and obj.climo is None) or anom_ref is not None:
+            if not obj.ref_period == anom_ref:
+                obj.convert_to_anomaly(ref_period=anom_ref)
 
-            # Sampling done to pre-average data to take advantage of lazy
-            # loading.  Sampling will be ignored by the main loader in this
-            # case.
-            if do_sample:
-                if sample is not None:
-                    obj = obj.sample_from_yr(sample)
-                elif nens is not None:
-                    obj = obj.random_sample(nens, seed=seed,
-                                            sample_omit_edge=sample_omit_edge)
-                else:
-                    try:
-                        obj.data = obj.data.read()
-                    except AttributeError as e:
-                        # Probably a numpy array
-                        pass
+        if calib_period is not None:
+            obj.reduce_to_time_period(calib_period)
+
+        # Sampling done to pre-average data to take advantage of lazy
+        # loading.  Sampling will be ignored by the main loader in this
+        # case.
+        if do_sample:
+            if sample is not None:
+                obj = obj.sample_from_yr(sample)
+            elif nens is not None:
+                obj = obj.random_sample(nens, seed=seed,
+                                        sample_omit_edge=sample_omit_edge)
+            else:
+                obj.data = obj.data[:]
 
         print('Loaded pre-averaged file: {}'.format(path))
         return obj
