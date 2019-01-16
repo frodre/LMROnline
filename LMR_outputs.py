@@ -1,9 +1,8 @@
 from LMR_gridded import PriorVariable
-from LMR_utils import var_to_hdf5_carray, empty_hdf5_carray
+from LMR_utils import get_chunk_shape
 from collections import Sequence, namedtuple
 from numcodecs import Blosc
 import numpy as np
-import tables as tb
 import pickle
 import zarr
 
@@ -195,10 +194,7 @@ def prepare_field_output(outputs, state, ntimes, nens, output_dir):
 
         # TODO: Check if this is okay for chunking
         state_dtype = state.state.dtype
-        element_nbytes = state_dtype.itemsize
-        nelem_in_map = np.prod(np.array(sptl_shape))
-        ntimes_in_5mb = int(5 / (element_nbytes * nelem_in_map / 1024**2))
-        chunk_shape = (ntimes_in_5mb, *[None]*len(sptl_shape))
+        chunk_shape = get_chunk_shape(out_shape, state_dtype, 5)
 
         store = zarr.DirectoryStore(var_filepath)
         root = zarr.group(store=store, overwrite=True)
@@ -229,16 +225,7 @@ def prepare_field_output(outputs, state, ntimes, nens, output_dir):
                                                       nens,
                                                       ntimes)
 
-            nens_out = out_shp[1]
-            nens_in_ntimes = ntimes_in_5mb / nens_out
-            if nens_in_ntimes > 1:
-
-                ens_chunk_shp = (np.round(nens_in_ntimes),
-                                 None,
-                                 *[None]*len(sptl_shape))
-            else:
-                ens_chunk_shp = (1, int(nens_in_ntimes * nens_out),
-                                 *[None]*len(sptl_shape))
+            ens_chunk_shp = get_chunk_shape(out_shape, state_dtype, 5)
             root.create_dataset('field_ens_output', shape=out_shp,
                                 chunks=ens_chunk_shp, compressor=compressor,
                                 dtype=state_dtype)
