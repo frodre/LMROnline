@@ -176,7 +176,7 @@ def _gen_pdo_index(prior_cfg, varname):
     return pdo_index
 
 
-def prepare_field_output(outputs, state, ntimes, nens, output_dir):
+def prepare_field_output(outputs, state, ntimes, nens, output_dir, recon_times):
 
     # create zarr output files
     compressor = Blosc(cname='zstd', clevel=4, shuffle=Blosc.BITSHUFFLE)
@@ -202,7 +202,7 @@ def prepare_field_output(outputs, state, ntimes, nens, output_dir):
         lat = state.var_coords[var_name]['lat'].reshape(sptl_shape)
         lon = state.var_coords[var_name]['lon'].reshape(sptl_shape)
 
-        zarr.save_group(store, lat=lat, lon=lon)
+        zarr.save_group(store, lat=lat, lon=lon, time=recon_times)
 
         prior_grp = root.create_group('prior', overwrite=True)
         for measure in outputs['prior']:

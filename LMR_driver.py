@@ -188,7 +188,8 @@ def LMR_driver_callable(cfg=None):
 
     [field_zarr_outputs,
      field_get_ens_func] = lmr_out.prepare_field_output(outputs, Xb_one, ntimes,
-                                                        nens, workdir)
+                                                        nens, workdir,
+                                                        recon_times)
 
     load_time = time() - begin_time
     if verbose > 2:
@@ -278,7 +279,7 @@ def LMR_driver_callable(cfg=None):
 
         # Update Xb with each proxy
         Xa = assim_solver_func(Xb_one.state, p_vals, p_errs, valid_pidxs,
-                               ye_start_idx, verbose=True, **solver_kwargs)
+                               ye_start_idx, verbose=False, **solver_kwargs)
 
         Xb_one.state = Xa
 

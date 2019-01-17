@@ -99,7 +99,7 @@ stat_save = False
 #nexp = 'production_mlost_era20c_pagesall_0.75'
 #nexp = 'production_mlost_era20cm_pagesall_0.75'
 # ---
-nexp = 'testdev_ccsm4_bilinear_gisgpcc_LMRdb_objPSM_pfrac75_last1000'
+nexp = 'testdev_short_ocean_ccsm4_online_0pt2rcrit'
 #nexp = 'testdev_ccsm4_bilinear_gisgpcc_PAGESv2_metaPSM_pfrac75'
 # ---
 
@@ -121,7 +121,7 @@ ref_period = (1900, 1999) # 20th century
 # specify directories for LMR data
 #datadir_output = './data/'
 #datadir_output = '/home/disk/kalman3/hakim/LMR'
-datadir_output = '/home/disk/katabatic/wperkins/data/LMR/output/testing'
+datadir_output = '/home/disk/katabatic2/wperkins/LMR_output/testing'
 
 # Directory where historical griddded data products can be found
 datadir_calib = '/home/disk/katabatic/wperkins/data/LMR/data/analyses'
