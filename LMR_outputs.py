@@ -1,10 +1,11 @@
 from LMR_gridded import PriorVariable
-from LMR_utils import get_chunk_shape
+from LMR_utils import get_chunk_shape, haversine
 from collections import Sequence, namedtuple
 from numcodecs import Blosc
 import numpy as np
 import pickle
 import zarr
+import warnings
 
 import pylim.Stats as ST
 from os.path import join
@@ -62,12 +63,26 @@ def _gen_scalar_func(measure, varname, state, prior_cfg):
     coord_data = state.var_coords[varname]
     lat = coord_data['lat']
     lon = coord_data['lon']
+    cell_area = state.var_cell_area[varname]
 
     if measure == 'glob_mean':
-        cell_area = state.var_cell_area[varname]
-        func = _gen_global_mean_func(cell_area, lat)
-    elif measure == 'enso34':
-        func = _gen_enso_index(lat, lon, region='34')
+        func = _gen_area_avg_index(cell_area, lat, lon, region=None)
+    elif measure == 'nino3.4':
+        func = _gen_area_avg_index(cell_area, lat, lon, region=measure)
+    elif measure == 'nino3':
+        func = _gen_area_avg_index(cell_area, lat, lon, region=measure)
+    elif measure == 'nino4':
+        func = _gen_area_avg_index(cell_area, lat, lon, region=measure)
+    elif measure == 'npi':
+        func = _gen_area_avg_index(cell_area, lat, lon, region=measure)
+    elif measure == 'tahiti':
+        tahiti_lat = -17.55  # 17.55 S
+        tahiti_lon = 360 - 149.617  # 149.617 W
+        func = _gen_single_gridpoint(tahiti_lat, tahiti_lon, lat, lon)
+    elif measure == 'darwin':
+        darwin_lat = -12.467  # 12.467 S
+        darwin_lon = 130.85  # 130.85 E
+        func = _gen_single_gridpoint(darwin_lat, darwin_lon, lat, lon)
     elif measure == 'pdo':
         func = _gen_pdo_index(prior_cfg, varname)
     else:
@@ -89,54 +104,86 @@ def _remove_nan_from_state(state_data):
     return state_data, valid_data
 
 
-def _gen_global_mean_func(cell_area, lat):
+def _get_area_weights(cell_area, lat, mask=None):
 
     if cell_area is not None:
-        weights = cell_area / cell_area.sum()
+        weights = cell_area
     else:
-        # TODO: This only works for regular grids, but that's what we regrid to
+        # warnings.warn('No cell area grid provided for area weighting.  If '
+        #               'using an irregular grid, latitude weighting will not '
+        #               'be correct.')
+
         # otherwise there'll be cell area loaded for fields.
         weights = np.cos(np.deg2rad(lat))
-        weights = weights / weights.sum()
+        weights = weights
 
-    def global_average(state_data):
-        valid_state, valid_locs = _remove_nan_from_state(state_data)
+    if mask is not None:
+        weights = weights[mask]
 
-        if valid_locs is not None:
-            use_weights = weights[valid_locs]
-        else:
-            use_weights = weights
+    weights = weights / weights.sum()
 
-        return valid_state.T @ use_weights
-
-    return global_average
+    return weights
 
 
-def _gen_enso_index(lat, lon, region='34'):
+def _gen_latlon_grid_mask(lat, lon, latmin, latmax, lonmin, lonmax):
 
-    if region == '34':
-        mask = ((lon >= 190) & (lon <= 240) &
-                (lat >= -5) & (lat <= 5))
-    else:
-        raise KeyError('Unrecognized enso region in scalar function'
+    mask = ((lon >= lonmin) & (lon <= lonmax) &
+            (lat >= latmin) & (lat <= latmax))
+
+    return mask
+
+
+def _gen_area_avg_index(cell_area, lat, lon, region=None):
+
+    if region == 'nino3.4':
+        # 5S - 5N, 170W - 120W
+        mask = _gen_latlon_grid_mask(lat, lon, -5, 5, 190, 240)
+    elif region == 'nino3':
+        # 5S - 5N, 140W - 90W
+        mask = _gen_latlon_grid_mask(lat, lon, -5, 5, 210, 270)
+    elif region == 'nino4':
+        # 5S - 5N, 160E - 140W
+        mask = _gen_latlon_grid_mask(lat, lon, -5, 5, 160, 210)
+    elif region == 'npi':
+        # 30N - 65N, 160E - 130W
+        mask = _gen_latlon_grid_mask(lat, lon, 30, 65, 160, 220)
+    elif region is not None:
+        raise KeyError('Unrecognized region in scalar function'
                        ' generation: {}'.format(region))
+    else:
+        mask = None
 
-    num_pts_enso = mask.sum()
-    enso_avg_factor = np.zeros(num_pts_enso)
-    enso_avg_factor[:] = 1/num_pts_enso
+    weights = _get_area_weights(cell_area, lat, mask=mask)
 
-    def enso_index(state_data):
-        state_enso_region = state_data[mask]
+    def area_avg_index(state_data):
+        if mask is not None:
+            state_data = state_data[mask]
 
-        valid_enso_region, valid_data = _remove_nan_from_state(state_enso_region)
-        if valid_data is not None:
-            use_enso_factor = enso_avg_factor[valid_data]
+        valid_region, valid_mask = _remove_nan_from_state(state_data)
+        if valid_mask is not None:
+            use_factor = weights[valid_mask]
         else:
-            use_enso_factor = enso_avg_factor
+            use_factor = weights
 
-        return valid_enso_region.T @ use_enso_factor
+        return valid_region.T @ use_factor
 
-    return enso_index
+    return area_avg_index
+
+
+def _gen_single_gridpoint(pt_lat, pt_lon, lat, lon):
+
+    dist = haversine(pt_lon, pt_lat, lon, lat)
+    idx = np.argmin(dist)
+    pt_factor = np.zeros_like(lat)
+    pt_factor[idx] = 1
+
+    def single_point(state_data):
+
+        series = state_data.T @ pt_factor
+
+        return series
+
+    return single_point()
 
 
 def _gen_pdo_index(prior_cfg, varname):
