@@ -65,30 +65,68 @@ def _gen_scalar_func(measure, varname, state, prior_cfg):
     lon = coord_data['lon']
     cell_area = state.var_cell_area[varname]
 
-    if measure == 'glob_mean':
-        func = _gen_area_avg_index(cell_area, lat, lon, region=None)
-    elif measure == 'nino3.4':
-        func = _gen_area_avg_index(cell_area, lat, lon, region=measure)
-    elif measure == 'nino3':
-        func = _gen_area_avg_index(cell_area, lat, lon, region=measure)
-    elif measure == 'nino4':
-        func = _gen_area_avg_index(cell_area, lat, lon, region=measure)
-    elif measure == 'npi':
-        func = _gen_area_avg_index(cell_area, lat, lon, region=measure)
-    elif measure == 'tahiti':
-        tahiti_lat = -17.55  # 17.55 S
-        tahiti_lon = 360 - 149.617  # 149.617 W
-        func = _gen_single_gridpoint(tahiti_lat, tahiti_lon, lat, lon)
-    elif measure == 'darwin':
-        darwin_lat = -12.467  # 12.467 S
-        darwin_lon = 130.85  # 130.85 E
-        func = _gen_single_gridpoint(darwin_lat, darwin_lon, lat, lon)
+    use_general_avg = ('glob_mean', 'nino3.4', 'nino3', 'nino4', 'npi')
+    use_single_point = ('tahiti', 'darwin')
+
+    point_latlons = {'tahiti': (-17.55, 360 - 149.617), # 17.55 S 149.617 W
+                     'darwin': (-12.467, 130.85)} # 12.467 S 130.85 E
+
+    if measure in use_general_avg:
+        if measure == 'glob_mean':
+            region = None
+        else:
+            region = measure
+
+        func = _get_area_avg_scalar_func(cell_area, lat, lon, region)
+    elif measure in use_single_point:
+        lat_lon = point_latlons[measure]
+        func = _get_single_gridpoint_func(*lat_lon, lat, lon)
     elif measure == 'pdo':
-        func = _gen_pdo_index(prior_cfg, varname)
+        func = _get_pdo_index_func(prior_cfg, varname)
     else:
         raise KeyError('Unrecognized scalar measure {}'.format(measure))
 
     return func
+
+
+def _masked_to_full_space(mask, data):
+
+    full_space = np.zeros_like(mask, dtype=data.dtype)
+    full_space[mask] = data
+
+    return full_space
+
+
+def get_scalar_factor(measure, varname, prior_cfg, lat, lon, cell_area=None):
+    # Get scalar factors for matrix multiplication against forecast space output
+    # assumes lat/lon reduced to valid data locations
+
+    use_general_avg = ('glob_mean', 'nino3.4', 'nino3', 'nino4', 'npi')
+    use_single_point = ('tahiti', 'darwin')
+
+    point_latlons = {'tahiti': (-17.55, 360 - 149.617),  # 17.55 S 149.617 W
+                     'darwin': (-12.467, 130.85)}  # 12.467 S 130.85 E
+
+    if measure in use_general_avg:
+        if measure == 'glob_mean':
+            region = None
+        else:
+            region = measure
+
+        mask, factor = get_area_avg_mask_and_weights(lat, lon, region,
+                                                     cell_area=cell_area)
+        if mask is not None:
+            factor = _masked_to_full_space(mask, factor)
+    elif measure in use_single_point:
+        lat_lon = point_latlons[measure]
+        factor = get_single_gridpoint_factor(*lat_lon, lat, lon)
+    elif measure == 'pdo':
+        factor, valid_mask, pdo_mask = _gen_pdo_index_factor(prior_cfg, varname)
+        factor = _masked_to_full_space(pdo_mask, factor)
+    else:
+        raise KeyError('Unrecognized scalar measure {}'.format(measure))
+
+    return factor
 
 
 def _remove_nan_from_state(state_data):
@@ -133,8 +171,7 @@ def _gen_latlon_grid_mask(lat, lon, latmin, latmax, lonmin, lonmax):
     return mask
 
 
-def _gen_area_avg_index(cell_area, lat, lon, region=None):
-
+def get_area_avg_mask_and_weights(lat, lon, region, cell_area=None):
     if region == 'nino3.4':
         # 5S - 5N, 170W - 120W
         mask = _gen_latlon_grid_mask(lat, lon, -5, 5, 190, 240)
@@ -155,6 +192,13 @@ def _gen_area_avg_index(cell_area, lat, lon, region=None):
 
     weights = _get_area_weights(cell_area, lat, mask=mask)
 
+    return mask, weights
+
+
+def _get_area_avg_scalar_func(cell_area, lat, lon, region=None):
+
+    mask, weights = get_area_avg_mask_and_weights(lat, lon, region, cell_area)
+
     def area_avg_index(state_data):
         if mask is not None:
             state_data = state_data[mask]
@@ -170,12 +214,19 @@ def _gen_area_avg_index(cell_area, lat, lon, region=None):
     return area_avg_index
 
 
-def _gen_single_gridpoint(pt_lat, pt_lon, lat, lon):
+def get_single_gridpoint_factor(pt_lat, pt_lon, lat, lon):
 
     dist = haversine(pt_lon, pt_lat, lon, lat)
     idx = np.argmin(dist)
     pt_factor = np.zeros_like(lat)
     pt_factor[idx] = 1
+
+    return pt_factor
+
+
+def _get_single_gridpoint_func(pt_lat, pt_lon, lat, lon):
+
+    pt_factor = get_single_gridpoint_factor(pt_lat, pt_lon, lat, lon)
 
     def single_point(state_data):
 
@@ -183,11 +234,10 @@ def _gen_single_gridpoint(pt_lat, pt_lon, lat, lon):
 
         return series
 
-    return single_point()
+    return single_point
 
 
-def _gen_pdo_index(prior_cfg, varname):
-
+def _gen_pdo_index_factor(prior_cfg, varname):
     print('Generating PDO EOF for index calculation.')
     # Loads prior data and averages it.
     prior_var = PriorVariable.load(prior_cfg, varname, anomaly=True, nens=None)
@@ -197,19 +247,26 @@ def _gen_pdo_index(prior_cfg, varname):
     latgrid = grids['lat']
     longrid = grids['lon']
 
-    mask = ((latgrid >= 20) & (latgrid <= 70) &
-            (longrid >= 110) & (longrid <= 250))
+    # PDO region mask from the compressed grid
+    mask = _gen_latlon_grid_mask(latgrid, longrid, 20, 70, 110, 250)
 
     # Valid mask from the full grid
     valid_data = var_dobj.valid_data
 
-    # TODO: Is detrending generally right?
+    # TODO: Change to removal of GMT regression signal
     var_dobj.detrend_data()
     var_dobj.area_weight_data(use_sqrt=True)
     data = var_dobj.data[:][:, mask]
     npac_eofs, npac_svals = ST.calc_eofs(data, 1)
     pdo_eof = npac_eofs[:, 0]
     # full_grid_pdo_eof = var_dobj.inflate_full_grid(data=compressed_pdo_eof)
+
+    return pdo_eof, valid_data, mask
+
+
+def _get_pdo_index_func(prior_cfg, varname):
+
+    pdo_eof, valid_data, mask = _gen_pdo_index_factor(prior_cfg, varname)
 
     def pdo_index(state_data):
         # If valid_data set then there were NaN points, remove them
