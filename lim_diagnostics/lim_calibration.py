@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # defaults to config.core.nexp in working directory
-fig_dir = None
+fig_dir = '/home/disk/p/wperkins/ipynb/lim_diagnostics'
 
 # Fig Output
 plot_neofs = 5
@@ -89,9 +89,11 @@ cfg = LMR_config.Config()
 # Create figure directory
 if fig_dir is None:
     fig_dir = os.path.join('.', cfg.core.nexp + '_lim_figs')
+else:
+    fig_dir = os.path.join(fig_dir, cfg.core.nexp)
 
-if not os.path.exists(fig_dir):
-    os.makedirs(fig_dir, exist_ok=True)
+
+os.makedirs(fig_dir, exist_ok=True)
 
 recon_period = cfg.core.recon_period
 save_analysis_ye = cfg.prior.outputs['analysis_Ye']
@@ -182,21 +184,6 @@ base_scalar_factors = vutils.get_scalar_factors(cfg.prior.outputs['scalar_ens'],
                                                 cfg.prior,
                                                 latgrid, longrid)
 
-def _get_field_factor(var_key):
-
-    eof_std_factor = lim_fcaster.var_eof_std_factor[var_key]
-    eof_basis = lim_fcaster.var_eofs[var_key] / eof_std_factor
-    var_span = slice(*lim_fcaster.var_span[var_key])
-
-    var_multi_eof = multi_eofs[var_span]
-
-    full_field = var_multi_eof.T @ eof_basis.T
-
-    if var_key not in full_field_factors:
-        full_field_factors[var_key] = full_field
-
-    return full_field
-
 # add eofs and standardization into factor matrices
 multi_eofs = lim_fcaster.calib_eofs
 full_scalar_factors = {}
@@ -210,7 +197,10 @@ for measure_key, factor in base_scalar_factors.items():
     if var_key in lim_fcaster.var_std_factor:
         factor = factor / lim_fcaster.var_std_factor[var_key]
 
-    full_field = _get_field_factor(var_key)
+    full_field = mutils.get_field_factor(var_key, lim_fcaster.var_eofs,
+                                         lim_fcaster.var_eof_std_factor,
+                                         lim_fcaster.var_span,
+                                         lim_fcaster.calib_eofs)
     if var_key not in full_field_factors:
         full_field_factors[var_key] = full_field
     full_scalar = full_field @ factor
@@ -218,7 +208,10 @@ for measure_key, factor in base_scalar_factors.items():
 
 for var_key in base_keys:
     if var_key not in full_field_factors.keys():
-        full_field = _get_field_factor(var_key)
+        full_field = mutils.get_field_factor(var_key, lim_fcaster.var_eofs,
+                                             lim_fcaster.var_eof_std_factor,
+                                             lim_fcaster.var_span,
+                                             lim_fcaster.calib_eofs)
         full_field_factors[var_key] = full_field
 
 
@@ -233,11 +226,17 @@ if do_perfect_fcast or do_ens_fcast:
     reduced_state, compressed = lim_fcaster.phys_space_data_to_fcast_space(state)
 
     if do_perfect_fcast:
+        perf_figdir = os.path.join(fig_dir, 'perfect_fcast',
+                                   cfg.prior.prior_source)
+        os.makedirs(perf_figdir, exist_ok=True)
+
         fcast_1yr = lim.forecast(reduced_state[:-1], [1])
         fcast_1yr = np.squeeze(fcast_1yr)
 
         scalars_to_output = cfg.prior.outputs['scalar_ens']
         main_avg_interval = cfg.prior.avg_interval
+
+        perf_fcast_dfs = []
 
         if do_scalar_verif:
             # Go through each variable
@@ -261,16 +260,20 @@ if do_perfect_fcast or do_ens_fcast:
                                                             *r_ce_results,
                                                             *ar1_r_ce_results)
 
+                perf_fcast_dfs.append(verif_df)
+
                 if plot_scalar_verif:
                     title = '{}, {}'.format(var_long_names[var_name],
                                             measure)
+                    plt_savefile = 'scalar_{}_{}_{}.png'.format(*measure_key)
                     units = var_units[var_name]
                     times = list(range(*fcast_yr_range))[1:]
                     ptools.plot_scalar_verification(times[1:], fcast,
                                                     target_scalar,
                                                     *r_ce_results,
                                                     *ar1_r_ce_results,
-                                                    title, 'LM', units)
+                                                    title, 'LM', units,
+                                                    savefile=plt_savefile)
 
         if do_spatial_verif:
             # Spatial Verification
@@ -318,6 +321,8 @@ if do_perfect_fcast or do_ens_fcast:
                                                                  ar1_ce_gm,
                                                                  None)
 
+                perf_fcast_dfs.append(spatial_gm_df)
+
                 if plot_spatial_verif:
 
                     plot_maps = [lac, ce, ar1_lac, ar1_ce]
@@ -330,7 +335,7 @@ if do_perfect_fcast or do_ens_fcast:
                         vutils.plot_spatial_verif(field, valid_mask, sptl_shp,
                                                   latgrid, longrid, metric,
                                                   'past1000', avg_interval,
-                                                  var_name)
+                                                  var_name, fig_dir=perf_figdir)
 
     if do_ens_fcast:
         pass

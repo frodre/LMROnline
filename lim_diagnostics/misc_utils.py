@@ -213,3 +213,16 @@ def red_noise_forecast_ar1(data):
 
     return forecast
 
+
+def get_field_factor(var_key, eofs_by_var, eof_std_by_var, var_spans,
+                      multivar_eofs, ):
+
+    eof_std_factor = eof_std_by_var[var_key]
+    eof_basis = eofs_by_var[var_key] / eof_std_factor
+    var_span = slice(*var_spans[var_key])
+
+    var_multi_eof = multivar_eofs[var_span]
+
+    full_field = var_multi_eof.T @ eof_basis.T
+
+    return full_field

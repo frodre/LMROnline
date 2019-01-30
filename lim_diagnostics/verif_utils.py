@@ -219,10 +219,11 @@ def plot_spatial_verif(field, valid_data, sptl_shp, lat, lon,
     lat = lat.reshape(sptl_shp)
     lon = lon.reshape(sptl_shp)
 
-    fname_template = 'spatial_verif_{}_{}_{}_{}.png'
+    fname_template = 'spatial_{}_{}_{}.png'
     title_template = 'Exp: {}, {} Field: {} Metric: {}'
 
-    fname = fname_template.format(metric, experiment_name, avg_key, var_key)
+    save_metric = metric.lower().replace(' ', '-')
+    fname = fname_template.format(var_key, avg_key, save_metric)
     title = title_template.format(experiment_name, avg_key, var_key, metric)
     if fig_dir is not None:
         fpath = os.path.join(fig_dir, fname)
