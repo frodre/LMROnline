@@ -12,7 +12,7 @@ import lim_diagnostics.misc_utils as mutils
 import lim_diagnostics.data_utils as dutils
 
 
-INTERACTIVE_PLOT = False
+INTERACTIVE_PLOT = True
 
 
 def init_projection(projection):
@@ -170,10 +170,9 @@ def plot_exp_eofs(eofs_by_varkey, state, valid_data,
                          save_file=filename)
 
 
-def plot_single_spatial_field(dobj, field, title, data_bnds=None,
+def plot_single_spatial_field(lat, lon, field, title, data_bnds=None,
                               savefile=None, cmap='RdBu_r', midpoint=None,
                               **kwargs):
-    lat, lon = dutils.get_lat_lon_grids(dobj, compressed=False, flat=False)
     lat_bnd, lon_bnd = mutils.calculate_latlon_bnds(lat, lon)
 
     if midpoint is not None:
@@ -407,14 +406,14 @@ def get_dobj_eof_plot_args(eofs, lat, lon, spatial_shp,
     return plot_args
 
 
-def plot_scalar_verification(years, fcast, reference, r, r_conf95, auto1_r,
-                             auto1_r_conf95, ce, ce_conf95, auto1_ce,
+def plot_scalar_verification(years, fcast, reference, r, r_conf95, ce,
+                             ce_conf95, auto1_r, auto1_r_conf95, auto1_ce,
                              auto1_ce_conf95, title, ref_name, ylabel,
                              savefile=None):
 
     capsize = 5
     mew = 2
-    tseries_title = '1-year LIM Forecast vs. Ref:  ' + title
+    tseries_title = '1-year LIM Forecast vs. Target:  ' + title
 
     r_conf95 = _convert_bnds_for_errorplot(r_conf95, r)
     auto1_r_conf95 = _convert_bnds_for_errorplot(auto1_r_conf95, auto1_r)
@@ -437,26 +436,26 @@ def plot_scalar_verification(years, fcast, reference, r, r_conf95, auto1_r,
 
     # Correlation w/ 95% Conf
     r_ax.errorbar(-0.1, r, fmt='o', yerr=r_conf95, color='C3',
-                  label='Fcast/Ref', capsize=capsize, mew=mew)
+                  label='LIM vs. Target', capsize=capsize, mew=mew)
     r_ax.errorbar(0.1, auto1_r, fmt='o', yerr=auto1_r_conf95, color='grey',
-                  label='Ref 1yr Persist', capsize=capsize, mew=mew)
+                  label='AR(1) vs. Target', capsize=capsize, mew=mew)
     r_ax.set_title('Correlation')
-    r_ax.tick_params(axis='x', which='both', bottom='off', top='off',
-                     labelbottom='off')
+    r_ax.tick_params(axis='x', which='both', bottom=False, top=False,
+                     labelbottom=False)
     r_ax.set_xlim(-0.8, 0.8)
-    lim_patch = patches.Patch(color='C3', label='LIM Fcast vs. Ref')
-    auto_patch = patches.Patch(color='grey', label='Ref 1-yr Persistence')
+    lim_patch = patches.Patch(color='C3', label='LIM Fcast vs. Target')
+    auto_patch = patches.Patch(color='grey', label='AR(1) vs. Target')
     r_ax.legend(handles=[lim_patch, auto_patch],
                 bbox_to_anchor=(2, 0))
 
     # CE w/ 95% Conf
     ce_ax.errorbar(-0.1, ce, fmt='^', yerr=ce_conf95, color='C3',
-                   label='Fcast/Ref', capsize=capsize, mew=mew)
+                   label='LIM vs. Target', capsize=capsize, mew=mew)
     ce_ax.errorbar(0.1, auto1_ce, fmt='^', yerr=auto1_ce_conf95, color='grey',
-                   label='Ref 1yr Persist', capsize=capsize, mew=mew)
+                   label='AR(1) vs. Target', capsize=capsize, mew=mew)
     ce_ax.set_title('CE')
-    ce_ax.tick_params(axis='x', which='both', bottom='off', top='off',
-                      labelbottom='off')
+    ce_ax.tick_params(axis='x', which='both', bottom=False, top=False,
+                      labelbottom=False)
     ce_ax.set_xlim(-0.8, 0.8)
 
     plt.tight_layout()

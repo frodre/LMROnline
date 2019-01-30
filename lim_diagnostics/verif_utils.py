@@ -5,6 +5,7 @@ import dask.array as da
 from multiprocessing import Pool
 from itertools import product
 
+import LMR_outputs as lmout
 
 import lim_utils as lutils
 import plot_tools as ptools
@@ -12,6 +13,30 @@ import misc_utils as mutils
 import data_utils as dutils
 
 import pylim.Stats as ST
+
+
+def get_scalar_factors(scalar_measures, avg_interval, var_valid_data, prior_cfg,
+                       latgrid, longrid, cell_area=None):
+
+    scalar_factors = {}
+    for varname, measure_list in scalar_measures.items():
+        for measure in measure_list:
+            var_key = (varname, avg_interval)
+
+            if var_key in var_valid_data:
+                valid_data = var_valid_data[var_key]
+                lat = latgrid[valid_data]
+                lon = longrid[valid_data]
+            else:
+                lat = latgrid
+                lon = longrid
+
+            factor_key = (varname, avg_interval, measure)
+            scalar_factors[factor_key] = \
+                lmout.get_scalar_factor(measure, varname, prior_cfg, lat, lon,
+                                        cell_area=cell_area)
+
+    return scalar_factors
 
 
 def get_scalar_outputs(dobj, nelem_in_yr, var_fcast, verif_data_attr,
@@ -69,172 +94,11 @@ def get_scalar_outputs(dobj, nelem_in_yr, var_fcast, verif_data_attr,
     return curr_var_output
 
 
-def get_scalar_factor(dobj, out_type, verif_data_attr):
-
-        eofs = dobj._eofs
-        cell_area = dobj.cell_area
-
-        lat, lon = dutils.get_lat_lon_grids(dobj, compressed=True, flat=True)
-
-        if verif_data_attr == 'eof_proj' and out_type == 'glob_mean':
-            fcast_factor, _ = lutils.get_glob_mean_factor(eofs, cell_area)
-            verif_factor = fcast_factor
-        elif out_type == 'glob_mean':
-            fcast_factor, verif_factor = lutils.get_glob_mean_factor(eofs,
-                                                                     cell_area)
-        elif out_type == 'enso':
-            fcast_factor, verif_factor = lutils.get_enso_factor(eofs, lat, lon)
-        elif out_type == 'pdo':
-            pdo_calc_data = dobj.area_weighted
-            fcast_factor, verif_factor = lutils.get_pdo_factor(eofs,
-                                                               pdo_calc_data,
-                                                               lat, lon)
-        else:
-            raise KeyError('Unrecognized output key: {}'.format(out_type))
-
-        return fcast_factor, verif_factor
-
-
-def calc_scalar_ce_r(fcast, reference, init_t0):
+def calc_scalar_ce_r(fcast, reference):
     [r, r_conf95] = lutils.conf_bound95(fcast, reference, metric='r')
-    [auto1_r, auto1_r_conf95] = lutils.conf_bound95(reference, init_t0,
-                                                    metric='r')
-
     [ce, ce_conf95] = lutils.conf_bound95(fcast, reference, metric='ce')
-    [auto1_ce, auto1_ce_conf95] = lutils.conf_bound95(reference, init_t0,
-                                                      metric='ce')
 
-    return (r, r_conf95, auto1_r, auto1_r_conf95, ce, ce_conf95,
-            auto1_ce, auto1_ce_conf95)
-
-
-def get_yrs_from_dobj(dobj, nelem_in_yr):
-    yrs = dobj.get_dim_coords([dobj.TIME])
-    yrs = yrs['time'][1]
-    yrs = [d.year for d in yrs][nelem_in_yr:]
-
-    return yrs
-
-
-def perfect_fcast_verification(fcast_1yr, fcast_outputs, dobjs, state,
-                               verif_spec, nelem_in_yr, experiment_name,
-                               avg_key,
-                               var_name_map, out_name_map, units_map,
-                               fig_dir, do_scalar_plot=True,
-                               do_spatial_plot=True):
-
-    output = {}
-    scalar_verif = []
-
-    for var_key, out_types in fcast_outputs.items():
-        dobj = dobjs[var_key]
-        var_fcast = state.get_var_from_state(var_key, data=fcast_1yr)
-        verif_data_attr = verif_spec.get(var_key, 'detrended')
-
-        curr_var_output = get_scalar_outputs(dobj, nelem_in_yr, var_fcast,
-                                             verif_data_attr, out_types,
-                                             use_dask=True)
-
-        # Run scalar verification
-        for out_type, scalar_output in curr_var_output.items():
-            fcast = scalar_output['fcast']
-            ref = scalar_output['1yr']
-            init_t0 = scalar_output['t0']
-
-            r_ce_results = calc_scalar_ce_r(fcast, ref, init_t0)
-            verif_df = mutils.ce_r_results_to_dataframe(var_key, avg_key,
-                                                        out_type,
-                                                        *r_ce_results)
-            scalar_verif.append(verif_df)
-
-            title = '{}, {}'.format(var_name_map[var_key],
-                                    out_name_map[out_type])
-            label = experiment_name + ' ' + avg_key
-            yrs = get_yrs_from_dobj(dobj, nelem_in_yr)
-            filename = 'scalar_plot_{}_{}_{}_{}.png'.format(experiment_name,
-                                                            avg_key,
-                                                            var_key,
-                                                            out_type)
-            filepath = os.path.join(fig_dir, filename)
-
-            if out_type == 'enso':
-                ylabel = 'ENSO 3.4 Index'
-            elif out_type == 'pdo':
-                ylabel = 'PDO Index'
-            else:
-                ylabel = 'Anomaly ({})'.format([units_map[var_key]])
-
-            if do_scalar_plot:
-                ptools.plot_scalar_verification(yrs, fcast, ref, *r_ce_results,
-                                                title,
-                                                label,
-                                                ylabel,
-                                                savefile=filepath)
-
-        # Run Field verification
-
-        if do_spatial_plot:
-            fcast, ref_data, wgts = _get_spatial_field_and_wgts(dobj,
-                                                                var_fcast,
-                                                                var_key,
-                                                                verif_spec,
-                                                                get_dask=True)
-
-            ref = ref_data[nelem_in_yr:]
-            ref_init = ref_data[:-nelem_in_yr]
-
-            lac = ST.calc_lac(fcast, ref)
-            ce = ST.calc_ce(fcast, ref)
-
-            # Persistence fcast metrics
-            auto1_lac = ST.calc_lac(ref_init, ref)
-            auto1_ce = ST.calc_ce(ref_init, ref)
-
-            lac_out = np.empty(lac.shape)
-            ce_out = np.empty(ce.shape)
-            auto1_lac_out = np.empty(auto1_lac.shape)
-            auto1_ce_out = np.empty(auto1_ce.shape)
-
-            da.store([lac, ce, auto1_lac, auto1_ce],
-                     [lac_out, ce_out, auto1_lac_out, auto1_ce_out])
-
-            # spatial averages
-            lac_gm = lac_out @ wgts
-            ce_gm = ce_out @ wgts
-            auto1_lac_gm = auto1_lac_out @ wgts
-            auto1_ce_gm = auto1_ce_out @ wgts
-
-            spatial_gm_df = mutils.ce_r_results_to_dataframe(var_key, avg_key,
-                                                             'spatial_gm',
-                                                             lac_gm,
-                                                             None,
-                                                             auto1_lac_gm,
-                                                             None,
-                                                             ce_gm,
-                                                             None,
-                                                             auto1_ce_gm,
-                                                             None)
-
-            scalar_verif.append(spatial_gm_df)
-
-            curr_var_output['spatial_metr'] = {'lac': lac_out,
-                                               'ce': ce_out,
-                                               'auto1_lac': auto1_lac_out,
-                                               'auto1_ce': auto1_ce_out}
-            output[var_key] = curr_var_output
-
-            _plot_spatial(lac_out, 'LAC', experiment_name, avg_key, var_key,
-                          dobj, fig_dir)
-            _plot_spatial(auto1_lac_out, 'Auto1_LAC', experiment_name, avg_key,
-                          var_key, dobj, fig_dir)
-            _plot_spatial(ce_out, 'CE', experiment_name, avg_key, var_key, dobj,
-                          fig_dir)
-            _plot_spatial(auto1_ce_out, 'Auto1_CE', experiment_name, avg_key,
-                          var_key, dobj, fig_dir)
-
-    scalar_verif = pd.concat(scalar_verif)
-
-    return output, scalar_verif
+    return (r, r_conf95, ce, ce_conf95)
 
 
 def ens_fcast_verification(ens_fcast, fcast_outputs, dobjs, state,
@@ -341,64 +205,29 @@ def ens_fcast_verification(ens_fcast, fcast_outputs, dobjs, state,
     return ens_metr_by_var, ens_scalar_out
 
 
-def long_output_to_scalar(output, dobjs, output_map, state, verif_spec,
-                          use_dask=False):
-    output_orig = state.proj_data_into_orig_basis(output)
+def plot_spatial_verif(field, valid_data, sptl_shp, lat, lon,
+                       metric, experiment_name,
+                       avg_key, var_key, fig_dir=None):
 
-    var_scalar_out = {}
-    for var_key, dobj in dobjs.items():
-        verif_data_attr = verif_spec.get(var_key, 'detrended')
-        data = state.get_var_from_state(var_key, data=output_orig)
+    if valid_data is not None:
+        reinfl_field = np.empty_like(valid_data, dtype=field.dtype)
+        reinfl_field *= np.nan
+        reinfl_field[valid_data] = field
+        field = reinfl_field
 
-        if use_dask:
-            truth_data = dobj.reset_data(verif_data_attr)
-        else:
-            truth_data = getattr(dobj, verif_data_attr)
-            truth_data = truth_data[:]
-
-        curr_var_output = {}
-        for out_type in output_map[var_key]:
-
-            fcast_factor, verif_factor = get_scalar_factor(dobj,
-                                                           out_type,
-                                                           verif_data_attr)
-            scalar_out = data @ fcast_factor
-            compare_scalar_out = truth_data @ verif_factor
-
-            if out_type == 'pdo':
-                [compare_scalar_out,
-                 std_dev] = _standardize_series(compare_scalar_out)
-                scalar_out, _ = _standardize_series(scalar_out, std_dev=std_dev)
-
-            if use_dask:
-                tmp_compare = np.empty(compare_scalar_out.shape)
-                da.store(compare_scalar_out, tmp_compare)
-                compare_scalar_out = tmp_compare
-
-                if ST.is_dask_array(scalar_out):
-                    tmp_scalar = np.empty(scalar_out.shape)
-                    da.store(scalar_out, tmp_scalar)
-                    scalar_out = tmp_scalar
-
-            curr_var_output[out_type] = {'fcast': scalar_out,
-                                         'source': compare_scalar_out}
-
-        var_scalar_out[var_key] = curr_var_output
-
-    return var_scalar_out
-
-
-def _plot_spatial(field, metric, experiment_name, avg_key, var_key, dobj,
-                  fig_dir):
+    field = field.reshape(sptl_shp)
+    lat = lat.reshape(sptl_shp)
+    lon = lon.reshape(sptl_shp)
 
     fname_template = 'spatial_verif_{}_{}_{}_{}.png'
     title_template = 'Exp: {}, {} Field: {} Metric: {}'
 
-    field = dutils.reinflate_field(dobj, field)
-
     fname = fname_template.format(metric, experiment_name, avg_key, var_key)
     title = title_template.format(experiment_name, avg_key, var_key, metric)
-    fpath = os.path.join(fig_dir, fname)
+    if fig_dir is not None:
+        fpath = os.path.join(fig_dir, fname)
+    else:
+        fpath = None
 
     if 'ce' in metric.lower():
         extend = 'min'
@@ -414,32 +243,10 @@ def _plot_spatial(field, metric, experiment_name, avg_key, var_key, dobj,
         bnds = [-1, 1]
         cmap = 'RdBu_r'
 
-    ptools.plot_single_spatial_field(dobj, field, title, data_bnds=bnds,
+    ptools.plot_single_spatial_field(lat, lon, field, title, data_bnds=bnds,
                                      savefile=fpath, gridlines=False,
                                      extend=extend, cmap=cmap,
                                      midpoint=midpoint)
-
-
-def _get_spatial_field_and_wgts(dobj, var_fcast, var_key, verif_spec,
-                                get_dask=False):
-
-    ref_data_attr = verif_spec.get(var_key, 'detrended')
-    if get_dask:
-        ref_data = dobj.reset_data(ref_data_attr)
-        var_fcast = da.from_array(var_fcast, (151, var_fcast.shape[-1]))
-    else:
-        ref_data = getattr(dobj, ref_data_attr)
-        ref_data = ref_data[:]
-
-    eofs = dobj._eofs
-    fcast = var_fcast @ eofs.T
-
-    if ref_data_attr == 'eof_proj':
-        ref_data = ref_data @ eofs.T
-
-    wgts = dobj.cell_area / dobj.cell_area.sum()
-
-    return fcast, ref_data, wgts
 
 
 def calc_ens_calib_ratio(fcast, ref):

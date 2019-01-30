@@ -2,6 +2,9 @@ import os
 import numpy as np
 import pandas as pd
 
+import pylim.Stats as ST
+
+
 def build_ncf_fpaths(parent_dir, exp_names, exp_folders, exp_files,
                      var_names):
     var_mapping = {'tas': 'atmos',
@@ -162,8 +165,9 @@ def calculate_latlon_bnds(lats, lons, lat_ax=0):
 
 
 def ce_r_results_to_dataframe(var_key, avg_key, output_type,
-                              r, r_conf95, auto1_r, auto1_r_conf95,
-                              ce, ce_conf95, auto1_ce, auto1_ce_conf95):
+                              r, r_conf95, ce, ce_conf95,
+                              auto1_r, auto1_r_conf95, auto1_ce,
+                              auto1_ce_conf95):
 
     dat_list = [r, r_conf95, auto1_r, auto1_r_conf95, ce, ce_conf95,
                 auto1_ce, auto1_ce_conf95]
@@ -191,3 +195,21 @@ def ce_r_results_to_dataframe(var_key, avg_key, output_type,
                       data=np.array([new_dat_list, ]))
 
     return df
+
+
+def red_noise_fit_ar1(data):
+    lag1_autocorr = ST.calc_lac(data[:-1], data[1:])
+
+    white_noise_var = (1 - lag1_autocorr ** 2) * data.var(ddof=1, axis=0)
+
+    return lag1_autocorr, white_noise_var
+
+
+def red_noise_forecast_ar1(data):
+
+    ar1_factor, noise_var = red_noise_fit_ar1(data)
+
+    forecast = data[:-1] * ar1_factor
+
+    return forecast
+
