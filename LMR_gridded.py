@@ -1374,13 +1374,11 @@ class PriorVariable(GriddedVariable):
 
             prior_dict[(vname, orig_avg_interval)] = pobj
 
-        arbitrary_pobj = next(iter(prior_dict.values()))
-        if arbitrary_pobj.is_sampled():
-            sample_years = arbitrary_pobj.time
-        else:
-            sample_years = None
-
         if req_psm_vars is not None:
+            # Make sure sample lines up with years loaded above
+            arbitrary_pobj = next(iter(prior_dict.values()))
+            sample_years = arbitrary_pobj.time
+
             for vname, avg_interval in req_psm_vars:
 
                 prior_config.update_avg_interval(avg_interval)
