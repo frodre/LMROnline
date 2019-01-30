@@ -12,7 +12,7 @@ import lim_diagnostics.misc_utils as mutils
 import lim_diagnostics.data_utils as dutils
 
 
-INTERACTIVE_PLOT = True
+INTERACTIVE_PLOT = False
 
 
 def init_projection(projection):
@@ -188,6 +188,8 @@ def plot_single_spatial_field(lat, lon, field, title, data_bnds=None,
 
     if INTERACTIVE_PLOT:
         plt.show()
+
+    plt.close()
 
 
 def get_single_mode_plot(mode_num, l_eval, l_evect, lat, lon, spatial_shape,
@@ -406,10 +408,11 @@ def get_dobj_eof_plot_args(eofs, lat, lon, spatial_shp,
     return plot_args
 
 
-def plot_scalar_verification(years, fcast, reference, r, r_conf95, ce,
-                             ce_conf95, auto1_r, auto1_r_conf95, auto1_ce,
-                             auto1_ce_conf95, title, ref_name, ylabel,
-                             savefile=None):
+def plot_scalar_verification(years, fcast, reference, r, ce,
+                             auto1_r,  auto1_ce,
+                             title, ref_name, ylabel,
+                             r_conf95, ce_conf95, auto1_r_conf95,
+                             auto1_ce_conf95, savefile=None):
 
     capsize = 5
     mew = 2
@@ -465,6 +468,42 @@ def plot_scalar_verification(years, fcast, reference, r, r_conf95, ce,
 
     if INTERACTIVE_PLOT:
         plt.show()
+
+    plt.close(fig)
+
+
+def plot_anomaly_correlation(times, anom_corr, ar1_anom_corr, var_name,
+                             avg_interval, savefile=None):
+    times = np.array(times)
+    avg_anom_corr = anom_corr.mean()
+    avg_ar1_anom_corr = ar1_anom_corr.mean()
+
+    cmap = plt.get_cmap('Paired')
+    lmr_colors = cmap.colors[0:2]
+    ar1_colors = cmap.colors[4:6]
+
+    fig = plt.figure(figsize=(10, 4))
+    plt.plot(times, ar1_anom_corr, linewidth=1.5, label='AR(1)',
+             color=ar1_colors[0])
+    plt.plot(times, anom_corr, linewidth=1.5, label='LIM', color=lmr_colors[0])
+    plt.axhline(avg_ar1_anom_corr, linewidth=2, color=ar1_colors[1],
+                label='AR(1) AVG')
+    plt.axhline(avg_anom_corr, linewidth=2, color=lmr_colors[1],
+                label='LIM AVG')
+
+    plt.title('Spatial Anomaly Correlation vs. Target: {}, {}'
+              ''.format(var_name, avg_interval))
+    plt.xlabel('Year')
+    plt.ylabel('Correlation')
+    plt.ylim(-0.5, 1)
+    plt.xlim(times.min(), times.max())
+    plt.legend(loc='best')
+
+    if INTERACTIVE_PLOT:
+        plt.show()
+
+    if savefile is not None:
+        plt.savefig(savefile, fmt='png', dpi=150)
 
     plt.close(fig)
 

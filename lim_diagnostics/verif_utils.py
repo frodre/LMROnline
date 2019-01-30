@@ -39,6 +39,37 @@ def get_scalar_factors(scalar_measures, avg_interval, var_valid_data, prior_cfg,
     return scalar_factors
 
 
+def add_eofs_to_scalar_factors(base_factors, lim_fcaster, base_state_keys):
+    full_scalar_factors = {}
+    full_field_factors = {}
+    for measure_key, factor in base_factors.items():
+
+        # last value in tuple is measure, var_key is (varname, avg_interval)
+        var_key = measure_key[:-1]
+
+        if var_key in lim_fcaster.var_std_factor:
+            factor = factor / lim_fcaster.var_std_factor[var_key]
+
+        full_field = mutils.get_field_factor(var_key, lim_fcaster.var_eofs,
+                                             lim_fcaster.var_eof_std_factor,
+                                             lim_fcaster.var_span,
+                                             lim_fcaster.calib_eofs)
+        if var_key not in full_field_factors:
+            full_field_factors[var_key] = full_field
+        full_scalar = full_field @ factor
+        full_scalar_factors[measure_key] = full_scalar
+
+    for var_key in base_state_keys:
+        if var_key not in full_field_factors.keys():
+            full_field = mutils.get_field_factor(var_key, lim_fcaster.var_eofs,
+                                                 lim_fcaster.var_eof_std_factor,
+                                                 lim_fcaster.var_span,
+                                                 lim_fcaster.calib_eofs)
+            full_field_factors[var_key] = full_field
+
+    return full_scalar_factors, full_field_factors
+
+
 def get_scalar_outputs(dobj, nelem_in_yr, var_fcast, verif_data_attr,
                        out_types, use_dask=False, ):
     
@@ -98,7 +129,7 @@ def calc_scalar_ce_r(fcast, reference):
     [r, r_conf95] = lutils.conf_bound95(fcast, reference, metric='r')
     [ce, ce_conf95] = lutils.conf_bound95(fcast, reference, metric='ce')
 
-    return (r, r_conf95, ce, ce_conf95)
+    return (r, ce), {'r_conf95': r_conf95, 'ce_conf95': ce_conf95}
 
 
 def ens_fcast_verification(ens_fcast, fcast_outputs, dobjs, state,

@@ -7,7 +7,7 @@ import LMR_outputs
 import logging
 import sys
 import os
-import pickle
+import pandas as pd
 import numpy as np
 
 import lim_diagnostics.plot_tools as ptools
@@ -44,7 +44,7 @@ fcast_outputs = {'tas': ['glob_mean'],
                  'zos': ['glob_mean']}
 verif_spec = {'zos': 'eof_proj'}
 do_scalar_verif = False
-plot_scalar_verif = False
+plot_scalar_verif = True
 do_spatial_verif = True
 plot_spatial_verif = True
 
@@ -75,6 +75,8 @@ var_units = {'tas_sfc_Amon': 'K',
              'psl_sfc_Amon': 'Pa',
              'zg_500hPa_Amon': 'm',
              'pr_sfc_Amon': 'mm'}
+
+times = list(range(*fcast_yr_range))
 
 if not LMR_config.LEGACY_CONFIG:
     if len(sys.argv) > 1:
@@ -174,45 +176,232 @@ if plot_lim_modes:
                                 row_limit=plot_num_lim_modes,
                                 save_file=fig_fname)
 
-# load scalar factors for forecasting experiments
-grid_coords = next(iter(state.var_coords.values()))
-latgrid = grid_coords['lat']
-longrid = grid_coords['lon']
-base_scalar_factors = vutils.get_scalar_factors(cfg.prior.outputs['scalar_ens'],
-                                                cfg.prior.avg_interval,
-                                                lim_fcaster.valid_data_mask,
-                                                cfg.prior,
-                                                latgrid, longrid)
+
+def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, base_keys):
+    base_scalar_factors = \
+        vutils.get_scalar_factors(cfg_obj.prior.outputs['scalar_ens'],
+                                  cfg_obj.prior.avg_interval,
+                                  lim_fcast_obj.valid_data_mask,
+                                  cfg_obj.prior,
+                                  latgrid, longrid)
+
+    # include EOFs to go straight from LIM space -> scalar measure
+    scalar_factors, field_factors = \
+        vutils.add_eofs_to_scalar_factors(base_scalar_factors, lim_fcast_obj,
+                                          base_keys)
+
+    return scalar_factors, field_factors
 
 # add eofs and standardization into factor matrices
-multi_eofs = lim_fcaster.calib_eofs
-full_scalar_factors = {}
-full_field_factors = {}
-for measure_key, factor in base_scalar_factors.items():
 
-    # last value in tuple is measure, var_key is (varname, avg_interval)
-    measure = measure_key[-1]
-    var_key = measure_key[:-1]
 
-    if var_key in lim_fcaster.var_std_factor:
-        factor = factor / lim_fcaster.var_std_factor[var_key]
+def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
+                               state_lim_space, base_keys):
 
-    full_field = mutils.get_field_factor(var_key, lim_fcaster.var_eofs,
-                                         lim_fcaster.var_eof_std_factor,
-                                         lim_fcaster.var_span,
-                                         lim_fcaster.calib_eofs)
-    if var_key not in full_field_factors:
-        full_field_factors[var_key] = full_field
-    full_scalar = full_field @ factor
-    full_scalar_factors[measure_key] = full_scalar
+    """
 
-for var_key in base_keys:
-    if var_key not in full_field_factors.keys():
-        full_field = mutils.get_field_factor(var_key, lim_fcaster.var_eofs,
-                                             lim_fcaster.var_eof_std_factor,
-                                             lim_fcaster.var_span,
-                                             lim_fcaster.calib_eofs)
-        full_field_factors[var_key] = full_field
+    Parameters
+    ----------
+    state_obj - initialized state object used to grab lat lons
+    cfg_obj - initialized config object
+    lim_fcast_obj - initialized LIMForecaster object
+    state_lim_space - state reduced to LIM space by the fcast object
+    base_keys - list of state keys to output for spatial field verification
+
+    Returns
+    -------
+
+    """
+    perf_figdir = os.path.join(fig_dir, 'perfect_fcast',
+                               cfg.prior.prior_source)
+    os.makedirs(perf_figdir, exist_ok=True)
+
+    fcast_1yr = lim.forecast(reduced_state[:-1], [1])
+    fcast_1yr = np.squeeze(fcast_1yr)
+
+    # load scalar factors for forecasting experiments
+    grid_coords = next(iter(state_obj.var_coords.values()))
+    latgrid = grid_coords['lat']
+    longrid = grid_coords['lon']
+
+    scalar_factors, field_factors = get_scalar_factors(latgrid, longrid,
+                                                       cfg_obj,
+                                                       lim_fcast_obj,
+                                                       base_keys)
+
+    output_dfs = []
+    if do_scalar_verif:
+        output_dfs += scalar_perf_fcast_verification(scalar_factors, fcast_1yr,
+                                                     state_lim_space,
+                                                     perf_figdir)
+    if do_spatial_verif:
+        output_dfs += spatial_perf_fcast_verification(field_factors, fcast_1yr,
+                                                      state_lim_space, latgrid,
+                                                      longrid, perf_figdir)
+
+    if output_dfs:
+        perf_fcast_dfs = pd.concat(output_dfs)
+        df_savefile = os.path.join(perf_figdir, 'perf_fcast_verif_out_df.h5')
+        perf_fcast_dfs.to_hdf(df_savefile, 'past1000')
+
+
+def scalar_perf_fcast_verification(scalar_factors, fcast_1yr,
+                                   state_lim_space, perf_figdir):
+    """
+
+    Parameters
+    ----------
+    scalar_factors
+        dict of factors by (var, avg_interval, measure) to
+        matrix multiply the lim space output by to get the scalar measure
+    fcast_1yr
+        lim forecast in lim space
+    state_lim_space
+        state used as initial conditions for the forecast
+    perf_figdir
+        figure output path
+
+    Returns
+    -------
+
+    """
+    perf_fcast_dfs = []
+
+    for measure_key, factor in scalar_factors.items():
+        var_name, avg_interval, measure = measure_key
+
+        # Scalar Verification
+        init_t0 = state_lim_space @ factor
+        ar1_fcast = mutils.red_noise_forecast_ar1(init_t0)
+
+        target = state_lim_space[1:]
+        target_scalar = target @ factor
+        fcast = fcast_1yr @ factor
+
+        r_ce_args, r_ce_kwargs = vutils.calc_scalar_ce_r(fcast, target_scalar)
+        ar1_r_ce_args, ar1_r_ce_kwargs= vutils.calc_scalar_ce_r(ar1_fcast,
+                                                                target_scalar)
+        verif_df = mutils.ce_r_results_to_dataframe(var_name,
+                                                    avg_interval,
+                                                    measure,
+                                                    *r_ce_args,
+                                                    *ar1_r_ce_args,
+                                                    **r_ce_kwargs,
+                                                    **ar1_r_ce_kwargs)
+
+        perf_fcast_dfs.append(verif_df)
+
+        if plot_scalar_verif:
+            title = '{}, {}'.format(var_long_names[var_name],
+                                    measure)
+            plt_savefile = 'scalar_{}_{}_{}.png'.format(*measure_key)
+            plt_savepath = os.path.join(perf_figdir, plt_savefile)
+            units = var_units[var_name]
+            ptools.plot_scalar_verification(times[2:], fcast,
+                                            target_scalar,
+                                            *r_ce_args, *ar1_r_ce_args,
+                                            title, 'LM', units,
+                                            **r_ce_kwargs, **ar1_r_ce_kwargs,
+                                            savefile=plt_savepath)
+
+    return perf_fcast_dfs
+
+
+def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_lim_space,
+                                    latgrid, longrid, perf_figdir):
+
+    """
+
+    Parameters
+    ----------
+    field_factors
+        dict of factors by (var, avg_interval) to
+        matrix multiply the lim space output by to get the full field
+    fcast_1yr
+        lim forecast in lim space
+    state_lim_space
+        state used as initial conditions for the forecast
+    latgrid
+        flattened grid of latitude coordinates
+    longrid
+        flattened grid of longitude coordinates
+    perf_figdir
+        figure output path
+
+    Returns
+    -------
+
+    """
+    perf_fcast_dfs = []
+    for var_key in base_keys:
+        var_name, avg_interval = var_key
+        field_factor = field_factors[var_key]
+        init_field = state_lim_space @ field_factor
+
+        ar1_field_fcast = mutils.red_noise_forecast_ar1(init_field)
+        target_field = init_field[1:]
+
+        fcast_1yr_field = fcast_1yr @ field_factor
+
+        lac = ST.calc_lac(fcast_1yr_field, target_field)
+        ce = ST.calc_ce(fcast_1yr_field, target_field)
+        anom_corr = ST.calc_lac(fcast_1yr_field.T, target_field.T)
+
+        ar1_lac = ST.calc_lac(ar1_field_fcast, target_field)
+        ar1_ce = ST.calc_ce(ar1_field_fcast, target_field)
+        ar1_anom_corr = ST.calc_lac(ar1_field_fcast.T, target_field.T)
+
+        if var_key in lim_fcaster.valid_data_mask:
+            valid_data = lim_fcaster.valid_data_mask[var_key]
+            lat = latgrid[valid_data]
+        else:
+            lat = latgrid
+
+        # Get global average weights for field
+        _, gm_weights = \
+            LMR_outputs.get_area_avg_mask_and_weights(lat, None, None)
+
+        lac_gm = lac @ gm_weights
+        ce_gm = ce @ gm_weights
+        avg_anom_corr = anom_corr.mean()
+
+        ar1_lac_gm = ar1_lac @ gm_weights
+        ar1_ce_gm = ar1_ce @ gm_weights
+        ar1_avg_anom_corr = ar1_anom_corr.mean()
+
+
+        spatial_gm_df = \
+            mutils.ce_r_results_to_dataframe(var_name, avg_interval,
+                                             'spatial_verif_gm', lac_gm, ce_gm,
+                                             ar1_lac_gm, ar1_ce_gm,
+                                             anom_corr=avg_anom_corr,
+                                             auto1_anom_corr=ar1_avg_anom_corr)
+
+        perf_fcast_dfs.append(spatial_gm_df)
+
+        if plot_spatial_verif:
+
+            plot_maps = [lac, ce, ar1_lac, ar1_ce]
+            plot_metrs = ['LIM LAC', 'LIM CE', 'AR(1) LAC', 'AR(1) CE']
+
+            for field, metric in zip(plot_maps, plot_metrs):
+                valid_mask = lim_fcaster.valid_data_mask.get(var_key,
+                                                             None)
+                sptl_shp = state.var_space_shp[var_name]
+                vutils.plot_spatial_verif(field, valid_mask, sptl_shp,
+                                          latgrid, longrid, metric,
+                                          'past1000', avg_interval,
+                                          var_name, fig_dir=perf_figdir)
+
+            acorr_file = 'spatial_anomoly_corr_{}_{}.png'.format(var_name,
+                                                                 var_key)
+            acorr_path = os.path.join(perf_figdir, acorr_file)
+
+            ptools.plot_anomaly_correlation(times[2:], anom_corr,
+                                            ar1_anom_corr, var_name,
+                                            avg_interval, savefile=acorr_path)
+
+    return perf_fcast_dfs
 
 
 if do_perfect_fcast or do_ens_fcast:
@@ -226,116 +415,8 @@ if do_perfect_fcast or do_ens_fcast:
     reduced_state, compressed = lim_fcaster.phys_space_data_to_fcast_space(state)
 
     if do_perfect_fcast:
-        perf_figdir = os.path.join(fig_dir, 'perfect_fcast',
-                                   cfg.prior.prior_source)
-        os.makedirs(perf_figdir, exist_ok=True)
-
-        fcast_1yr = lim.forecast(reduced_state[:-1], [1])
-        fcast_1yr = np.squeeze(fcast_1yr)
-
-        scalars_to_output = cfg.prior.outputs['scalar_ens']
-        main_avg_interval = cfg.prior.avg_interval
-
-        perf_fcast_dfs = []
-
-        if do_scalar_verif:
-            # Go through each variable
-            for measure_key, factor in full_scalar_factors.items():
-                var_name, avg_interval, measure = measure_key
-
-                # Scalar Verification
-                init_t0 = reduced_state @ factor
-                ar1_fcast = mutils.red_noise_forecast_ar1(init_t0)
-
-                target = reduced_state[1:]
-                target_scalar = target @ factor
-                fcast = fcast_1yr @ factor
-
-                r_ce_results = vutils.calc_scalar_ce_r(fcast, target_scalar)
-                ar1_r_ce_results = vutils.calc_scalar_ce_r(ar1_fcast,
-                                                           target_scalar)
-                verif_df = mutils.ce_r_results_to_dataframe(var_name,
-                                                            avg_interval,
-                                                            measure,
-                                                            *r_ce_results,
-                                                            *ar1_r_ce_results)
-
-                perf_fcast_dfs.append(verif_df)
-
-                if plot_scalar_verif:
-                    title = '{}, {}'.format(var_long_names[var_name],
-                                            measure)
-                    plt_savefile = 'scalar_{}_{}_{}.png'.format(*measure_key)
-                    units = var_units[var_name]
-                    times = list(range(*fcast_yr_range))[1:]
-                    ptools.plot_scalar_verification(times[1:], fcast,
-                                                    target_scalar,
-                                                    *r_ce_results,
-                                                    *ar1_r_ce_results,
-                                                    title, 'LM', units,
-                                                    savefile=plt_savefile)
-
-        if do_spatial_verif:
-            # Spatial Verification
-            for var_key in base_keys:
-                var_name, avg_interval = var_key
-                field_factor = full_field_factors[var_key]
-                init_field = reduced_state @ field_factor
-
-                ar1_field_fcast = mutils.red_noise_forecast_ar1(init_field)
-                target_field = init_field[1:]
-
-                fcast_1yr_field = fcast_1yr @ field_factor
-
-                lac = ST.calc_lac(fcast_1yr_field, target_field)
-                ce = ST.calc_ce(fcast_1yr_field, target_field)
-                anom_corr = ST.calc_lac(fcast_1yr_field.T, target_field.T)
-
-                ar1_lac = ST.calc_lac(ar1_field_fcast, target_field)
-                ar1_ce = ST.calc_ce(ar1_field_fcast, target_field)
-                ar1_anom_corr = ST.calc_lac(ar1_field_fcast.T, target_field.T)
-
-                if var_key in lim_fcaster.valid_data_mask:
-                    valid_data = lim_fcaster.valid_data_mask[var_key]
-                    lat = latgrid[valid_data]
-                else:
-                    lat = latgrid
-                    valid_data = None
-
-                # Get global average weights for field
-                _, gm_weights = \
-                    LMR_outputs.get_area_avg_mask_and_weights(lat, None, None)
-
-                lac_gm = lac @ gm_weights
-                ce_gm = ce @ gm_weights
-                ar1_lac_gm = ar1_lac @ gm_weights
-                ar1_ce_gm = ar1_ce @ gm_weights
-
-                spatial_gm_df = mutils.ce_r_results_to_dataframe(var_name,
-                                                                 avg_interval,
-                                                                 'spatial_verif_gm',
-                                                                 lac_gm, None,
-                                                                 ce_gm, None,
-                                                                 ar1_lac_gm,
-                                                                 None,
-                                                                 ar1_ce_gm,
-                                                                 None)
-
-                perf_fcast_dfs.append(spatial_gm_df)
-
-                if plot_spatial_verif:
-
-                    plot_maps = [lac, ce, ar1_lac, ar1_ce]
-                    plot_metrs = ['LIM LAC', 'LIM CE', 'AR(1) LAC', 'AR(1) CE']
-
-                    for field, metric in zip(plot_maps, plot_metrs):
-                        valid_mask = lim_fcaster.valid_data_mask.get(var_key,
-                                                                     None)
-                        sptl_shp = state.var_space_shp[var_name]
-                        vutils.plot_spatial_verif(field, valid_mask, sptl_shp,
-                                                  latgrid, longrid, metric,
-                                                  'past1000', avg_interval,
-                                                  var_name, fig_dir=perf_figdir)
+        perfect_fcast_verification(state, cfg, lim_fcaster, reduced_state,
+                                   base_keys)
 
     if do_ens_fcast:
         pass

@@ -165,12 +165,13 @@ def calculate_latlon_bnds(lats, lons, lat_ax=0):
 
 
 def ce_r_results_to_dataframe(var_key, avg_key, output_type,
-                              r, r_conf95, ce, ce_conf95,
-                              auto1_r, auto1_r_conf95, auto1_ce,
-                              auto1_ce_conf95):
+                              r, ce, auto1_r, auto1_ce,
+                              r_conf95=None, ce_conf95=None,
+                              auto1_r_conf95=None, auto1_ce_conf95=None,
+                              anom_corr=None, auto1_anom_corr=None,):
 
     dat_list = [r, r_conf95, auto1_r, auto1_r_conf95, ce, ce_conf95,
-                auto1_ce, auto1_ce_conf95]
+                auto1_ce, auto1_ce_conf95, anom_corr, auto1_anom_corr]
 
     new_dat_list = []
     for item in dat_list:
@@ -186,7 +187,8 @@ def ce_r_results_to_dataframe(var_key, avg_key, output_type,
     columns = ['r', 'r(2.5%)', 'r(97.5%)',
                'auto1_r', 'auto1_r(2.5%)', 'auto1_r(97.5%)',
                'ce', 'ce(2.5%)', 'ce(97.5%)',
-               'auto1_ce', 'auto1_ce(2.5%)', 'auto1_ce(97.5%)']
+               'auto1_ce', 'auto1_ce(2.5%)', 'auto1_ce(97.5%)',
+               'anom_corr', 'auto1_anom_corr']
     index = pd.MultiIndex.from_tuples(((var_key, avg_key, output_type),),
                                       names=['Variable', 'Average',
                                              'ScalarType'])
