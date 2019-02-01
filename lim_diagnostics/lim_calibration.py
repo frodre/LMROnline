@@ -24,19 +24,19 @@ logger = logging.getLogger(__name__)
 fig_dir = '/home/disk/p/wperkins/ipynb/lim_diagnostics'
 
 # Fig Output
-plot_neofs = 5
+plot_neofs = 10
 plot_eofs = False
 plot_state_eofs = False
 
 plot_lim_modes = False
-plot_num_lim_modes = 8
+plot_num_lim_modes = 10
 
 plot_lim_noise_eofs = False
-plot_num_noise_modes = 8
+plot_num_noise_modes = 10
 
 # Perfect Forecast Experiments
-do_perfect_fcast = False
-fcast_yr_range = (850, 1851)
+do_perfect_fcast = True
+fcast_start_yr = 851
 fcast_outputs = {'tas': ['glob_mean'],
                  'tos': ['glob_mean',
                          'enso',
@@ -45,14 +45,14 @@ fcast_outputs = {'tas': ['glob_mean'],
 verif_spec = {'zos': 'eof_proj'}
 do_scalar_verif = True
 plot_scalar_verif = True
-do_spatial_verif = False
+do_spatial_verif = True
 plot_spatial_verif = True
 
 # Ensemble noise integration forecast experiments
 do_ens_fcast = True
 nens = 100
-do_hist = False
-do_reliability = False
+do_hist = True
+do_reliability = True
 
 # Long integration forecast experiments
 do_long_integration = False
@@ -77,8 +77,6 @@ var_units = {'tas_sfc_Amon': 'K',
              'zg_500hPa_Amon': 'm',
              'pr_sfc_Amon': 'mm'}
 
-times = list(range(*fcast_yr_range))
-
 if not LMR_config.LEGACY_CONFIG:
     if len(sys.argv) > 1:
         yaml_file = sys.argv[1]
@@ -87,6 +85,7 @@ if not LMR_config.LEGACY_CONFIG:
 
     LMR_config.initialize_config_yaml(LMR_config, yaml_file)
 
+LMR_config.proxies.proxy_frac = 1.0
 cfg = LMR_config.Config()
 
 # Create figure directory
@@ -119,6 +118,12 @@ lim_fcaster = LMR_forecaster.LIMForecaster.from_config(cfg.forecaster,
                                                        load_keys)
 
 regrid_grid = cfg.prior.regrid_cfg.esmpy_regrid_to
+
+# load scalar factors for forecasting experiments
+var_key, grid_coords = next(iter(state.var_coords.items()))
+lat = grid_coords['lat']
+lon = grid_coords['lon']
+space_shp = state.var_space_shp[var_key]
 
 
 if plot_eofs:
@@ -173,7 +178,7 @@ if plot_lim_modes:
     print('Plotting LIM modes!')
     fig_fname = os.path.join(fig_dir,
                              '{}_lim_fcast_modes.png'.format(regrid_grid))
-    ptools.plot_multi_lim_modes(lim, state, lim_fcaster,
+    ptools.plot_multi_lim_modes(lim, lat, lon, space_shp, lim_fcaster,
                                 row_limit=plot_num_lim_modes,
                                 save_file=fig_fname)
 
@@ -309,7 +314,7 @@ def scalar_perf_fcast_verification(scalar_factors, fcast_1yr,
             plt_savefile = 'scalar_{}_{}_{}.png'.format(*measure_key)
             plt_savepath = os.path.join(perf_figdir, plt_savefile)
             units = var_units[var_name]
-            ptools.plot_scalar_verification(times[2:], fcast,
+            ptools.plot_scalar_verification(times, fcast,
                                             target_scalar,
                                             *r_ce_args, *ar1_r_ce_args,
                                             title, 'LM', units,
@@ -409,7 +414,7 @@ def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_lim_space,
                                                                  var_key)
             acorr_path = os.path.join(perf_figdir, acorr_file)
 
-            ptools.plot_anomaly_correlation(times[2:], anom_corr,
+            ptools.plot_anomaly_correlation(times, anom_corr,
                                             ar1_anom_corr, var_name,
                                             avg_interval, savefile=acorr_path)
 
@@ -516,6 +521,10 @@ if do_perfect_fcast or do_ens_fcast:
                                           req_avg_intervals=req_avg_intervals)
 
     reduced_state, compressed = lim_fcaster.phys_space_data_to_fcast_space(state)
+
+    start = fcast_start_yr
+    end = start + reduced_state.shape[0]
+    times = list(range(start, end))[1:]
 
     if do_perfect_fcast:
         perfect_fcast_verification(state, cfg, lim_fcaster, reduced_state,
