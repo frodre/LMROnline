@@ -144,7 +144,15 @@ class LIMForecaster(BaseForecaster):
 
         load_vars.sort()
         save_attrs = [lim_cfg.datatag, num_pcs, dobj_num_pcs] + list(load_vars)
-        save_str = str(save_attrs).encode('utf-8')
+        for i, curr_item in enumerate(save_attrs):
+            if isinstance(curr_item, tuple):
+                # join the variable key (var_name, avg_interval)
+                save_attrs[i] = '_'.join(curr_item)
+            else:
+                # turn potential other items into a string
+                save_attrs[i] = str(save_attrs[i])
+        save_str = '_'.join(save_attrs)
+        save_str = save_str.encode('utf-8')
         save_hasher = hashlib.md5()
         save_hasher.update(save_str)
         save_filename = save_hasher.hexdigest() + '.pkl'
@@ -259,8 +267,8 @@ class LIMForecaster(BaseForecaster):
 
     def print_lim_save_attrs(self):
         datatag = self._save_attrs[0]
-        mvar_npcs = self._save_attrs[1]
-        dobj_npcs = self._save_attrs[2]
+        mvar_npcs = int(self._save_attrs[1])
+        dobj_npcs = int(self._save_attrs[2])
         load_vars = self._save_attrs[3:]
 
         dobj_eof_str = ''
