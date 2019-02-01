@@ -171,7 +171,7 @@ def ce_r_results_to_dataframe(var_key, avg_key, output_type,
                               anom_corr=None, auto1_anom_corr=None,):
 
     dat_list = [r, r_conf95, auto1_r, auto1_r_conf95, ce, ce_conf95,
-                auto1_ce, auto1_ce_conf95, anom_corr, auto1_anom_corr]
+                auto1_ce, auto1_ce_conf95]
 
     new_dat_list = []
     for item in dat_list:
@@ -183,6 +183,9 @@ def ce_r_results_to_dataframe(var_key, avg_key, output_type,
             new_dat_list.append(None)
         else:
             new_dat_list.append(item)
+
+    new_dat_list.append(anom_corr)
+    new_dat_list.append(auto1_anom_corr)
 
     columns = ['r', 'r(2.5%)', 'r(97.5%)',
                'auto1_r', 'auto1_r(2.5%)', 'auto1_r(97.5%)',

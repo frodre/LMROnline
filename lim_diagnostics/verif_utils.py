@@ -1,18 +1,13 @@
 import os
-import pandas as pd
 import numpy as np
-import dask.array as da
 from multiprocessing import Pool
 from itertools import product
 
 import LMR_outputs as lmout
 
-import lim_utils as lutils
-import plot_tools as ptools
-import misc_utils as mutils
-import data_utils as dutils
-
-import pylim.Stats as ST
+import lim_diagnostics.lim_utils as lutils
+import lim_diagnostics.plot_tools as ptools
+import lim_diagnostics.misc_utils as mutils
 
 
 def get_scalar_factors(scalar_measures, avg_interval, var_valid_data, prior_cfg,
@@ -70,170 +65,18 @@ def add_eofs_to_scalar_factors(base_factors, lim_fcaster, base_state_keys):
     return full_scalar_factors, full_field_factors
 
 
-def get_scalar_outputs(dobj, nelem_in_yr, var_fcast, verif_data_attr,
-                       out_types, use_dask=False, ):
-    
-    if use_dask:
-        truth_data = dobj.reset_data(verif_data_attr)
-    else:
-        truth_data = getattr(dobj, verif_data_attr)
-        
-    truth_1yr = truth_data[nelem_in_yr:]
-    truth_init = truth_data[:-nelem_in_yr]
-
-    curr_var_output = {}
-
-    for out_type in out_types:
-
-        fcast_factor, verif_factor = get_scalar_factor(dobj, out_type,
-                                                       verif_data_attr)
-
-        var_out = var_fcast @ fcast_factor
-        truth_init_out = truth_init @ verif_factor
-        truth_1yr_out = truth_1yr @ verif_factor
-
-        # Standardize PDO Index relative to truth output
-        if out_type == 'pdo':
-            truth_1yr_out, std_dev = _standardize_series(truth_1yr_out)
-            var_out, _ = _standardize_series(var_out, std_dev=std_dev)
-            truth_init_out, _ = _standardize_series(truth_init_out,
-                                                    std_dev=std_dev)
-            
-        if use_dask:
-            t_truth_1yr_out = np.empty(truth_1yr_out.shape)
-            t_truth_init_out = np.empty(truth_init_out.shape)
-
-            dask_vars = [truth_1yr_out, truth_init_out]
-            dask_outs = [t_truth_1yr_out, t_truth_init_out]
-
-            if ST.is_dask_array(var_out):
-                t_var_out = np.empty(var_out.shape)
-                dask_vars.append(var_out)
-                dask_outs.append(t_var_out)
-
-            da.store(dask_vars, dask_outs)
-
-            truth_1yr_out = t_truth_1yr_out
-            truth_init_out = t_truth_init_out
-
-            if ST.is_dask_array(var_out):
-                var_out = t_var_out
-
-        curr_var_output[out_type] = {'fcast': var_out,
-                                     't0': truth_init_out,
-                                     '1yr': truth_1yr_out}
-    return curr_var_output
-
-
-def calc_scalar_ce_r(fcast, reference):
+def calc_scalar_ce_r(fcast, reference, is_ar1=False):
     [r, r_conf95] = lutils.conf_bound95(fcast, reference, metric='r')
     [ce, ce_conf95] = lutils.conf_bound95(fcast, reference, metric='ce')
 
-    return (r, ce), {'r_conf95': r_conf95, 'ce_conf95': ce_conf95}
+    r_key = 'r_conf95'
+    ce_key = 'ce_conf95'
 
+    if is_ar1:
+        r_key = 'auto1_' + r_key
+        ce_key = 'auto1_' + ce_key
 
-def ens_fcast_verification(ens_fcast, fcast_outputs, dobjs, state,
-                           verif_spec, nelem_in_yr, experiment_name, avg_key,
-                           var_name_map, out_name_map, fig_dir,
-                           do_hist=True, do_reliability=True):
-
-    ens_metr_by_var = {}
-    ens_scalar_out = {}
-    for var_key, dobj in dobjs.items():
-
-        var_fcast = state.get_var_from_state(var_key, data=ens_fcast)
-        verif_data_attr = verif_spec.get(var_key, 'detrended')
-        out_types = fcast_outputs[var_key]
-
-        curr_var_output = get_scalar_outputs(dobj, nelem_in_yr, var_fcast,
-                                             verif_data_attr, out_types,
-                                             use_dask=True)
-
-        ens_scalar_out[var_key] = curr_var_output
-
-        curr_var_ens_scalar = {}
-        for out_type, scalar_output in curr_var_output.items():
-            print('Ens. Scalar Verification: {}, {}'.format(var_key, out_type))
-
-            fcast_ens = scalar_output['fcast']
-            ref = scalar_output['1yr']
-            title = ('Exp: {}, {}  '
-                     'Field: {} Measure: {}'.format(experiment_name,
-                                                    avg_key,
-                                                    var_key,
-                                                    out_type))
-            fig_fname = 'rank_hist_{}_{}_{}_{}.png'.format(experiment_name,
-                                                           avg_key,
-                                                           var_key,
-                                                           out_type)
-            fig_fpath = os.path.join(fig_dir, fig_fname)
-
-            ens_calib = calc_ens_calib_ratio(fcast_ens, ref)
-            curr_var_ens_scalar[out_type] = {'calib': ens_calib}
-
-            if do_hist:
-                rank_data = ptools.plot_rank_histogram(fcast_ens, ref, title,
-                                                       savefile=fig_fpath)
-                curr_var_ens_scalar[out_type]['rank'] = rank_data
-
-            if (out_type == 'enso' or out_type == 'pdo') and do_reliability:
-
-                title_temp = ('Exp: {}, {}  Metr: {} Reliability '
-                              '(index {})')
-                savefile_temp = 'reliability_{}_{}_{}_{}_{}.png'
-
-                pct_map = {'upper': '>0.5',
-                           'lower': '<-0.5'}
-
-                reliab_dict = {}
-                for event_type in ['upper', 'lower']:
-                    obs_freq, bin_fcast_avg, errors = \
-                        calc_reliability_with_bounds(fcast_ens, ref,
-                                                     event_type=event_type)
-
-                    title = title_temp.format(experiment_name, avg_key,
-                                              out_type, pct_map[event_type])
-                    fname = savefile_temp.format(experiment_name, avg_key,
-                                                 var_key, out_type,
-                                                 event_type)
-                    savefile = os.path.join(fig_dir, fname)
-
-                    ptools.plot_reliability(obs_freq, bin_fcast_avg, errors,
-                                            title, savefile=savefile)
-                    reliab_dict[event_type] = (obs_freq, bin_fcast_avg,
-                                               errors)
-
-                curr_var_ens_scalar[out_type]['reliability'] = reliab_dict
-
-        # Run field ens_calibration measure
-
-        # eofs = dobj._eofs
-        #
-        # wgts = dobj.cell_area / dobj.cell_area.sum()
-        #
-        # ref_data_attr = verif_spec.get(var_key, 'detrended')
-        # ref_data = getattr(dobj, ref_data_attr)
-        #
-        # ntimes = var_fcast.shape[1]
-        #
-        # args = _stl_ens_calib_arg_generator(ntimes, var_fcast,
-        #                                     ref_data, ref_data_attr, eofs)
-        #
-        # with Pool(processes=8) as proc_pool:
-        #     calib_res = proc_pool.map(_stl_ens_calib_func, args)
-        #
-        # ens_calib_avg = np.array(calib_res).mean(axis=0)
-        # spatl_avg_ens_calib = ens_calib_avg @ wgts
-        # curr_var_ens_calib['spatial_avg'] = spatl_avg_ens_calib
-        #
-        #
-        # if do_spatial_plot:
-        #     _plot_spatial(ens_calib_avg, 'ens_calib', experiment_name,
-        #                   avg_key, var_key, dobj, fig_dir)
-
-        ens_metr_by_var[var_key] = curr_var_ens_scalar
-
-    return ens_metr_by_var, ens_scalar_out
+    return (r, ce), {r_key: r_conf95, ce_key: ce_conf95}
 
 
 def plot_spatial_verif(field, valid_data, sptl_shp, lat, lon,
@@ -283,12 +126,12 @@ def plot_spatial_verif(field, valid_data, sptl_shp, lat, lon,
 
 def calc_ens_calib_ratio(fcast, ref):
 
-    sq_err = (fcast.mean(axis=0) - ref)**2
-    mse = sq_err.mean(axis=0)
+    ens_mean_sq_err = (fcast.mean(axis=0) - ref)**2
+    mse_avg = ens_mean_sq_err.mean(axis=0)
 
     mean_ens_var = fcast.var(ddof=1, axis=0).mean(axis=0)
 
-    ens_calib_ratio = mse / mean_ens_var
+    ens_calib_ratio = mse_avg / mean_ens_var
 
     return ens_calib_ratio
 
@@ -405,14 +248,103 @@ def calc_reliability_with_bounds(fcast, ref, event_type='upper'):
     return obs_rel_freq, bin_fcast_mean, errors
 
 
-def _standardize_series(data, std_dev=None):
+def calc_soi_from_gridpoints(tahiti, darwin):
+
+    """
+    Calculate SOI from gridpoint pressure timeseries from tahiti and darwin
+
+    Parameters
+    ----------
+    tahiti - Tahiti pressure time series
+    darwin - Darwin pressure time series
+
+    Returns
+    -------
+
+    """
+    tahiti_anom = tahiti - tahiti.mean(axis=-1, keepdims=True)
+    tahiti_std, tahiti_std_factor = _standardize_series(tahiti_anom,
+                                                        preserve_ens_var=True)
+
+    darwin_anom = darwin - darwin.mean(axis=-1, keepdims=True)
+    darwin_std, darwin_std_factor = _standardize_series(darwin_anom,
+                                                        preserve_ens_var=True)
+
+    soi = tahiti_std - darwin_std
+    soi, soi_std_factor = _standardize_series(soi, preserve_ens_var=True)
+
+    return soi
+
+
+def _standardize_series(data, std_dev=None, preserve_ens_var=False):
 
     data = data - data.mean(axis=-1, keepdims=True)
 
     if std_dev is None:
-        std_dev = np.std(data, axis=-1, ddof=1)
+        if data.ndim > 1 and preserve_ens_var:
+            ens_avg = data.reshape(-1, data.shape[-1]).mean(axis=0)
+            std_dev = ens_avg.std(ddof=1)
+        else:
+            std_dev = np.std(data, axis=-1, ddof=1, keepdims=True)
 
     data = data / std_dev
 
     return data, std_dev
+
+
+def handle_soi_factors(scalar_factors, measure_out, state_lim_space, fcast_1yr):
+    """
+    Take scalar factors and look for required data.  If it's there calculate it
+    remove the factors used and add in soi index to the measure_out dictionary.
+
+    Parameters
+    ----------
+    scalar_factors - dict to look for tahiti and darwin scalar factors
+    measure_out - scalar output dictionary to add soi result to
+    state_lim_space - reference state in LIM space
+    fcast_1yr - 1-year forecast in LIM space
+
+    Returns
+    -------
+
+    """
+    # Calculate soi if it's there
+    for measure_key in scalar_factors.keys():
+        if 'tahiti' == measure_key[-1]:
+            tahiti_key = measure_key
+            tahiti_exist = True
+            break
+    else:
+        tahiti_key = None
+        tahiti_exist = False
+
+    for measure_key in scalar_factors.keys():
+
+        if 'darwin' == measure_key[-1]:
+            darwin_key = measure_key
+            darwin_exist = True
+            break
+    else:
+        darwin_key = None
+        darwin_exist = False
+
+    if tahiti_exist and darwin_exist:
+        tahiti_factor = scalar_factors.pop(tahiti_key)
+        darwin_factor = scalar_factors.pop(darwin_key)
+
+        tahiti_psl_ref = state_lim_space @ tahiti_factor
+        tahiti_psl_fcast = fcast_1yr @ tahiti_factor
+
+        darwin_psl_ref = state_lim_space @ darwin_factor
+        darwin_psl_fcast = fcast_1yr @ darwin_factor
+
+        soi_fcast = calc_soi_from_gridpoints(tahiti_psl_fcast, darwin_psl_fcast)
+        soi_ref = calc_soi_from_gridpoints(tahiti_psl_ref, darwin_psl_ref)
+
+        soi_key = list(tahiti_key)
+        soi_key[-1] = 'soi'
+        soi_key = tuple(soi_key)
+        measure_out[soi_key] = (soi_ref, soi_fcast)
+
+    return scalar_factors, measure_out
 

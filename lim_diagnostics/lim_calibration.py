@@ -35,7 +35,7 @@ plot_lim_noise_eofs = False
 plot_num_noise_modes = 8
 
 # Perfect Forecast Experiments
-do_perfect_fcast = True
+do_perfect_fcast = False
 fcast_yr_range = (850, 1851)
 fcast_outputs = {'tas': ['glob_mean'],
                  'tos': ['glob_mean',
@@ -43,15 +43,16 @@ fcast_outputs = {'tas': ['glob_mean'],
                          'pdo'],
                  'zos': ['glob_mean']}
 verif_spec = {'zos': 'eof_proj'}
-do_scalar_verif = False
+do_scalar_verif = True
 plot_scalar_verif = True
-do_spatial_verif = True
+do_spatial_verif = False
 plot_spatial_verif = True
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = False
-do_hist = True
-do_reliability = True
+do_ens_fcast = True
+nens = 100
+do_hist = False
+do_reliability = False
 
 # Long integration forecast experiments
 do_long_integration = False
@@ -196,7 +197,8 @@ def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, base_keys):
 
 
 def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
-                               state_lim_space, base_keys):
+                               state_lim_space, base_keys,
+                               fig_out_dir='.'):
 
     """
 
@@ -212,11 +214,11 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
     -------
 
     """
-    perf_figdir = os.path.join(fig_dir, 'perfect_fcast',
+    perf_figdir = os.path.join(fig_out_dir, 'perfect_fcast',
                                cfg.prior.prior_source)
     os.makedirs(perf_figdir, exist_ok=True)
 
-    fcast_1yr = lim.forecast(reduced_state[:-1], [1])
+    fcast_1yr = lim.forecast(state_lim_space[:-1], [1])
     fcast_1yr = np.squeeze(fcast_1yr)
 
     # load scalar factors for forecasting experiments
@@ -267,20 +269,30 @@ def scalar_perf_fcast_verification(scalar_factors, fcast_1yr,
     """
     perf_fcast_dfs = []
 
+    measure_out = {}
+    scalar_factors, measure_out = vutils.handle_soi_factors(scalar_factors,
+                                                            measure_out,
+                                                            state_lim_space,
+                                                            fcast_1yr)
+
     for measure_key, factor in scalar_factors.items():
+        ref_measure = state_lim_space @ factor
+        fcast_measure = fcast_1yr @ factor
+
+        measure_out[measure_key] = (ref_measure, fcast_measure)
+
+    for measure_key, (ref, fcast) in measure_out.items():
         var_name, avg_interval, measure = measure_key
 
-        # Scalar Verification
-        init_t0 = state_lim_space @ factor
-        ar1_fcast = mutils.red_noise_forecast_ar1(init_t0)
+        ar1_fcast = mutils.red_noise_forecast_ar1(ref)
 
-        target = state_lim_space[1:]
-        target_scalar = target @ factor
-        fcast = fcast_1yr @ factor
+        target_scalar = ref[1:]
 
         r_ce_args, r_ce_kwargs = vutils.calc_scalar_ce_r(fcast, target_scalar)
-        ar1_r_ce_args, ar1_r_ce_kwargs= vutils.calc_scalar_ce_r(ar1_fcast,
-                                                                target_scalar)
+        ar1_r_ce_args, ar1_r_ce_kwargs = vutils.calc_scalar_ce_r(ar1_fcast,
+                                                                 target_scalar,
+                                                                 is_ar1=True)
+
         verif_df = mutils.ce_r_results_to_dataframe(var_name,
                                                     avg_interval,
                                                     measure,
@@ -404,6 +416,97 @@ def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_lim_space,
     return perf_fcast_dfs
 
 
+def ens_fcast_verification(state_lim_space, nens, lim, state_obj, cfg_obj,
+                           lim_fcast_obj, fig_out_dir='.'):
+
+    t0 = state_lim_space[:-1]
+    ens_1yr_fcast = lutils.ens_1yr_fcast(nens, lim, t0)
+
+    # load scalar factors for forecasting experiments
+    grid_coords = next(iter(state_obj.var_coords.values()))
+    latgrid = grid_coords['lat']
+    longrid = grid_coords['lon']
+
+    scalar_factors, field_factors = get_scalar_factors(latgrid, longrid,
+                                                       cfg_obj,
+                                                       lim_fcast_obj,
+                                                       base_keys)
+    ens_figdir = os.path.join(fig_out_dir, 'ens_fcast',
+                              cfg_obj.prior.prior_source)
+    os.makedirs(ens_figdir, exist_ok=True)
+
+    ens_scalar_output = {}
+    scalar_factors, ens_scalar_output = vutils.handle_soi_factors(scalar_factors,
+                                                                  ens_scalar_output,
+                                                                  state_lim_space,
+                                                                  ens_1yr_fcast)
+
+    for measure_key, factor in scalar_factors.items():
+        ref_measure = state_lim_space @ factor
+        fcast_measure = ens_1yr_fcast @ factor
+        ens_scalar_output[measure_key] = (ref_measure, fcast_measure)
+
+    ens_calib_dfs = []
+    for measure_key, (ref_scalar, ens_scalar) in ens_scalar_output.items():
+
+        ref_scalar = ref_scalar[1:]
+
+        ens_calib = vutils.calc_ens_calib_ratio(ens_scalar,
+                                                ref_scalar)
+
+        columns = ['ens_calib']
+        index = pd.MultiIndex.from_tuples((measure_key,),
+                                          names=['Variable', 'Average',
+                                                 'ScalarType'])
+        df = pd.DataFrame(index=index,
+                          columns=columns,
+                          data=np.array([ens_calib]))
+        ens_calib_dfs.append(df)
+
+        if do_hist:
+            title = ('Field: {} Avg Int: {} Measure: {}'.format(*measure_key))
+            fig_fname = 'rank_hist_{}_{}_{}.png'.format(*measure_key)
+
+            fig_path = os.path.join(ens_figdir, fig_fname)
+            ptools.plot_rank_histogram(ens_scalar, ref_scalar, title,
+                                       savefile=fig_path)
+
+        if do_reliability:
+            measure = measure_key[-1]
+
+            if ('enso' in measure or 'nino' in measure or
+                'pdo' in measure or 'npi' in measure or 'soi' in measure):
+
+                std_factor = ref_scalar.std()
+                ens_scalar_std = ens_scalar / std_factor
+                ref_data_std = ref_scalar / std_factor
+
+                title_temp = ('Field: {}  Avg Int: {} Metr: {} Reliability '
+                              '(index {})')
+                savefile_temp = 'reliability_{}_{}_{}_{}.png'
+
+                pct_map = {'upper': '>0.5',
+                           'lower': '<-0.5'}
+
+                for event_type in ['upper', 'lower']:
+                    obs_freq, bin_fcast_avg, errors =\
+                        vutils.calc_reliability_with_bounds(
+                            ens_scalar_std, ref_data_std, event_type=event_type
+                        )
+                    title = title_temp.format(*measure_key, pct_map[event_type])
+
+                    fname = savefile_temp.format(*measure_key, event_type)
+                    savefile = os.path.join(ens_figdir, fname)
+
+                    ptools.plot_reliability(obs_freq, bin_fcast_avg, errors,
+                                            title, savefile=savefile)
+
+    ens_calib_fname = 'scalar_ens_calib_df.h5'
+    ens_calib_fpath = os.path.join(ens_figdir, ens_calib_fname)
+    ens_calib_out = pd.concat(ens_calib_dfs)
+    ens_calib_out.to_hdf(ens_calib_fpath, 'past1000')
+
+
 if do_perfect_fcast or do_ens_fcast:
 
     LMR_config.core.nens = None
@@ -416,15 +519,17 @@ if do_perfect_fcast or do_ens_fcast:
 
     if do_perfect_fcast:
         perfect_fcast_verification(state, cfg, lim_fcaster, reduced_state,
-                                   base_keys)
+                                   base_keys, fig_out_dir=fig_dir)
 
     if do_ens_fcast:
-        pass
+        ens_fcast_verification(reduced_state, nens, lim, state, cfg,
+                               lim_fcaster, fig_out_dir=fig_dir)
+else:
+    reduced_state, _ = lim_fcaster.phys_space_data_to_fcast_space(state)
 
 if do_long_integration:
 
-    fcast_state, is_compressed = lim_fcaster.phys_space_data_to_fcast_space(state)
-    t0 = fcast_state[0:1, :]
+    t0 = reduced_state[0:1, :]
 
     # long integration with buffer of 50 years to forget initial state
     last = lutils.ens_long_integration(integration_iters,
@@ -436,6 +541,16 @@ if do_long_integration:
     fname = 'long_integration_output_{}.npy'.format(regrid_grid)
     path = os.path.join(fig_dir, fname)
     np.save(path, last)
+
+    # load scalar factors for forecasting experiments
+    grid_coords = next(iter(state.var_coords.values()))
+    latgrid = grid_coords['lat']
+    longrid = grid_coords['lon']
+
+    scalar_factors, field_factors = get_scalar_factors(latgrid, longrid,
+                                                       cfg,
+                                                       lim_fcaster,
+                                                       base_keys)
 
     scalar_outdef = cfg.prior.outputs['scalar_ens']
     [func_by_var, scalar_output_containers] = \
