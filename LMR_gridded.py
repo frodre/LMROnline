@@ -1008,7 +1008,12 @@ class GriddedVariable(object):
                 obj = obj.random_sample(nens, seed=seed,
                                         sample_omit_edge=sample_omit_edge)
             else:
-                obj.data = obj.data[:]
+                if sample_omit_edge:
+                    sample_slice = slice(1, -1, None)
+                else:
+                    sample_slice = slice(None, None, None)
+                obj.time = obj.time[sample_slice]
+                obj.data = obj.data[sample_slice]
 
         print('Loaded pre-averaged file: {}'.format(path))
         return obj
