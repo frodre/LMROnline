@@ -34,9 +34,11 @@ plot_num_lim_modes = 10
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
+fcast_against = 'ccsm4_piControl'
+fcast_start_yr = 251
+
 # Perfect Forecast Experiments
 do_perfect_fcast = True
-fcast_start_yr = 851
 fcast_outputs = {'tas': ['glob_mean'],
                  'tos': ['glob_mean',
                          'enso',
@@ -102,6 +104,7 @@ def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, base_keys):
 
 def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                state_lim_space, times, base_keys,
+                               fcast_against_src,
                                fig_out_dir='.'):
 
     """
@@ -120,6 +123,8 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
         array of years corresponding to 1-year forecast times
     base_keys
         list of state keys to output for spatial field verification
+    fcast_against_src
+        Name of prior source used to forecast against
     fig_out_dir
         Directory location to store perfect forecast verification figures
 
@@ -154,6 +159,7 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                                      fcast_1yr,
                                                      state_obj,
                                                      lim_fcast_obj.valid_data_mask,
+                                                     fcast_against_src,
                                                      perf_figdir)
     if do_spatial_verif:
         output_dfs += spatial_perf_fcast_verification(base_keys, field_factors,
@@ -162,17 +168,18 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                                       latgrid, longrid,
                                                       lim_fcast_obj.valid_data_mask,
                                                       lim_fcast_obj.var_std_factor,
+                                                      fcast_against_src,
                                                       perf_figdir)
 
     if output_dfs:
         perf_fcast_dfs = pd.concat(output_dfs)
         df_savefile = os.path.join(perf_figdir, 'perf_fcast_verif_out_df.h5')
-        perf_fcast_dfs.to_hdf(df_savefile, 'past1000')
+        perf_fcast_dfs.to_hdf(df_savefile, fcast_against_src)
 
 
 def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
                                    fcast_1yr, state_obj, valid_data_masks,
-                                   perf_figdir):
+                                   fcast_against_src, perf_figdir):
     """
 
     Parameters
@@ -192,6 +199,8 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
     valid_data_masks
         dict of masks by (var, avg_interval) to be applied to fields to omit
         NaN information
+    fcast_against_src
+        Name of prior source used to forecast against
     perf_figdir
         figure output path
 
@@ -249,7 +258,7 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
             ptools.plot_scalar_verification(times, fcast,
                                             target_scalar,
                                             *r_ce_args, *ar1_r_ce_args,
-                                            title, 'LM', units,
+                                            title, fcast_against_src, units,
                                             **r_ce_kwargs, **ar1_r_ce_kwargs,
                                             savefile=plt_savepath)
 
@@ -258,8 +267,8 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
 
 def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
                                     state_obj, latgrid, longrid,
-                                    valid_data_masks,
-                                    var_std_factors, perf_figdir):
+                                    valid_data_masks, var_std_factors,
+                                    fcast_against_src, perf_figdir):
 
     """
 
@@ -287,6 +296,8 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
     var_std_factors
         dict of standardization factors for the fields by variable key (
         var_name, avg_interval)
+    fcast_against_src
+        Name of prior source used to forecast against
     perf_figdir
         figure output path
 
@@ -355,7 +366,7 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
                 sptl_shp = state_obj.var_space_shp[var_name]
                 vutils.plot_spatial_verif(field, valid_mask, sptl_shp,
                                           latgrid, longrid, metric,
-                                          'past1000', avg_interval,
+                                          fcast_against_src, avg_interval,
                                           var_name, fig_dir=perf_figdir)
 
             acorr_file = 'spatial_anomoly_corr_{}_{}.png'.format(var_name,
@@ -370,7 +381,8 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
 
 
 def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
-                           cfg_obj, lim_fcast_obj, base_keys, fig_out_dir='.'):
+                           cfg_obj, lim_fcast_obj, base_keys, fcast_against_src,
+                           fig_out_dir='.'):
 
     t0 = state_lim_space[:-1]
     ens_1yr_fcast = lutils.ens_1yr_fcast(num_ens_members, lim, t0)
@@ -463,10 +475,10 @@ def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
     ens_calib_fname = 'scalar_ens_calib_df.h5'
     ens_calib_fpath = os.path.join(ens_figdir, ens_calib_fname)
     ens_calib_out = pd.concat(ens_calib_dfs)
-    ens_calib_out.to_hdf(ens_calib_fpath, 'past1000')
+    ens_calib_out.to_hdf(ens_calib_fpath, fcast_against_src)
 
 
-def run(figure_dir=None):
+def run(fcast_against=None, figure_dir=None):
 
     if not LMR_config.LEGACY_CONFIG:
         if len(sys.argv) > 1:
@@ -573,6 +585,11 @@ def run(figure_dir=None):
 
     if do_perfect_fcast or do_ens_fcast:
 
+        if fcast_against is not None:
+            LMR_config.prior.prior_source = fcast_against
+        else:
+            fcast_against = LMR_config.prior.prior_source
+
         LMR_config.core.nens = None
         full_time_cfg = LMR_config.Config()
 
@@ -588,11 +605,12 @@ def run(figure_dir=None):
 
         if do_perfect_fcast:
             perfect_fcast_verification(state, cfg, lim_fcaster, reduced_state,
-                                       times, base_keys, fig_out_dir=figure_dir)
+                                       times, base_keys, fcast_against,
+                                       fig_out_dir=figure_dir)
 
         if do_ens_fcast:
             ens_fcast_verification(reduced_state, nens, lim, state, cfg,
-                                   lim_fcaster, base_keys,
+                                   lim_fcaster, base_keys, fcast_against,
                                    fig_out_dir=figure_dir)
     else:
         reduced_state, _ = lim_fcaster.phys_space_data_to_fcast_space(state)
