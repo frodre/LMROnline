@@ -42,13 +42,11 @@ def add_eofs_to_scalar_factors(base_factors, lim_fcaster, base_state_keys):
         # last value in tuple is measure, var_key is (varname, avg_interval)
         var_key = measure_key[:-1]
 
-        if var_key in lim_fcaster.var_std_factor:
-            factor = factor / lim_fcaster.var_std_factor[var_key]
-
         full_field = mutils.get_field_factor(var_key, lim_fcaster.var_eofs,
                                              lim_fcaster.var_eof_std_factor,
                                              lim_fcaster.var_span,
                                              lim_fcaster.calib_eofs)
+
         if var_key not in full_field_factors:
             full_field_factors[var_key] = full_field
         full_scalar = full_field @ factor
@@ -292,7 +290,8 @@ def _standardize_series(data, std_dev=None, preserve_ens_var=False):
     return data, std_dev
 
 
-def handle_soi_factors(scalar_factors, measure_out, state_lim_space, fcast_1yr):
+def handle_soi_factors(scalar_factors, base_factors, measure_out,
+                       state_obj, fcast_1yr):
     """
     Take scalar factors and look for required data.  If it's there calculate it
     remove the factors used and add in soi index to the measure_out dictionary.
@@ -300,8 +299,9 @@ def handle_soi_factors(scalar_factors, measure_out, state_lim_space, fcast_1yr):
     Parameters
     ----------
     scalar_factors - dict to look for tahiti and darwin scalar factors
+    base_factors - dict contining full_space -> scalar matrix factors
     measure_out - scalar output dictionary to add soi result to
-    state_lim_space - reference state in LIM space
+    state_obj - reference state in full space
     fcast_1yr - 1-year forecast in LIM space
 
     Returns
@@ -332,10 +332,16 @@ def handle_soi_factors(scalar_factors, measure_out, state_lim_space, fcast_1yr):
         tahiti_factor = scalar_factors.pop(tahiti_key)
         darwin_factor = scalar_factors.pop(darwin_key)
 
-        tahiti_psl_ref = state_lim_space @ tahiti_factor
-        tahiti_psl_fcast = fcast_1yr @ tahiti_factor
+        # tahiti_key is (var_name, avg_interval, 'tahiti')
+        ref_psl = state_obj.get_var_data(tahiti_key[:-1]).T
 
-        darwin_psl_ref = state_lim_space @ darwin_factor
+        # convert reference target, delete from factors
+        tahiti_psl_ref = ref_psl @ base_factors[tahiti_key]
+        del base_factors[tahiti_key]
+        darwin_psl_ref = ref_psl @ base_factors[darwin_key]
+        del base_factors[darwin_key]
+
+        tahiti_psl_fcast = fcast_1yr @ tahiti_factor
         darwin_psl_fcast = fcast_1yr @ darwin_factor
 
         soi_fcast = calc_soi_from_gridpoints(tahiti_psl_fcast, darwin_psl_fcast)

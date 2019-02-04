@@ -44,9 +44,9 @@ fcast_outputs = {'tas': ['glob_mean'],
                  'zos': ['glob_mean']}
 verif_spec = {'zos': 'eof_proj'}
 do_scalar_verif = True
-plot_scalar_verif = True
+plot_scalar_verif = False
 do_spatial_verif = True
-plot_spatial_verif = True
+plot_spatial_verif = False
 
 # Ensemble noise integration forecast experiments
 do_ens_fcast = True
@@ -196,14 +196,16 @@ def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, base_keys):
         vutils.add_eofs_to_scalar_factors(base_scalar_factors, lim_fcast_obj,
                                           base_keys)
 
-    return scalar_factors, field_factors
+    # scalar_factors: lim_space -> scalar
+    # field_factors: lim_space -> full_space
+    # base_scalar_factors: full_space -> scalar
+    return scalar_factors, field_factors, base_scalar_factors
 
 # add eofs and standardization into factor matrices
 
 
 def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
-                               state_lim_space, base_keys,
-                               fig_out_dir='.'):
+                               state_lim_space, base_keys, fig_out_dir='.'):
 
     """
 
@@ -231,20 +233,28 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
     latgrid = grid_coords['lat']
     longrid = grid_coords['lon']
 
-    scalar_factors, field_factors = get_scalar_factors(latgrid, longrid,
-                                                       cfg_obj,
-                                                       lim_fcast_obj,
-                                                       base_keys)
+    [scalar_factors,
+     field_factors,
+     base_scalar_factors] = get_scalar_factors(latgrid, longrid,
+                                               cfg_obj,
+                                               lim_fcast_obj,
+                                               base_keys)
 
     output_dfs = []
     if do_scalar_verif:
-        output_dfs += scalar_perf_fcast_verification(scalar_factors, fcast_1yr,
-                                                     state_lim_space,
+        output_dfs += scalar_perf_fcast_verification(scalar_factors,
+                                                     base_scalar_factors,
+                                                     fcast_1yr,
+                                                     state_obj,
+                                                     lim_fcast_obj.valid_data_mask,
                                                      perf_figdir)
     if do_spatial_verif:
         output_dfs += spatial_perf_fcast_verification(field_factors, fcast_1yr,
-                                                      state_lim_space, latgrid,
-                                                      longrid, perf_figdir)
+                                                      state_obj, latgrid,
+                                                      longrid,
+                                                      lim_fcaster.valid_data_mask,
+                                                      lim_fcaster.var_std_factor,
+                                                      perf_figdir)
 
     if output_dfs:
         perf_fcast_dfs = pd.concat(output_dfs)
@@ -252,8 +262,8 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
         perf_fcast_dfs.to_hdf(df_savefile, 'past1000')
 
 
-def scalar_perf_fcast_verification(scalar_factors, fcast_1yr,
-                                   state_lim_space, perf_figdir):
+def scalar_perf_fcast_verification(scalar_factors, base_factors, fcast_1yr,
+                                   state_obj, valid_data_masks, perf_figdir):
     """
 
     Parameters
@@ -263,8 +273,8 @@ def scalar_perf_fcast_verification(scalar_factors, fcast_1yr,
         matrix multiply the lim space output by to get the scalar measure
     fcast_1yr
         lim forecast in lim space
-    state_lim_space
-        state used as initial conditions for the forecast
+    state_obj:
+        state in full space, used to calculate the target scalar info
     perf_figdir
         figure output path
 
@@ -276,12 +286,17 @@ def scalar_perf_fcast_verification(scalar_factors, fcast_1yr,
 
     measure_out = {}
     scalar_factors, measure_out = vutils.handle_soi_factors(scalar_factors,
+                                                            base_factors,
                                                             measure_out,
-                                                            state_lim_space,
+                                                            state_obj,
                                                             fcast_1yr)
 
     for measure_key, factor in scalar_factors.items():
-        ref_measure = state_lim_space @ factor
+        var_key = measure_key[:-1]
+        valid_data = valid_data_masks.get(var_key, None)
+        ref_dat = mutils.get_field_from_state(state_obj, var_key,
+                                              valid_data=valid_data)
+        ref_measure = ref_dat @ base_factors[measure_key]
         fcast_measure = fcast_1yr @ factor
 
         measure_out[measure_key] = (ref_measure, fcast_measure)
@@ -324,8 +339,9 @@ def scalar_perf_fcast_verification(scalar_factors, fcast_1yr,
     return perf_fcast_dfs
 
 
-def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_lim_space,
-                                    latgrid, longrid, perf_figdir):
+def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_obj,
+                                    latgrid, longrid, valid_data_masks,
+                                    var_std_factors, perf_figdir):
 
     """
 
@@ -336,7 +352,7 @@ def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_lim_space,
         matrix multiply the lim space output by to get the full field
     fcast_1yr
         lim forecast in lim space
-    state_lim_space
+    state_obj
         state used as initial conditions for the forecast
     latgrid
         flattened grid of latitude coordinates
@@ -353,7 +369,12 @@ def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_lim_space,
     for var_key in base_keys:
         var_name, avg_interval = var_key
         field_factor = field_factors[var_key]
-        init_field = state_lim_space @ field_factor
+
+        valid_data = valid_data_masks.get(var_key, None)
+        var_std = var_std_factors.get(var_key, None)
+        init_field = mutils.get_field_from_state(state_obj, var_key,
+                                                 valid_data=valid_data,
+                                                 var_std_factor=var_std)
 
         ar1_field_fcast = mutils.red_noise_forecast_ar1(init_field)
         target_field = init_field[1:]
@@ -432,22 +453,28 @@ def ens_fcast_verification(state_lim_space, nens, lim, state_obj, cfg_obj,
     latgrid = grid_coords['lat']
     longrid = grid_coords['lon']
 
-    scalar_factors, field_factors = get_scalar_factors(latgrid, longrid,
-                                                       cfg_obj,
-                                                       lim_fcast_obj,
-                                                       base_keys)
+    [scalar_factors,
+     field_factors,
+     base_scalar_factors] = get_scalar_factors(latgrid, longrid, cfg_obj,
+                                               lim_fcast_obj, base_keys)
     ens_figdir = os.path.join(fig_out_dir, 'ens_fcast',
                               cfg_obj.prior.prior_source)
     os.makedirs(ens_figdir, exist_ok=True)
 
     ens_scalar_output = {}
-    scalar_factors, ens_scalar_output = vutils.handle_soi_factors(scalar_factors,
-                                                                  ens_scalar_output,
-                                                                  state_lim_space,
-                                                                  ens_1yr_fcast)
+    [scalar_factors,
+     ens_scalar_output] = vutils.handle_soi_factors(scalar_factors,
+                                                    base_scalar_factors,
+                                                    ens_scalar_output,
+                                                    state_obj,
+                                                    ens_1yr_fcast)
 
     for measure_key, factor in scalar_factors.items():
-        ref_measure = state_lim_space @ factor
+        var_key = measure_key[:-1]
+        valid_data = lim_fcast_obj.valid_data_mask.get(var_key, None)
+        ref_dat = mutils.get_field_from_state(state_obj, var_key,
+                                              valid_data=valid_data)
+        ref_measure = ref_dat @ base_scalar_factors[measure_key]
         fcast_measure = ens_1yr_fcast @ factor
         ens_scalar_output[measure_key] = (ref_measure, fcast_measure)
 
@@ -556,10 +583,10 @@ if do_long_integration:
     latgrid = grid_coords['lat']
     longrid = grid_coords['lon']
 
-    scalar_factors, field_factors = get_scalar_factors(latgrid, longrid,
-                                                       cfg,
-                                                       lim_fcaster,
-                                                       base_keys)
+    [scalar_factors,
+     field_factors,
+     base_scalar_factors] = get_scalar_factors(latgrid, longrid, cfg,
+                                               lim_fcaster, base_keys)
 
     scalar_outdef = cfg.prior.outputs['scalar_ens']
     [func_by_var, scalar_output_containers] = \

@@ -105,7 +105,7 @@ class LIMForecaster(BaseForecaster):
             fit_noise = False
 
         self.lim = LIM.LIM(eof_proj_calib, nelem_in_tau1=nelem_in_yr,
-                           fit_noise=fit_noise, max_neg_Qeval=25)
+                           fit_noise=fit_noise, max_neg_Qeval=5)
         self.prior_map = prior_map
         self.fcast_lead = fcast_lead
         self.match_prior = match_prior

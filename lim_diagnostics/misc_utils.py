@@ -220,7 +220,7 @@ def red_noise_forecast_ar1(data):
 
 
 def get_field_factor(var_key, eofs_by_var, eof_std_by_var, var_spans,
-                      multivar_eofs, ):
+                     multivar_eofs):
 
     eof_std_factor = eof_std_by_var[var_key]
     eof_basis = eofs_by_var[var_key] / eof_std_factor
@@ -231,3 +231,32 @@ def get_field_factor(var_key, eofs_by_var, eof_std_by_var, var_spans,
     full_field = var_multi_eof.T @ eof_basis.T
 
     return full_field
+
+
+def get_field_from_state(state_obj, var_key, valid_data=None,
+                         var_std_factor=None):
+
+    """
+    Returns state variable transposed for sampling (ensemble) dimension
+    leading.  Reduces to valid data if specified.
+
+    Parameters
+    ----------
+    state_obj
+    var_key
+    valid_data
+
+    Returns
+    -------
+
+    """
+
+    data = state_obj.get_var_data(var_key)
+
+    if valid_data is not None:
+        data = data[valid_data]
+
+    if var_std_factor is not None:
+        data *= var_std_factor
+
+    return data.T
