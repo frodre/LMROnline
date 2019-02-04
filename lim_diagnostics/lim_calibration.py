@@ -63,6 +63,7 @@ integration_iters = 500
 # END USER PARAMS
 # ========================
 
+
 var_long_names = {'tas_sfc_Amon': '2m Air T',
                   'tos_sfc_Omon': 'SST',
                   'ohc_0-700m_Omon': 'OHC 0-700m',
@@ -76,111 +77,6 @@ var_units = {'tas_sfc_Amon': 'K',
              'psl_sfc_Amon': 'Pa',
              'zg_500hPa_Amon': 'm',
              'pr_sfc_Amon': 'mm'}
-
-if not LMR_config.LEGACY_CONFIG:
-    if len(sys.argv) > 1:
-        yaml_file = sys.argv[1]
-    else:
-        yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
-
-    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-
-LMR_config.proxies.proxy_frac = 1.0
-cfg = LMR_config.Config()
-
-# Create figure directory
-if fig_dir is None:
-    fig_dir = os.path.join('.', cfg.core.nexp + '_lim_figs')
-else:
-    fig_dir = os.path.join(fig_dir, cfg.core.nexp)
-
-
-os.makedirs(fig_dir, exist_ok=True)
-
-recon_period = cfg.core.recon_period
-save_analysis_ye = cfg.prior.outputs['analysis_Ye']
-
-# Get the necessary averaging intervals for the gridded data
-prox_manager = LMR_proxy.ProxyManager(cfg.proxies, cfg.psm,
-                                      recon_period,
-                                      include_eval=save_analysis_ye)
-req_avg_intervals = prox_manager.avg_interval_by_psm_type
-
-# Load the state
-state = LMR_gridded.State.from_config(cfg.prior, req_avg_intervals)
-
-base_keys, psm_req_keys = \
-    LMR_gridded.PriorVariable.get_base_and_psm_req_vars(cfg.prior,
-                                                        req_avg_intervals)
-
-load_keys = base_keys + psm_req_keys
-lim_fcaster = LMR_forecaster.LIMForecaster.from_config(cfg.forecaster,
-                                                       load_keys)
-
-regrid_grid = cfg.prior.regrid_cfg.esmpy_regrid_to
-
-# load scalar factors for forecasting experiments
-var_key, grid_coords = next(iter(state.var_coords.items()))
-lat = grid_coords['lat']
-lon = grid_coords['lon']
-space_shp = state.var_space_shp[var_key]
-
-
-if plot_eofs:
-    print('Plotting variable EOFs.')
-    fig_fname = os.path.join(fig_dir,
-                             '{}_basis_eofs.png'.format(regrid_grid))
-    dobj_eofs = {var_key: eofs[:, :plot_neofs]
-                 for var_key, eofs in lim_fcaster.var_eofs.items()}
-    ptools.plot_exp_eofs(dobj_eofs, state, lim_fcaster.valid_data_mask,
-                         var_eof_stats=lim_fcaster.var_eof_stats,
-                         filename=fig_fname)
-
-if plot_state_eofs:
-    print('Plotting multi-variable EOFs.')
-    fig_fname = os.path.join(fig_dir,
-                             '{}_multivar_eofs.png'.format(regrid_grid))
-
-    multivar_eofs = {}
-    for var_key, var_eofs in lim_fcaster.var_eofs.items():
-        multi_eof_var_span = lim_fcaster.var_span[var_key]
-        vstart, vend = multi_eof_var_span
-        state_eofs = lim_fcaster.calib_eofs[vstart:vend, :plot_neofs]
-
-        multivar_eofs[var_key] = var_eofs @ state_eofs
-
-    title = 'Multivar EOF_{:d}  Field: {}'
-
-    ptools.plot_exp_eofs(multivar_eofs, state, lim_fcaster.valid_data_mask,
-                         multi_var_eof_stats=lim_fcaster.multi_var_eof_stats,
-                         filename=fig_fname, title=title)
-
-lim = lim_fcaster.lim
-
-if plot_lim_noise_eofs:
-    fig_fname = os.path.join(fig_dir,
-                             '{}_noise_eofs.png'.format(regrid_grid))
-    Q_evect = lim.Q_evects[:, :plot_num_noise_modes].real
-    noise_eofs = {}
-    for var_key, var_eofs in lim_fcaster.var_eofs.items():
-        multi_eof_var_span = lim_fcaster.var_span[var_key]
-        vstart, vend = multi_eof_var_span
-        state_eofs = lim_fcaster.calib_eofs[vstart:vend, :]
-
-        noise_eofs[var_key] = var_eofs @ state_eofs @ Q_evect
-
-    title = 'Noise EOF_{:d}  Field: {}'
-
-    ptools.plot_exp_eofs(noise_eofs, state, lim_fcaster.valid_data_mask,
-                         filename=fig_fname, title=title)
-
-if plot_lim_modes:
-    print('Plotting LIM modes!')
-    fig_fname = os.path.join(fig_dir,
-                             '{}_lim_fcast_modes.png'.format(regrid_grid))
-    ptools.plot_multi_lim_modes(lim, lat, lon, space_shp, lim_fcaster,
-                                row_limit=plot_num_lim_modes,
-                                save_file=fig_fname)
 
 
 def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, base_keys):
@@ -205,27 +101,37 @@ def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, base_keys):
 
 
 def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
-                               state_lim_space, base_keys, fig_out_dir='.'):
+                               state_lim_space, times, base_keys,
+                               fig_out_dir='.'):
 
     """
 
     Parameters
     ----------
-    state_obj - initialized state object used to grab lat lons
-    cfg_obj - initialized config object
-    lim_fcast_obj - initialized LIMForecaster object
-    state_lim_space - state reduced to LIM space by the fcast object
-    base_keys - list of state keys to output for spatial field verification
+    state_obj
+        initialized state object used to grab lat lons
+    cfg_obj
+        initialized config object
+    lim_fcast_obj
+        initialized LIMForecaster object
+    state_lim_space
+        state reduced to LIM space by the fcast object
+    times
+        array of years corresponding to 1-year forecast times
+    base_keys
+        list of state keys to output for spatial field verification
+    fig_out_dir
+        Directory location to store perfect forecast verification figures
 
     Returns
     -------
 
     """
     perf_figdir = os.path.join(fig_out_dir, 'perfect_fcast',
-                               cfg.prior.prior_source)
+                               cfg_obj.prior.prior_source)
     os.makedirs(perf_figdir, exist_ok=True)
 
-    fcast_1yr = lim.forecast(state_lim_space[:-1], [1])
+    fcast_1yr = lim_fcast_obj.lim.forecast(state_lim_space[:-1], [1])
     fcast_1yr = np.squeeze(fcast_1yr)
 
     # load scalar factors for forecasting experiments
@@ -244,16 +150,18 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
     if do_scalar_verif:
         output_dfs += scalar_perf_fcast_verification(scalar_factors,
                                                      base_scalar_factors,
+                                                     times,
                                                      fcast_1yr,
                                                      state_obj,
                                                      lim_fcast_obj.valid_data_mask,
                                                      perf_figdir)
     if do_spatial_verif:
-        output_dfs += spatial_perf_fcast_verification(field_factors, fcast_1yr,
-                                                      state_obj, latgrid,
-                                                      longrid,
-                                                      lim_fcaster.valid_data_mask,
-                                                      lim_fcaster.var_std_factor,
+        output_dfs += spatial_perf_fcast_verification(base_keys, field_factors,
+                                                      times,
+                                                      fcast_1yr, state_obj,
+                                                      latgrid, longrid,
+                                                      lim_fcast_obj.valid_data_mask,
+                                                      lim_fcast_obj.var_std_factor,
                                                       perf_figdir)
 
     if output_dfs:
@@ -262,8 +170,9 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
         perf_fcast_dfs.to_hdf(df_savefile, 'past1000')
 
 
-def scalar_perf_fcast_verification(scalar_factors, base_factors, fcast_1yr,
-                                   state_obj, valid_data_masks, perf_figdir):
+def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
+                                   fcast_1yr, state_obj, valid_data_masks,
+                                   perf_figdir):
     """
 
     Parameters
@@ -271,10 +180,18 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, fcast_1yr,
     scalar_factors
         dict of factors by (var, avg_interval, measure) to
         matrix multiply the lim space output by to get the scalar measure
+    base_factors
+        dict of factors by (var, avg_interval, measure) to matrix multiply
+        spatial fields by to get the scalar measure
+    times
+        array of years corresponding to 1-year forecast times
     fcast_1yr
         lim forecast in lim space
     state_obj:
         state in full space, used to calculate the target scalar info
+    valid_data_masks
+        dict of masks by (var, avg_interval) to be applied to fields to omit
+        NaN information
     perf_figdir
         figure output path
 
@@ -339,17 +256,23 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, fcast_1yr,
     return perf_fcast_dfs
 
 
-def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_obj,
-                                    latgrid, longrid, valid_data_masks,
+def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
+                                    state_obj, latgrid, longrid,
+                                    valid_data_masks,
                                     var_std_factors, perf_figdir):
 
     """
 
     Parameters
     ----------
+    base_keys
+        State keys for the basic output variables specifified in the
+        configuration. Keys are of the form (var_name, avg_interval)
     field_factors
         dict of factors by (var, avg_interval) to
         matrix multiply the lim space output by to get the full field
+    times
+        array of years corresponding to 1-year forecast times
     fcast_1yr
         lim forecast in lim space
     state_obj
@@ -358,6 +281,12 @@ def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_obj,
         flattened grid of latitude coordinates
     longrid
         flattened grid of longitude coordinates
+    valid_data_masks
+        dict of masks by (var, avg_interval) to be applied to fields to omit
+        NaN information
+    var_std_factors
+        dict of standardization factors for the fields by variable key (
+        var_name, avg_interval)
     perf_figdir
         figure output path
 
@@ -389,8 +318,8 @@ def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_obj,
         ar1_ce = ST.calc_ce(ar1_field_fcast, target_field)
         ar1_anom_corr = ST.calc_lac(ar1_field_fcast.T, target_field.T)
 
-        if var_key in lim_fcaster.valid_data_mask:
-            valid_data = lim_fcaster.valid_data_mask[var_key]
+        if var_key in valid_data_masks:
+            valid_data = valid_data_masks[var_key]
             lat = latgrid[valid_data]
         else:
             lat = latgrid
@@ -407,7 +336,6 @@ def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_obj,
         ar1_ce_gm = ar1_ce @ gm_weights
         ar1_avg_anom_corr = ar1_anom_corr.mean()
 
-
         spatial_gm_df = \
             mutils.ce_r_results_to_dataframe(var_name, avg_interval,
                                              'spatial_verif_gm', lac_gm, ce_gm,
@@ -423,9 +351,8 @@ def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_obj,
             plot_metrs = ['LIM LAC', 'LIM CE', 'AR(1) LAC', 'AR(1) CE']
 
             for field, metric in zip(plot_maps, plot_metrs):
-                valid_mask = lim_fcaster.valid_data_mask.get(var_key,
-                                                             None)
-                sptl_shp = state.var_space_shp[var_name]
+                valid_mask = valid_data_masks.get(var_key, None)
+                sptl_shp = state_obj.var_space_shp[var_name]
                 vutils.plot_spatial_verif(field, valid_mask, sptl_shp,
                                           latgrid, longrid, metric,
                                           'past1000', avg_interval,
@@ -442,11 +369,11 @@ def spatial_perf_fcast_verification(field_factors, fcast_1yr, state_obj,
     return perf_fcast_dfs
 
 
-def ens_fcast_verification(state_lim_space, nens, lim, state_obj, cfg_obj,
-                           lim_fcast_obj, fig_out_dir='.'):
+def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
+                           cfg_obj, lim_fcast_obj, base_keys, fig_out_dir='.'):
 
     t0 = state_lim_space[:-1]
-    ens_1yr_fcast = lutils.ens_1yr_fcast(nens, lim, t0)
+    ens_1yr_fcast = lutils.ens_1yr_fcast(num_ens_members, lim, t0)
 
     # load scalar factors for forecasting experiments
     grid_coords = next(iter(state_obj.var_coords.values()))
@@ -507,7 +434,7 @@ def ens_fcast_verification(state_lim_space, nens, lim, state_obj, cfg_obj,
             measure = measure_key[-1]
 
             if ('enso' in measure or 'nino' in measure or
-                'pdo' in measure or 'npi' in measure or 'soi' in measure):
+               'pdo' in measure or 'npi' in measure or 'soi' in measure):
 
                 std_factor = ref_scalar.std()
                 ens_scalar_std = ens_scalar / std_factor
@@ -539,113 +466,226 @@ def ens_fcast_verification(state_lim_space, nens, lim, state_obj, cfg_obj,
     ens_calib_out.to_hdf(ens_calib_fpath, 'past1000')
 
 
-if do_perfect_fcast or do_ens_fcast:
+def run(figure_dir=None):
 
-    LMR_config.core.nens = None
-    full_time_cfg = LMR_config.Config()
+    if not LMR_config.LEGACY_CONFIG:
+        if len(sys.argv) > 1:
+            yaml_file = sys.argv[1]
+        else:
+            yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
-    state = LMR_gridded.State.from_config(full_time_cfg.prior,
-                                          req_avg_intervals=req_avg_intervals)
+        LMR_config.initialize_config_yaml(LMR_config, yaml_file)
 
-    reduced_state, compressed = lim_fcaster.phys_space_data_to_fcast_space(state)
+    LMR_config.proxies.proxy_frac = 1.0
+    cfg = LMR_config.Config()
 
-    start = fcast_start_yr
-    end = start + reduced_state.shape[0]
-    times = list(range(start, end))[1:]
+    # Create figure directory
+    if figure_dir is None:
+        figure_dir = os.path.join('.', cfg.core.nexp + '_lim_figs')
+    else:
+        figure_dir = os.path.join(figure_dir, cfg.core.nexp)
 
-    if do_perfect_fcast:
-        perfect_fcast_verification(state, cfg, lim_fcaster, reduced_state,
-                                   base_keys, fig_out_dir=fig_dir)
+    os.makedirs(figure_dir, exist_ok=True)
 
-    if do_ens_fcast:
-        ens_fcast_verification(reduced_state, nens, lim, state, cfg,
-                               lim_fcaster, fig_out_dir=fig_dir)
-else:
-    reduced_state, _ = lim_fcaster.phys_space_data_to_fcast_space(state)
+    recon_period = cfg.core.recon_period
+    save_analysis_ye = cfg.prior.outputs['analysis_Ye']
 
-if do_long_integration:
+    # Get the necessary averaging intervals for the gridded data
+    prox_manager = LMR_proxy.ProxyManager(cfg.proxies, cfg.psm,
+                                          recon_period,
+                                          include_eval=save_analysis_ye)
+    req_avg_intervals = prox_manager.avg_interval_by_psm_type
 
-    t0 = reduced_state[0:1, :]
+    # Load the state
+    state = LMR_gridded.State.from_config(cfg.prior, req_avg_intervals)
 
-    # long integration with buffer of 50 years to forget initial state
-    last = lutils.ens_long_integration(integration_iters,
-                                       integration_len_yr+50,
-                                       lim, t0)
+    base_keys, psm_req_keys = \
+        LMR_gridded.PriorVariable.get_base_and_psm_req_vars(cfg.prior,
+                                                            req_avg_intervals)
 
-    last = last[50:]
+    load_keys = base_keys + psm_req_keys
+    lim_fcaster = LMR_forecaster.LIMForecaster.from_config(cfg.forecaster,
+                                                           load_keys)
 
-    fname = 'long_integration_output_{}.npy'.format(regrid_grid)
-    path = os.path.join(fig_dir, fname)
-    np.save(path, last)
+    regrid_grid = cfg.prior.regrid_cfg.esmpy_regrid_to
 
     # load scalar factors for forecasting experiments
-    grid_coords = next(iter(state.var_coords.values()))
-    latgrid = grid_coords['lat']
-    longrid = grid_coords['lon']
+    var_key, grid_coords = next(iter(state.var_coords.items()))
+    lat = grid_coords['lat']
+    lon = grid_coords['lon']
+    space_shp = state.var_space_shp[var_key]
 
-    [scalar_factors,
-     field_factors,
-     base_scalar_factors] = get_scalar_factors(latgrid, longrid, cfg,
-                                               lim_fcaster, base_keys)
+    if plot_eofs:
+        print('Plotting variable EOFs.')
+        fig_fname = os.path.join(figure_dir,
+                                 '{}_basis_eofs.png'.format(regrid_grid))
+        dobj_eofs = {var_key: eofs[:, :plot_neofs]
+                     for var_key, eofs in lim_fcaster.var_eofs.items()}
+        ptools.plot_exp_eofs(dobj_eofs, state, lim_fcaster.valid_data_mask,
+                             var_eof_stats=lim_fcaster.var_eof_stats,
+                             filename=fig_fname)
 
-    scalar_outdef = cfg.prior.outputs['scalar_ens']
-    [func_by_var, scalar_output_containers] = \
-        LMR_outputs.prepare_scalar_calculations(scalar_outdef,
-                                                state, cfg.prior,
-                                                integration_len_yr,
-                                                integration_iters,
-                                                return_insert_func=False)
+    if plot_state_eofs:
+        print('Plotting multi-variable EOFs.')
+        fig_fname = os.path.join(figure_dir,
+                                 '{}_multivar_eofs.png'.format(regrid_grid))
 
-    # Calculate scalar output values defined in config
-    for _var_key, scalar_funcs in func_by_var.items():
+        multivar_eofs = {}
+        for var_key, var_eofs in lim_fcaster.var_eofs.items():
+            multi_eof_var_span = lim_fcaster.var_span[var_key]
+            vstart, vend = multi_eof_var_span
+            state_eofs = lim_fcaster.calib_eofs[vstart:vend, :plot_neofs]
 
-        curr_containers = scalar_output_containers[_var_key]
+            multivar_eofs[var_key] = var_eofs @ state_eofs
 
-        eof_var_span = lim_fcaster.var_span[_var_key]
-        var_slice = slice(*eof_var_span)
-        multi_eof_var = lim_fcaster.calib_eofs[var_slice, :]
-        var_eof = lim_fcaster.var_eofs[_var_key]
+        title = 'Multivar EOF_{:d}  Field: {}'
 
-        _varname, _avg_interval = _var_key
+        ptools.plot_exp_eofs(multivar_eofs, state, lim_fcaster.valid_data_mask,
+                             multi_var_eof_stats=lim_fcaster.multi_var_eof_stats,
+                             filename=fig_fname, title=title)
 
-        std_factor = lim_fcaster.var_eof_std_factor[_var_key]
-        last_var_eofspace = last @ multi_eof_var.T
-        last_var_eofspace = last_var_eofspace / std_factor
+    lim = lim_fcaster.lim
 
-        decompress = _var_key in lim_fcaster.valid_data_mask
+    if plot_lim_noise_eofs:
+        fig_fname = os.path.join(figure_dir,
+                                 '{}_noise_eofs.png'.format(regrid_grid))
+        Q_evect = lim.Q_evects[:, :plot_num_noise_modes].real
+        noise_eofs = {}
+        for var_key, var_eofs in lim_fcaster.var_eofs.items():
+            multi_eof_var_span = lim_fcaster.var_span[var_key]
+            vstart, vend = multi_eof_var_span
+            state_eofs = lim_fcaster.calib_eofs[vstart:vend, :]
 
-        if _var_key in lim_fcaster.var_std_factor:
-            var_std_factor = lim_fcaster.var_std_factor[_var_key]
-        else:
-            var_std_factor = None
+            noise_eofs[var_key] = var_eofs @ state_eofs @ Q_evect
 
-        time_chk = 100
+        title = 'Noise EOF_{:d}  Field: {}'
 
-        for start in np.arange(0, integration_len_yr, time_chk):
+        ptools.plot_exp_eofs(noise_eofs, state, lim_fcaster.valid_data_mask,
+                             filename=fig_fname, title=title)
 
-            end = start + time_chk
-            if end >= integration_len_yr:
-                end = None
+    if plot_lim_modes:
+        print('Plotting LIM modes!')
+        fig_fname = os.path.join(figure_dir,
+                                 '{}_lim_fcast_modes.png'.format(regrid_grid))
+        ptools.plot_multi_lim_modes(lim, lat, lon, space_shp, lim_fcaster,
+                                    row_limit=plot_num_lim_modes,
+                                    save_file=fig_fname)
 
-            time_slice = slice(start, end)
-            curr_dat = last_var_eofspace[time_slice]
+    if do_perfect_fcast or do_ens_fcast:
 
-            phys_curr_dat = curr_dat @ var_eof.T
-            ens_yr_shp = phys_curr_dat.shape[:-1]
-            sptl_shp = phys_curr_dat.shape[-1]
-            phys_curr_dat = phys_curr_dat.reshape(-1, sptl_shp)
+        LMR_config.core.nens = None
+        full_time_cfg = LMR_config.Config()
 
-            if var_std_factor is not None:
-                phys_curr_dat = phys_curr_dat / var_std_factor
+        state = LMR_gridded.State.from_config(full_time_cfg.prior,
+                                              req_avg_intervals=req_avg_intervals)
 
-            if decompress:
-                phys_curr_dat = lim_fcaster._decompress_field(_var_key,
-                                                              phys_curr_dat)
-            for _measure, _measure_func in scalar_funcs.items():
-                scalar_data = _measure_func(phys_curr_dat.T)
-                scalar_data = scalar_data.reshape(*ens_yr_shp)
-                _container = curr_containers[_measure]
-                _container[time_slice] = scalar_data
+        reduced_state, compressed = lim_fcaster.phys_space_data_to_fcast_space(
+            state)
 
-    LMR_outputs.save_scalar_ensembles(fig_dir, np.arange(integration_len_yr),
-                                      scalar_output_containers)
+        start = fcast_start_yr
+        end = start + reduced_state.shape[0]
+        times = list(range(start, end))[1:]
+
+        if do_perfect_fcast:
+            perfect_fcast_verification(state, cfg, lim_fcaster, reduced_state,
+                                       times, base_keys, fig_out_dir=figure_dir)
+
+        if do_ens_fcast:
+            ens_fcast_verification(reduced_state, nens, lim, state, cfg,
+                                   lim_fcaster, base_keys,
+                                   fig_out_dir=figure_dir)
+    else:
+        reduced_state, _ = lim_fcaster.phys_space_data_to_fcast_space(state)
+
+    if do_long_integration:
+
+        t0 = reduced_state[0:1, :]
+
+        # long integration with buffer of 50 years to forget initial state
+        last = lutils.ens_long_integration(integration_iters,
+                                           integration_len_yr + 50,
+                                           lim, t0)
+
+        last = last[50:]
+
+        fname = 'long_integration_output_{}.npy'.format(regrid_grid)
+        path = os.path.join(figure_dir, fname)
+        np.save(path, last)
+
+        # load scalar factors for forecasting experiments
+        grid_coords = next(iter(state.var_coords.values()))
+        latgrid = grid_coords['lat']
+        longrid = grid_coords['lon']
+
+        [scalar_factors,
+         field_factors,
+         base_scalar_factors] = get_scalar_factors(latgrid, longrid, cfg,
+                                                   lim_fcaster, base_keys)
+
+        scalar_outdef = cfg.prior.outputs['scalar_ens']
+        [func_by_var, scalar_output_containers] = \
+            LMR_outputs.prepare_scalar_calculations(scalar_outdef,
+                                                    state, cfg.prior,
+                                                    integration_len_yr,
+                                                    integration_iters,
+                                                    return_insert_func=False)
+
+        # Calculate scalar output values defined in config
+        for _var_key, scalar_funcs in func_by_var.items():
+
+            curr_containers = scalar_output_containers[_var_key]
+
+            eof_var_span = lim_fcaster.var_span[_var_key]
+            var_slice = slice(*eof_var_span)
+            multi_eof_var = lim_fcaster.calib_eofs[var_slice, :]
+            var_eof = lim_fcaster.var_eofs[_var_key]
+
+            _varname, _avg_interval = _var_key
+
+            std_factor = lim_fcaster.var_eof_std_factor[_var_key]
+            last_var_eofspace = last @ multi_eof_var.T
+            last_var_eofspace = last_var_eofspace / std_factor
+
+            decompress = _var_key in lim_fcaster.valid_data_mask
+
+            if _var_key in lim_fcaster.var_std_factor:
+                var_std_factor = lim_fcaster.var_std_factor[_var_key]
+            else:
+                var_std_factor = None
+
+            time_chk = 100
+
+            for start in np.arange(0, integration_len_yr, time_chk):
+
+                end = start + time_chk
+                if end >= integration_len_yr:
+                    end = None
+
+                time_slice = slice(start, end)
+                curr_dat = last_var_eofspace[time_slice]
+
+                phys_curr_dat = curr_dat @ var_eof.T
+                ens_yr_shp = phys_curr_dat.shape[:-1]
+                sptl_shp = phys_curr_dat.shape[-1]
+                phys_curr_dat = phys_curr_dat.reshape(-1, sptl_shp)
+
+                if var_std_factor is not None:
+                    phys_curr_dat = phys_curr_dat / var_std_factor
+
+                if decompress:
+                    phys_curr_dat = lim_fcaster._decompress_field(_var_key,
+                                                                  phys_curr_dat)
+                for _measure, _measure_func in scalar_funcs.items():
+                    scalar_data = _measure_func(phys_curr_dat.T)
+                    scalar_data = scalar_data.reshape(*ens_yr_shp)
+                    _container = curr_containers[_measure]
+                    _container[time_slice] = scalar_data
+
+        LMR_outputs.save_scalar_ensembles(figure_dir,
+                                          np.arange(integration_len_yr),
+                                          scalar_output_containers)
+
+
+if __name__ == '__main__':
+
+    run(figure_dir=fig_dir)
