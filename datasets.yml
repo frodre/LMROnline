@@ -246,17 +246,33 @@ ccsm4_last_millenium:
   datafile: '[vardef_template]_CCSM4_past1000_085001-185012.nc'
   dataformat: NCD
 
-ccsm4_preindustrial_control:
+ccsm4_piControl:
   info:
     multiple_vars: True
     template: '[vardef_template]'
-    available_vars: [AMOC26N1000m_Omon, AMOC26Nmax_Omon, AMOC45N1000m_Omon,
-                     AMOCindex_Omon, pr_sfc_Amon, psl_sfc_Amon, tas_sfc_Amon,
-                     zg_500hPa_Amon]
-    cell_area: null
+    available_vars: [tas_sfc_Amon, psl_sfc_Amon,
+                     pr_sfc_Amon,
+                     tos_sfc_Omon, ohc_0-700m_Omon,
+                     zos_sfc_Omon]
+    rotated_pole: [tos_sfc_Omon, zos_sfc_Omon, ohc_0-700m_Omon]
+    cell_area: '[realm_var]_fx_CCSM4_piControl_r0i0p0.nc'
+    cell_area_template: '[realm_var]'
+    cell_area_realmvar_def:
+      ocean: 'areacello'
+      atmos: 'areacella'
+    var_realm_def:
+      Omon: ocean
+      Amon: atmos
+
+    psm_var_map:
+      temperature:
+        tas: tas_sfc_Amon
+      moisture:
+        precip: pr_sfc_Amon
+        pdsi: scpdsi_sfc_Amon
 
   datadir: null
-  datafile: '[vardef_template]_CCSM4_piControl_080001-130012.nc'
+  datafile: '[vardef_template]_CCSM4_piControl_025001-130012.nc'
   dataformat: NCD
 
 ccsm4_isotope_controlrun:
