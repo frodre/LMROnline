@@ -34,7 +34,7 @@ plot_num_lim_modes = 10
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_piControl'
+fcast_against = 'ccsm4_piCOntrol'
 fcast_start_yr = 251
 
 # Perfect Forecast Experiments
@@ -46,9 +46,9 @@ fcast_outputs = {'tas': ['glob_mean'],
                  'zos': ['glob_mean']}
 verif_spec = {'zos': 'eof_proj'}
 do_scalar_verif = True
-plot_scalar_verif = False
+plot_scalar_verif = True 
 do_spatial_verif = True
-plot_spatial_verif = False
+plot_spatial_verif = True
 
 # Ensemble noise integration forecast experiments
 do_ens_fcast = True
@@ -133,7 +133,7 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
 
     """
     perf_figdir = os.path.join(fig_out_dir, 'perfect_fcast',
-                               cfg_obj.prior.prior_source)
+                               fcast_against_src)
     os.makedirs(perf_figdir, exist_ok=True)
 
     fcast_1yr = lim_fcast_obj.lim.forecast(state_lim_space[:-1], [1])
@@ -397,7 +397,7 @@ def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
      base_scalar_factors] = get_scalar_factors(latgrid, longrid, cfg_obj,
                                                lim_fcast_obj, base_keys)
     ens_figdir = os.path.join(fig_out_dir, 'ens_fcast',
-                              cfg_obj.prior.prior_source)
+                              fcast_against_src)
     os.makedirs(ens_figdir, exist_ok=True)
 
     ens_scalar_output = {}
@@ -706,4 +706,4 @@ def run(fcast_against=None, figure_dir=None):
 
 if __name__ == '__main__':
 
-    run(figure_dir=fig_dir)
+    run(fcast_against=fcast_against, figure_dir=fig_dir)
