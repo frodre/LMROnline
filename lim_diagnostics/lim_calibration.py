@@ -479,9 +479,9 @@ def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
     ens_calib_out.to_hdf(ens_calib_fpath, fcast_against_src)
 
 
-def run(cfg_obj=None, fcast_against=None, figure_dir=None):
+def run(cfg_class=None, fcast_against=None, figure_dir=None):
 
-    if cfg_obj is None:
+    if cfg_class is None:
         if not LMR_config.LEGACY_CONFIG:
             if len(sys.argv) > 1:
                 yaml_file = sys.argv[1]
@@ -491,9 +491,9 @@ def run(cfg_obj=None, fcast_against=None, figure_dir=None):
             LMR_config.initialize_config_yaml(LMR_config, yaml_file)
 
         LMR_config.proxies.proxy_frac = 1.0
-        cfg = LMR_config.Config()
-    else:
-        cfg = cfg_obj
+        cfg_class = LMR_config
+
+    cfg = cfg_class.Config()
 
     # Create figure directory
     if figure_dir is None:
@@ -590,17 +590,18 @@ def run(cfg_obj=None, fcast_against=None, figure_dir=None):
     if do_perfect_fcast or do_ens_fcast:
 
         if fcast_against is not None:
-            LMR_config.prior.prior_source = fcast_against
+            cfg_class.prior.prior_source = fcast_against
         else:
-            fcast_against = LMR_config.prior.prior_source
+            fcast_against = cfg_class.prior.prior_source
 
-        LMR_config.core.nens = None
-        full_time_cfg = LMR_config.Config()
+        cfg_class.core.nens = None
+        full_time_cfg = cfg_class.Config()
 
         state = LMR_gridded.State.from_config(full_time_cfg.prior,
                                               req_avg_intervals=req_avg_intervals)
 
         if detrend_fcast_ref_data:
+            print('Detrending reference state for forecasts...')
             nan_mask = np.isnan(state.state).sum(axis=-1) > 0
             valid_mask = np.logical_not(nan_mask)
             detr_state = ST.detrend_data(state.state[valid_mask].T)
@@ -716,4 +717,24 @@ def run(cfg_obj=None, fcast_against=None, figure_dir=None):
 
 if __name__ == '__main__':
 
-    run(fcast_against=fcast_against, figure_dir=fig_dir)
+    # levs = [20, 25, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41]
+    levs = [30, 38]
+    nexp = 'testdev_seasonal_bilinear_ccsm4_past1000_100ens_{:d}modes'
+
+    if not LMR_config.LEGACY_CONFIG:
+        if len(sys.argv) > 1:
+            yaml_file = sys.argv[1]
+        else:
+            yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
+
+        LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+
+    LMR_config.proxies.proxy_frac = 1.0
+
+    for lev in levs:
+        print('RUN SENSITIVITY EXP (nmodes={:d})'.format(lev))
+        LMR_config.core.nexp = nexp.format(lev)
+        LMR_config.forecaster.lim.fcast_num_pcs = lev
+
+        run(cfg_class=LMR_config, fcast_against=fcast_against,
+            figure_dir=fig_dir)
