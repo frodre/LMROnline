@@ -34,10 +34,11 @@ plot_num_lim_modes = 10
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_piCOntrol'
+fcast_against = 'ccsm4_piControl'
 fcast_start_yr = 251
 
 # Perfect Forecast Experiments
+detrend_fcast_ref_data = True
 do_perfect_fcast = True
 fcast_outputs = {'tas': ['glob_mean'],
                  'tos': ['glob_mean',
@@ -478,18 +479,21 @@ def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
     ens_calib_out.to_hdf(ens_calib_fpath, fcast_against_src)
 
 
-def run(fcast_against=None, figure_dir=None):
+def run(cfg_obj=None, fcast_against=None, figure_dir=None):
 
-    if not LMR_config.LEGACY_CONFIG:
-        if len(sys.argv) > 1:
-            yaml_file = sys.argv[1]
-        else:
-            yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
+    if cfg_obj is None:
+        if not LMR_config.LEGACY_CONFIG:
+            if len(sys.argv) > 1:
+                yaml_file = sys.argv[1]
+            else:
+                yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
-        LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+            LMR_config.initialize_config_yaml(LMR_config, yaml_file)
 
-    LMR_config.proxies.proxy_frac = 1.0
-    cfg = LMR_config.Config()
+        LMR_config.proxies.proxy_frac = 1.0
+        cfg = LMR_config.Config()
+    else:
+        cfg = cfg_obj
 
     # Create figure directory
     if figure_dir is None:
@@ -596,8 +600,14 @@ def run(fcast_against=None, figure_dir=None):
         state = LMR_gridded.State.from_config(full_time_cfg.prior,
                                               req_avg_intervals=req_avg_intervals)
 
-        reduced_state, compressed = lim_fcaster.phys_space_data_to_fcast_space(
-            state)
+        if detrend_fcast_ref_data:
+            nan_mask = np.isnan(state.state).sum(axis=-1) > 0
+            valid_mask = np.logical_not(nan_mask)
+            detr_state = ST.detrend_data(state.state[valid_mask].T)
+            state.state[valid_mask] = detr_state.T
+
+        reduced_state, compressed = \
+            lim_fcaster.phys_space_data_to_fcast_space(state)
 
         start = fcast_start_yr
         end = start + reduced_state.shape[0]
