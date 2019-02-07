@@ -17,6 +17,7 @@ import os
 import random
 import zarr
 import pylim.DataTools as DT
+from pylim.Stats import detrend_data
 
 import LMR_config
 from LMR_utils import (regrid_sphere_gridded_object, var_to_hdf5_carray,
@@ -861,7 +862,8 @@ class GriddedVariable(object):
                                             interp_method=interp_method,
                                             anom_ref=anom_reference_period,
                                             calib_period=calib_period,
-                                            data_req_frac=data_req_frac)
+                                            data_req_frac=data_req_frac,
+                                            detrend=detrend)
         except (IOError, KeyError, ReqDataFractionMismatchError) as e:
             print(e)
             print(('No equivalent pre-averaged file found ({}) or '
@@ -878,8 +880,8 @@ class GriddedVariable(object):
                                    calib_period=calib_period)
             print('Loaded from file: {}/{}'.format(file_dir, file_name))
 
-        # TODO: This may be unnecessary due to usage in loaders
-        var_obj.fill_val_to_nan()
+        # # TODO: This may be unnecessary due to usage in loaders
+        # var_obj.fill_val_to_nan()
 
         # Do regridding and save if specified
         if regrid_method is not None and var_obj.regrid_method is None:
@@ -926,7 +928,7 @@ class GriddedVariable(object):
     def _load_pre_avg_obj(cls, dir_name, filename, varname, avg_interval=None,
                           regrid_method=None, regrid_grid=None,
                           anomaly=False, nens=None, sample=None,
-                          sample_omit_edge=False,
+                          sample_omit_edge=False, detrend=False,
                           seed=None, interp_method=None, anom_ref=None,
                           calib_period=None, data_req_frac=None):
         """
@@ -997,6 +999,17 @@ class GriddedVariable(object):
 
         if calib_period is not None:
             obj.reduce_to_time_period(calib_period)
+
+        if detrend:
+            print('Detrending pre_processed data...')
+            data = obj.data[:]
+            orig_shp = data.shape
+            data = data.reshape(orig_shp[0], -1)
+            nan_mask = np.isnan(data).sum(axis=0) > 0
+            nan_mask = np.logical_not(nan_mask)
+            detr_data = detrend_data(data[:, nan_mask])
+            data[:, nan_mask] = detr_data
+            obj.data = data.reshape(orig_shp)
 
         # Sampling done to pre-average data to take advantage of lazy
         # loading.  Sampling will be ignored by the main loader in this
@@ -1146,8 +1159,15 @@ class GriddedVariable(object):
                 grid_obj.reduce_to_time_period(calib_period)
 
             if detrend:
-                # TODO Detrend
-                pass
+                print('Detrending loaded data...')
+                data = grid_obj.data[:]
+                orig_shp = data.shape
+                data = data.reshape(orig_shp[0], -1)
+                nan_mask = np.isnan(data).sum(axis=0) > 0
+                nan_mask = np.logical_not(nan_mask)
+                detr_data = detrend_data(data[:, nan_mask])
+                data[:, nan_mask] = detr_data
+                grid_obj.data[:] = data.reshape(orig_shp)
 
             if save:
                 new_dir = join(dir_name, pre_proc_filedir)
