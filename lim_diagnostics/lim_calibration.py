@@ -34,8 +34,8 @@ plot_num_lim_modes = 10
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_piControl'
-fcast_start_yr = 251
+fcast_against = 'ccsm4_last_millenium'
+fcast_start_yr = 851 
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
@@ -595,17 +595,15 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
             fcast_against = cfg_class.prior.prior_source
 
         cfg_class.core.nens = None
+        cfg_class.prior.detrend = detrend_fcast_ref_data
+
         full_time_cfg = cfg_class.Config()
 
         state = LMR_gridded.State.from_config(full_time_cfg.prior,
                                               req_avg_intervals=req_avg_intervals)
 
-        if detrend_fcast_ref_data:
-            print('Detrending reference state for forecasts...')
-            nan_mask = np.isnan(state.state).sum(axis=-1) > 0
-            valid_mask = np.logical_not(nan_mask)
-            detr_state = ST.detrend_data(state.state[valid_mask].T)
-            state.state[valid_mask] = detr_state.T
+
+
 
         reduced_state, compressed = \
             lim_fcaster.phys_space_data_to_fcast_space(state)
@@ -717,21 +715,17 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
 
 if __name__ == '__main__':
 
-    # levs = [20, 25, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41]
-    levs = [30, 38]
+    levs = [31, 32, 44]
     nexp = 'testdev_seasonal_bilinear_ccsm4_past1000_100ens_{:d}modes'
-
-    if not LMR_config.LEGACY_CONFIG:
-        if len(sys.argv) > 1:
-            yaml_file = sys.argv[1]
-        else:
-            yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
-
-        LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-
-    LMR_config.proxies.proxy_frac = 1.0
+    if len(sys.argv) > 1:
+        yaml_file = sys.argv[1]
+    else:
+        yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
     for lev in levs:
+
+        LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+        LMR_config.proxies.proxy_frac = 1.0
         print('RUN SENSITIVITY EXP (nmodes={:d})'.format(lev))
         LMR_config.core.nexp = nexp.format(lev)
         LMR_config.forecaster.lim.fcast_num_pcs = lev
