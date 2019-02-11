@@ -34,12 +34,12 @@ plot_num_lim_modes = 10
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_last_millenium'
-fcast_start_yr = 851 
+fcast_against = 'ccsm4_piControl'
+fcast_start_yr = 251
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
-do_perfect_fcast = True
+do_perfect_fcast = False
 fcast_outputs = {'tas': ['glob_mean'],
                  'tos': ['glob_mean',
                          'enso',
@@ -53,7 +53,7 @@ plot_spatial_verif = True
 
 # Ensemble noise integration forecast experiments
 do_ens_fcast = True
-nens = 100
+# nens = 100
 do_hist = True
 do_reliability = True
 
@@ -715,20 +715,21 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
 
 if __name__ == '__main__':
 
-    levs = [31, 32, 44]
-    nexp = 'testdev_seasonal_bilinear_ccsm4_past1000_100ens_{:d}modes'
+    # levs = [43]
+    nens_runs = [5, 10, 25, 50, 100, 200]
+    nexp = 'testdev_{:d}ens_seasbil_ccsm4_past1000_43modes'
     if len(sys.argv) > 1:
         yaml_file = sys.argv[1]
     else:
         yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
-    for lev in levs:
+    for nens in nens_runs:
 
         LMR_config.initialize_config_yaml(LMR_config, yaml_file)
         LMR_config.proxies.proxy_frac = 1.0
-        print('RUN SENSITIVITY EXP (nmodes={:d})'.format(lev))
-        LMR_config.core.nexp = nexp.format(lev)
-        LMR_config.forecaster.lim.fcast_num_pcs = lev
+        print('RUN SENSITIVITY EXP (nens={:d})'.format(nens))
+        LMR_config.core.nexp = nexp.format(nens)
+        # LMR_config.forecaster.lim.fcast_num_pcs = lev
 
         run(cfg_class=LMR_config, fcast_against=fcast_against,
             figure_dir=fig_dir)
