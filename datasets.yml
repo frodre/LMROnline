@@ -139,22 +139,22 @@ GFDLECDA:
   info:
     multiple_vars: True
     template: '[vardef_template]'
-    available_vars: [sst_, ohc_0-700m_]
+    available_vars: [sst_, ohc_0-700m_, sss_]
 
   cell_area: null
   datadir: null
   datafile: '[vardef_template]GFDLECDAv3.1_196101-201012.nc'
   dataformat: NCD
 
-SODA:
+HadleyEN4:
   info:
     multiple_vars: True
     template: '[vardef_template]'
-    available_vars: [sst_, ohc_0-700m_]
+    available_vars: [ohc_0-700m_, sst_, sss_]
 
   cell_area: null
   datadir: null
-  datafile: '[vardef_template]SODAv2.2.4_187101-200812.nc'
+  datafile: '[vardef_template]HadleyEN4.2.1g10_190001-201012.nc'
   dataformat: NCD
 
 ORAS4:
@@ -167,6 +167,40 @@ ORAS4:
   datadir: null
   datafile: '[vardef_template]ORAS4_195801-200912.nc'
   dataformat: NCD
+
+ORA20C:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: [ohc_0-700m_, sst_, sss_]
+
+  cell_area: null
+  datadir: null
+  datafile: '[vardef_template]ORA20C_ensemble_mean_190001-200912.nc'
+  dataformat: NCD
+
+SODA:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: [sst_, ohc_0-700m_, sss_]
+
+  cell_area: null
+  datadir: null
+  datafile: '[vardef_template]SODAv2.2.4_187101-200812.nc'
+  dataformat: NCD
+
+WOA09:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: [sst_, ohc_0-700m_]
+
+  cell_area: null
+  datadir: null
+  datafile: '[vardef_template]WOA09_195501-201712.nc'
+  dataformat: NCD
+
 
 
 # ===============================================================
@@ -448,7 +482,6 @@ era20cm:
   datadir: null
   datafile: '[vardef_template]_ERA20CM_190001-201012.nc'
   dataformat: NCD
-
 
 # Non - default Datasets
 # 20CR used for LIM calibrations in Perkins & Hakim 2017
