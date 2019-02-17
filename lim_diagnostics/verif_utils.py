@@ -4,6 +4,7 @@ from multiprocessing import Pool
 from itertools import product
 
 import LMR_outputs as lmout
+from LMR_utils import crps
 
 import lim_diagnostics.lim_utils as lutils
 import lim_diagnostics.plot_tools as ptools
@@ -132,6 +133,14 @@ def calc_ens_calib_ratio(fcast, ref):
     ens_calib_ratio = mse_avg / mean_ens_var
 
     return ens_calib_ratio
+
+
+def calc_crps(fcast, ref):
+
+    # Proper scoring for probabilistic forecast
+    # Based on Tipton et al. 2016 & ClimateCorp proper scoring package
+
+    return crps(fcast, ref)
 
 
 #  This is for spatial ensemble calibration

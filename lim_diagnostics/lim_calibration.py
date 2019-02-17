@@ -39,7 +39,7 @@ fcast_start_yr = 251
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
-do_perfect_fcast = False
+do_perfect_fcast = True
 fcast_outputs = {'tas': ['glob_mean'],
                  'tos': ['glob_mean',
                          'enso',
@@ -47,14 +47,14 @@ fcast_outputs = {'tas': ['glob_mean'],
                  'zos': ['glob_mean']}
 verif_spec = {'zos': 'eof_proj'}
 do_scalar_verif = True
-plot_scalar_verif = True 
+plot_scalar_verif = True
 do_spatial_verif = True
 plot_spatial_verif = True
 
 # Ensemble noise integration forecast experiments
 do_ens_fcast = True
-# nens = 100
-do_hist = True
+nens = 100
+do_hist = False
 do_reliability = True
 
 # Long integration forecast experiments
@@ -425,14 +425,18 @@ def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
 
         ens_calib = vutils.calc_ens_calib_ratio(ens_scalar,
                                                 ref_scalar)
+        crps = vutils.calc_crps(ens_scalar, ref_scalar)
 
-        columns = ['ens_calib']
+        # create a 1x2 array
+        frame_data = np.array([ens_calib, crps])[None, :]
+
+        columns = ['ens_calib', 'crps']
         index = pd.MultiIndex.from_tuples((measure_key,),
                                           names=['Variable', 'Average',
                                                  'ScalarType'])
         df = pd.DataFrame(index=index,
                           columns=columns,
-                          data=np.array([ens_calib]))
+                          data=frame_data)
         ens_calib_dfs.append(df)
 
         if do_hist:
@@ -715,21 +719,50 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
 
 if __name__ == '__main__':
 
-    # levs = [43]
-    nens_runs = [5, 10, 25, 50, 100, 200]
-    nexp = 'testdev_{:d}ens_seasbil_ccsm4_past1000_43modes'
+    # levels
+    # params = [2, 5, 10, 15, 20, 25,
+    #           30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+    #           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
+    # params = [20, 25,
+    #           30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+    #           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
+    params = [43]
+    pname = 'nmodes'
+    nexp = 'testdev_retmodes{:d}_seasbil_ccsm4_past1000_ens100_lmrdb'
+    proxy_frac = 1.0
+
+    # nens
+    # params = [5, 10, 25, 50, 100, 200]
+    # pname = 'nens'
+    # nexp = 'testdev_{:d}ens_seasbil_ccsm4_past1000_43modes'
+    # proxy_frac = 1.0
+
+    # mc iters
+    # params = np.arange(5)
+    # pname = 'mc_iter'
+    # nexp = 'testdev_{:d}iter_100ens_seasbil_ccsm4_past1000_34modes'
+    # proxy_frac = 0.75
+
     if len(sys.argv) > 1:
         yaml_file = sys.argv[1]
     else:
         yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
-    for nens in nens_runs:
+    for i, param in enumerate(params):
 
         LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-        LMR_config.proxies.proxy_frac = 1.0
-        print('RUN SENSITIVITY EXP (nens={:d})'.format(nens))
-        LMR_config.core.nexp = nexp.format(nens)
-        # LMR_config.forecaster.lim.fcast_num_pcs = lev
+        print('RUN SENSITIVITY EXP ({}={:d})'.format(pname, param))
+        LMR_config.proxies.proxy_frac = proxy_frac
+        LMR_config.core.nexp = nexp.format(param)
+
+        # for mc iters
+        # LMR_config.core.seed = param
+
+        # for modes
+        LMR_config.forecaster.lim.fcast_num_pcs = param
+
+        # for nens
+        # nens = param
 
         run(cfg_class=LMR_config, fcast_against=fcast_against,
             figure_dir=fig_dir)
