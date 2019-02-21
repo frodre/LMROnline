@@ -364,15 +364,27 @@ mpi-esm-p_last_millenium:
                      'ua_500hPa_Amon', 'ua_700hPa_Amon', 'ua_850hPa_Amon',
                      'ua_925hPa_Amon', 'va_1000hPa_Amon', 'va_250hPa_Amon',
                      'va_500hPa_Amon', 'va_700hPa_Amon', 'va_850hPa_Amon',
-                     'va_925hPa_Amon']
+                     'va_925hPa_Amon', 'ohc_0-700m_Omon', 'tos_sfc_Omon',
+                     'zos_sfc_Omon']
+
+    rotated_pole: [tos_sfc_Omon, zos_sfc_Omon, ohc_0-700m_Omon]
     cell_area: null
+    cell_area_template: '[realm_var]'
+    cell_area_realmvar_def:
+      ocean: 'areacello'
+      atmos: 'areacella'
+    var_realm_def:
+      Omon: ocean
+      Amon: atmos
+
     psm_var_map:
-      temperature: tas_sfc_Amon
+      temperature:
+        tas: tas_sfc_Amon
       moisture:
         precip: pr_sfc_Amon
-
+        pdsi: scpdsi_sfc_Amon
   datadir: null
-  datafile: '[vardef_template]_MPI-ESM-P_past1000_085001-185012.nc'
+  datafile: '[vardef_template]_MPI-ESM-P_past1000_085001-184912.nc'
   dataformat: NCD
 
 loveclim_goosse2005:
