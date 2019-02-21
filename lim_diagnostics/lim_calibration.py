@@ -9,6 +9,7 @@ import sys
 import os
 import pandas as pd
 import numpy as np
+import warnings
 
 import lim_diagnostics.plot_tools as ptools
 import lim_diagnostics.lim_utils as lutils
@@ -34,28 +35,23 @@ plot_num_lim_modes = 10
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_piControl'
-fcast_start_yr = 251
+fcast_against = 'mpi-esm-p_last_millenium'
+fcast_start_yr = 851
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
+
 do_perfect_fcast = True
-fcast_outputs = {'tas': ['glob_mean'],
-                 'tos': ['glob_mean',
-                         'enso',
-                         'pdo'],
-                 'zos': ['glob_mean']}
-verif_spec = {'zos': 'eof_proj'}
 do_scalar_verif = True
-plot_scalar_verif = True
+plot_scalar_verif = False
 do_spatial_verif = True
-plot_spatial_verif = True
+plot_spatial_verif = False
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = True
+do_ens_fcast = False
 nens = 100
 do_hist = False
-do_reliability = True
+do_reliability = False
 
 # Long integration forecast experiments
 do_long_integration = False
@@ -323,12 +319,18 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
         fcast_1yr_field = fcast_1yr @ field_factor
 
         lac = ST.calc_lac(fcast_1yr_field, target_field)
+
+        # check for invalid LAC as a check of valid inputs
+        invalid_data = np.isnan(lac)
+        nonzero_data = np.logical_not(invalid_data)
+
         ce = ST.calc_ce(fcast_1yr_field, target_field)
         anom_corr = ST.calc_lac(fcast_1yr_field.T, target_field.T)
 
         ar1_lac = ST.calc_lac(ar1_field_fcast, target_field)
         ar1_ce = ST.calc_ce(ar1_field_fcast, target_field)
-        ar1_anom_corr = ST.calc_lac(ar1_field_fcast.T, target_field.T)
+        ar1_anom_corr = ST.calc_lac(ar1_field_fcast.T[nonzero_data],
+                                    target_field.T[nonzero_data])
 
         if var_key in valid_data_masks:
             valid_data = valid_data_masks[var_key]
@@ -336,16 +338,21 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
         else:
             lat = latgrid
 
+        if np.any(invalid_data):
+            warnings.warn('Grid data resulted in invalid skill metric for '
+                          'field: {}, removing for average...'.format(var_name))
+            lat = lat[nonzero_data]
+
         # Get global average weights for field
         _, gm_weights = \
             LMR_outputs.get_area_avg_mask_and_weights(lat, None, None)
 
-        lac_gm = lac @ gm_weights
-        ce_gm = ce @ gm_weights
+        lac_gm = lac[nonzero_data] @ gm_weights
+        ce_gm = ce[nonzero_data] @ gm_weights
         avg_anom_corr = anom_corr.mean()
 
-        ar1_lac_gm = ar1_lac @ gm_weights
-        ar1_ce_gm = ar1_ce @ gm_weights
+        ar1_lac_gm = ar1_lac[nonzero_data] @ gm_weights
+        ar1_ce_gm = ar1_ce[nonzero_data] @ gm_weights
         ar1_avg_anom_corr = ar1_anom_corr.mean()
 
         spatial_gm_df = \
@@ -720,15 +727,17 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
 if __name__ == '__main__':
 
     # levels
-    # params = [2, 5, 10, 15, 20, 25,
-    #           30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+    # params = [
+    #           2, 5, 10, 15, 20, 25,
+    #           30, 31, 32, 33, 34, 35, 36,
+    #           37, 38, 39,
     #           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
     # params = [20, 25,
     #           30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
     #           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
     params = [43]
     pname = 'nmodes'
-    nexp = 'testdev_retmodes{:d}_seasbil_ccsm4_past1000_ens100_lmrdb'
+    nexp = 'testdev_mpi-esm-p_retmodes{:d}_seasbil_past1000_ens100_LMRdb'
     proxy_frac = 1.0
 
     # nens
