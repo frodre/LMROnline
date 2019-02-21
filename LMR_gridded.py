@@ -1639,6 +1639,10 @@ class State(object):
     @classmethod
     def from_config(cls, prior_config, req_avg_intervals=None):
 
+        # No required avging intervals just use base keys
+        if req_avg_intervals is None:
+            req_avg_intervals = {}
+
         [base_keys,
          psm_keys] = PriorVariable.get_base_and_psm_req_vars(prior_config,
                                                              req_avg_intervals)
