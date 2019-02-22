@@ -279,8 +279,9 @@ def depth_average_OHC(filedata,filevol,filearea,startdepth,stopdepth,time_avg=No
         #wt[flev,:,:] = frac_in_flev*volcello[flev,:,:] # RT ... ... ...
         wt[flev,:,:] = frac_in_flev*wt[flev,:,:]
 
-
-
+    # Get a weighting mask for depths not used at all
+    used_depths = wt.sum(axis=(-2, -1)) > 0
+    wt = wt[used_depths]
 
     # times in the simulation
     time = filedata.variables['time']
@@ -310,14 +311,15 @@ def depth_average_OHC(filedata,filevol,filearea,startdepth,stopdepth,time_avg=No
     # speeds up compared to looping over single time elements
     # while vectorized calculations over entire array lead to "memory error" on my machine (RT)
 
-    inter = 120 # nb of indices (i.e. months if monthly data) per time slice
+    inter = 30  # nb of indices (i.e. months if monthly data) per time slice
     
     ntimeint = int(ntime / inter)
+    print('Num time chunks = {:d}'.format(ntimeint))
     # looping over time slices
     for i in range(ntimeint):
         ibeg = i*inter
         iend = ibeg+inter
-        print(('%d : times from %s to %s' %(i, str(dates[ibeg]), str(dates[iend]))))
+        print(('%d : times from %s to %s' %(i, str(dates[ibeg]), str(dates[iend-1]))))
 
 
         """
@@ -340,7 +342,7 @@ def depth_average_OHC(filedata,filevol,filearea,startdepth,stopdepth,time_avg=No
         """
 
         #ohc[ibeg:iend,:,:] = np.sum(wt*thetao[ibeg:iend,:,:,:],1)*rho_sw_mks*cp_sw_mks/areacello # RT ... ... ...
-        ohc[ibeg:iend,:,:] = np.sum(wt*thetao[ibeg:iend,:,:,:],1)*rho_sw_mks*cp_sw_mks/areacello[:]
+        ohc[ibeg:iend,:,:] = np.sum(wt*thetao[ibeg:iend, used_depths],1)*rho_sw_mks*cp_sw_mks/areacello[:]
 
 
     # do the remaining (residual) array elements not included in the interval chunks above
@@ -349,7 +351,7 @@ def depth_average_OHC(filedata,filevol,filearea,startdepth,stopdepth,time_avg=No
     for i in time_resids:
         print('single time : %s' %str(dates[i]))
         #ohc[i,:,:] = np.sum(wt*thetao[i,:,:,:],0)*rho_sw_mks*cp_sw_mks/areacello # RT ... ... ...
-        ohc[i,:,:] = np.sum(wt*thetao[i,:,:,:],0)*rho_sw_mks*cp_sw_mks/areacello[:]
+        ohc[i,:,:] = np.sum(wt*thetao[i, used_depths],0)*rho_sw_mks*cp_sw_mks/areacello[:]
 
         
     """ amrhein code ...
