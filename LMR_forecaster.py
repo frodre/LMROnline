@@ -65,7 +65,6 @@ class LIMForecaster(BaseForecaster):
 
         # Used for data concatenation
         self._pre_concat_data_std = []
-        self._pre_concat_data_reg = []
 
         # list of datatag, multivar_num_pcs, dobj_num_pcs, load_vars
         self._save_attrs = save_attrs
@@ -82,7 +81,7 @@ class LIMForecaster(BaseForecaster):
             # Handle combination into LIMState
             self._process_lim_state_params(key, dobj)
 
-        calib_state_std, calib_state_reg = self._combine_lim_state_data()
+        calib_state_std = self._combine_lim_state_data()
 
         # Calculate multi-variate EOFs
         [calib_state_eofs,
@@ -371,11 +370,7 @@ class LIMForecaster(BaseForecaster):
         # Standardized data for calculating the multi-variate EOFs
         dobj_data_std = data_obj.data
 
-        # Regular EOF projected
-        dobj_data_reg = data_obj.eof_proj
-
         self._pre_concat_data_std.append(dobj_data_std)
-        self._pre_concat_data_reg.append(dobj_data_reg)
         self._end = self._start + dobj_data_std.shape[1]
         self.var_span[key] = (self._start, self._end)
         self._start = self._end
@@ -389,7 +384,6 @@ class LIMForecaster(BaseForecaster):
             early_end = min(early_end, yr_end)
 
         for i, key in enumerate(self.var_order):
-            var_data_reg = self._pre_concat_data_reg[i]
             var_data_std = self._pre_concat_data_std[i]
 
             yr_start, yr_end = self.calib_yr_range[key]
@@ -402,13 +396,11 @@ class LIMForecaster(BaseForecaster):
 
             adj_slice = slice(shave_start, shave_end)
 
-            self._pre_concat_data_reg[i] = var_data_reg[adj_slice]
             self._pre_concat_data_std[i] = var_data_std[adj_slice]
 
         lim_state_std = np.concatenate(self._pre_concat_data_std, axis=1)
-        lim_state_reg = np.concatenate(self._pre_concat_data_reg, axis=1)
 
-        return lim_state_std, lim_state_reg
+        return lim_state_std
 
 
 @class_docs_fixer
