@@ -45,9 +45,10 @@ class LIMForecaster(BaseForecaster):
     Linear Inverse Model Forecaster
     """
 
-    def __init__(self, lim_config, load_vars, nelem_in_yr, dobj_num_pcs,
-                 multivar_num_pcs, detrend, fcast_type, prior_map, fcast_lead,
-                 match_prior, save_attrs, std_before_eof_vars=None):
+    def __init__(self, lim_config, load_vars, base_avg_interval, nelem_in_yr,
+                 dobj_num_pcs, multivar_num_pcs, detrend, fcast_type, prior_map,
+                 fcast_lead, match_prior, save_attrs, std_before_eof_vars=None,
+                 var_to_separate=None):
 
         FcastVar = LMR_gridded.ForecasterVariable
         fcast_var_gen = FcastVar.load_all_gen(lim_config, load_vars)
@@ -65,23 +66,28 @@ class LIMForecaster(BaseForecaster):
 
         # Used for data concatenation
         self._pre_concat_data_std = []
+        self._separate_vars = {}
 
         # list of datatag, multivar_num_pcs, dobj_num_pcs, load_vars
         self._save_attrs = save_attrs
 
         for key, fcast_var in fcast_var_gen:
 
-            # self.var_order.append(key)
-
             # Convert data into pylim.DataObject and then perform processing
             dobj = self._process_forecast_variable(key, fcast_var, detrend,
                                                    nelem_in_yr, dobj_num_pcs,
                                                    std_before_eof_vars)
 
+            cur_varname, cur_avg_interval = key
+            if cur_varname in var_to_separate:
+                self._separate_vars[key] = dobj
+                # skip variables we want to separate
+                continue
+
             # Handle combination into LIMState
             self._process_lim_state_params(key, dobj)
 
-        calib_state_std = self._combine_lim_state_data()
+        calib_state_std, shave_yr_range = self._combine_lim_state_data()
 
         # Calculate multi-variate EOFs
         [calib_state_eofs,
@@ -97,6 +103,11 @@ class LIMForecaster(BaseForecaster):
 
         # Project unstandardized data on the calculated EOFs
         eof_proj_calib = calib_state_std @ calib_state_eofs
+
+        # Handle separate state information
+        eof_proj_calib = self._process_separate_vars(eof_proj_calib,
+                                                     shave_yr_range,
+                                                     var_to_separate)
 
         if fcast_type == 'noise_integrate':
             fit_noise = True
@@ -132,7 +143,10 @@ class LIMForecaster(BaseForecaster):
         fcast_lead = lim_cfg.fcast_lead
         fcast_type = lim_cfg.fcast_type
         ignore_precalib = lim_cfg.ignore_precalib_lim
+        save_precalib = lim_cfg.save_precalib_lim
         var_to_std_before_eof = lim_cfg.var_to_std_before_eof
+        var_to_separate = lim_cfg.var_to_separate
+        base_avg_interval = lim_cfg.avg_interval
 
         FcastVar = LMR_gridded.ForecasterVariable
 
@@ -141,6 +155,7 @@ class LIMForecaster(BaseForecaster):
         else:
             load_vars = FcastVar.get_fcast_prior_match_vars(lim_cfg.fcast_varnames)
 
+        # TODO: Figure out how to save with separated variables
         load_vars.sort()
         save_attrs = [lim_cfg.datatag, num_pcs, dobj_num_pcs] + list(load_vars)
         for i, curr_item in enumerate(save_attrs):
@@ -170,17 +185,19 @@ class LIMForecaster(BaseForecaster):
 
         except IOError as e:
             print(e)
-            lim_obj = cls(lim_cfg, load_vars, nelem_in_yr, dobj_num_pcs,
-                          num_pcs, detrend, fcast_type, prior_map, fcast_lead,
-                          match_prior, save_attrs,
-                          std_before_eof_vars=var_to_std_before_eof)
+            lim_obj = cls(lim_cfg, load_vars, base_avg_interval, nelem_in_yr,
+                          dobj_num_pcs, num_pcs, detrend, fcast_type, prior_map,
+                          fcast_lead, match_prior, save_attrs,
+                          std_before_eof_vars=var_to_std_before_eof,
+                          var_to_separate=var_to_separate)
 
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+            if save_precalib:
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
 
-            with open(output_path, 'wb') as f:
-                print(f'Saving pre-calibrated LIM: {output_path}')
-                pickle.dump(lim_obj, f)
+                with open(output_path, 'wb') as f:
+                    print(f'Saving pre-calibrated LIM: {output_path}')
+                    pickle.dump(lim_obj, f)
 
         lim_obj.print_lim_save_attrs()
 
@@ -400,7 +417,77 @@ class LIMForecaster(BaseForecaster):
 
         lim_state_std = np.concatenate(self._pre_concat_data_std, axis=1)
 
-        return lim_state_std
+        return lim_state_std, (late_start, early_end)
+
+    def _process_separate_vars(self, eof_proj_calib,
+                               shave_yr_range, var_to_separate):
+
+        """
+
+        Parameters
+        ----------
+        eof_proj_calib: array-like
+            The data to append the separated variables to
+        shave_yr_range: tuple of years
+            Year range from the coupled multi-variate state used to pare down
+            the separate variables if necessary.
+        var_to_separate: dict
+            Mapping of the variable name to the number of standardized
+            PCs to retain
+        """
+
+        new_lim_state = [eof_proj_calib]
+        mvar_eof_shape = self.calib_eofs.shape
+        var_eof_state_len = mvar_eof_shape[0]
+        added_nmodes = 0
+
+        for key, dobj in self._separate_vars.items():
+
+            self.var_order.append(key)
+
+            var_name, avg_interval = key
+            num_eof_ret = var_to_separate[var_name]
+
+            yr_start, yr_end = self.calib_yr_range[key]
+            late_start, early_end = shave_yr_range
+            shave_start = late_start - yr_start
+            shave_end = early_end - yr_end
+
+            if shave_end == 0:
+                shave_end = None
+
+            adj_slice = slice(shave_start, shave_end)
+
+            # dobjs have been processed already in _process_fcast_variable
+            data = dobj.data[adj_slice, :num_eof_ret]
+
+            # add to eof proj calib
+            new_lim_state.append(data)
+
+            # add var range
+            self._end = self._start + data.shape[1]
+            added_nmodes += data.shape[1]
+            self.var_span[key] = (self._start, self._end)
+            self._start = self._end
+
+            # adjust the dobj EOFs to omit left out modes
+            curr_eofs = self.var_eofs[key]
+            self.var_eofs[key] = curr_eofs[:, :num_eof_ret]
+
+        # Adjust multivariate EOFs to a matrix
+        # | Orig_mvar_eofs 0 |
+        # |      0         I |
+        new_mvar_eofs = np.zeros((var_eof_state_len + added_nmodes,
+                                  mvar_eof_shape[1] + added_nmodes))
+        new_mvar_eofs[:mvar_eof_shape[0], :mvar_eof_shape[1]] = self.calib_eofs
+        new_mvar_eofs[mvar_eof_shape[0]:, mvar_eof_shape[1]:] = np.eye(added_nmodes)
+
+        self.calib_eofs = new_mvar_eofs
+
+        # Create mvar projected EOF state
+        new_calib_state = np.concatenate(new_lim_state, axis=1)
+
+        return new_calib_state
 
 
 @class_docs_fixer
