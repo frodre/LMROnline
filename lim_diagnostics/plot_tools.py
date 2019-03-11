@@ -14,6 +14,14 @@ import lim_diagnostics.data_utils as dutils
 
 INTERACTIVE_PLOT = False
 
+_VARNAME_MAP = {'tos_sfc_Omon': 'SST',
+                'tas_sfc_Amon': 'TAS',
+                'ohc_0-700m_Omon': 'OHC700m',
+                'psl_sfc_Amon': 'SLP',
+                'pr_sfc_Amon': 'PR',
+                'zos_sfc_Omon': 'SSH',
+                'zg_500hPa_Amon': 'ZG_500hPa'}
+
 
 def init_projection(projection):
     if projection == 'rotated':
@@ -193,16 +201,19 @@ def plot_single_spatial_field(lat, lon, field, title, data_bnds=None,
 
 
 def get_single_mode_plot(mode_num, l_eval, l_evect, lat, lon, spatial_shape,
-                         lim_fcaster, partial_title=None):
+                         lim_fcaster, partial_title=None, limit_var_keys=None):
     l_eval = l_eval.real
     l_evect = l_evect.real
 
-    mode_title = 'Mode: {}  EFT: {:1.2f} yr'.format(mode_num, -1 / l_eval)
+    mode_title = 'm:{}  EFT: {:1.1f} yr'.format(mode_num, -1 / l_eval)
 
     if partial_title is not None:
         mode_title = mode_title + partial_title
 
     var_keys = list(lim_fcaster.var_order)
+    if limit_var_keys is not None:
+        var_keys = [vkey for vkey in var_keys if vkey in limit_var_keys]
+
     plot_args = []
     for vkey in var_keys:
         varname, avg_interval = vkey
@@ -228,7 +239,7 @@ def get_single_mode_plot(mode_num, l_eval, l_evect, lat, lon, spatial_shape,
         lon = lon.reshape(spatial_shape)
         lat_bnds, lon_bnds = mutils.calculate_latlon_bnds(lat, lon, lat_ax=0)
 
-        title = mode_title + 'Field: {}'.format(varname)
+        title = '{} '.format(_VARNAME_MAP[varname]) + mode_title
 
         curr_plt_arg = (lon_bnds, lat_bnds, full_space, title)
         plt_kwargs = {'cmap': 'RdBu'}
@@ -239,7 +250,8 @@ def get_single_mode_plot(mode_num, l_eval, l_evect, lat, lon, spatial_shape,
 
 
 def plot_multi_lim_modes(lim_obj, lat, lon, sptl_shape, lim_fcaster, row_limit=20,
-                         save_file=None):
+                         save_file=None, limit_var_keys=None,
+                         limit_mode_nums=None):
 
     # Get eigenvectors/values for G1
     g_evals, g_evects = np.linalg.eig(lim_obj.G_1)
@@ -271,6 +283,9 @@ def plot_multi_lim_modes(lim_obj, lat, lon, sptl_shape, lim_fcaster, row_limit=2
         if i < len(l_evals):
             modes.append(i)
 
+    if limit_mode_nums is not None:
+        modes = [modes[i] for i in limit_mode_nums]
+
     plot_arg_tups = []
     i = 0
     for mode_num in modes:
@@ -288,7 +303,7 @@ def plot_multi_lim_modes(lim_obj, lat, lon, sptl_shape, lim_fcaster, row_limit=2
             sin_phase = sin_phase @ calib_eofs.T
 
             period = 2 * np.pi / curr_eval.imag
-            dual_title = ' {} T: {:1.2f} yr'
+            dual_title = ' {} T: {:1.1f} yr'
             mode_str = '{}/{}'.format(mode1, mode2)
 
             pargs1 = get_single_mode_plot(mode_str,
@@ -297,14 +312,16 @@ def plot_multi_lim_modes(lim_obj, lat, lon, sptl_shape, lim_fcaster, row_limit=2
                                           lat, lon, sptl_shape,
                                           lim_fcaster,
                                           partial_title=dual_title.format('COS',
-                                                                          period))
+                                                                          period),
+                                          limit_var_keys=limit_var_keys)
             pargs2 = get_single_mode_plot(mode_str,
                                           curr_eval,
                                           sin_phase,
                                           lat, lon, sptl_shape,
                                           lim_fcaster,
                                           partial_title=dual_title.format('SIN',
-                                                                          period))
+                                                                          period),
+                                          limit_var_keys=limit_var_keys)
             pargs = [pargs1, pargs2]
             plot_arg_tups += pargs
             i += 2
@@ -316,12 +333,13 @@ def plot_multi_lim_modes(lim_obj, lat, lon, sptl_shape, lim_fcaster, row_limit=2
 
             pargs = get_single_mode_plot(mode_num, curr_eval,
                                          curr_evect_basis,
-                                         lat, lon, sptl_shape, lim_fcaster)
+                                         lat, lon, sptl_shape, lim_fcaster,
+                                         limit_var_keys=limit_var_keys)
             plot_arg_tups.append(pargs)
             i += 1
 
     nrows = len(plot_arg_tups)
-    ncols = len(lim_fcaster.var_order)
+    ncols = len(plot_arg_tups[0])
     plot_multiple_fields(nrows, ncols, plot_arg_tups,
                          cbar_type='col', gridlines=False,
                          save_file=save_file)
