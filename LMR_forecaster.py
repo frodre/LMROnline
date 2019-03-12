@@ -48,7 +48,7 @@ class LIMForecaster(BaseForecaster):
     def __init__(self, lim_config, load_vars, base_avg_interval, nelem_in_yr,
                  dobj_num_pcs, multivar_num_pcs, detrend, fcast_type, prior_map,
                  fcast_lead, match_prior, save_attrs, std_before_eof_vars=None,
-                 var_to_separate=None):
+                 var_to_separate=None, store_calib=False):
 
         FcastVar = LMR_gridded.ForecasterVariable
         fcast_var_gen = FcastVar.load_all_gen(lim_config, load_vars)
@@ -109,6 +109,11 @@ class LIMForecaster(BaseForecaster):
                                                      shave_yr_range,
                                                      var_to_separate)
 
+        if store_calib:
+            self.calib_data = eof_proj_calib
+        else:
+            self.calib_data = None
+
         if fcast_type == 'noise_integrate':
             fit_noise = True
         else:
@@ -131,7 +136,7 @@ class LIMForecaster(BaseForecaster):
                              '{}'.format(fcast_type))
 
     @classmethod
-    def from_config(cls, forecaster_config, state_var_keys):
+    def from_config(cls, forecaster_config, state_var_keys, store_calib=False):
         # TODO: hardcoded annual or greater
         nelem_in_yr = 1
         lim_cfg = forecaster_config.lim
@@ -189,7 +194,8 @@ class LIMForecaster(BaseForecaster):
                           dobj_num_pcs, num_pcs, detrend, fcast_type, prior_map,
                           fcast_lead, match_prior, save_attrs,
                           std_before_eof_vars=var_to_std_before_eof,
-                          var_to_separate=var_to_separate)
+                          var_to_separate=var_to_separate,
+                          store_calib=store_calib)
 
             if save_precalib:
                 if not os.path.exists(output_dir):
@@ -197,6 +203,9 @@ class LIMForecaster(BaseForecaster):
 
                 with open(output_path, 'wb') as f:
                     print(f'Saving pre-calibrated LIM: {output_path}')
+                    lim_obj._pre_concat_data_std = None
+                    lim_obj._separate_vars = None
+                    lim_obj.calib_data = None
                     pickle.dump(lim_obj, f)
 
         lim_obj.print_lim_save_attrs()
@@ -226,19 +235,33 @@ class LIMForecaster(BaseForecaster):
 
         return state_obj
 
-    def phys_space_data_to_fcast_space(self, state_obj):
+    def phys_space_data_to_fcast_space(self, state_obj, is_diff_model=False):
         fcast_state = []
-        is_compressed = []
+        is_compressed = {}
 
         for var_key in self.var_order:
             var, avg_interval = var_key
             prior_var_key = self.prior_map[var]
             data = state_obj.get_var_data((prior_var_key, avg_interval))
+
             if np.any(np.isnan(data)):
                 # Get the LIM calibration defined mask
                 valid_mask = self.valid_data_mask[var_key]
                 data = data[valid_mask, :]
-                is_compressed.append(var_key)
+
+                nan_check = np.isnan(data)
+                if is_diff_model and np.any(nan_check):
+                    # still NaN in the data
+                    new_nan_mask = nan_check.sum(axis=1) > 0
+                    new_valid_mask = np.logical_not(new_nan_mask)
+
+                    data = data[new_valid_mask, :]
+                else:
+                    new_valid_mask = None
+
+                is_compressed[var_key] = new_valid_mask
+            else:
+                new_valid_mask = None
 
             # Standardize prior to projection (helps for fields a lot of small
             #  values)
@@ -246,7 +269,11 @@ class LIMForecaster(BaseForecaster):
                 data = data * self.var_std_factor[var_key]
 
             # Transposes sampling dimension and projects into EOF space
-            eof_proj = np.dot(data.T, self.var_eofs[var_key])
+            eof_to_proj = self.var_eofs[var_key]
+            if new_valid_mask is not None:
+                eof_to_proj = eof_to_proj[new_valid_mask]
+
+            eof_proj = np.dot(data.T, eof_to_proj)
             eof_proj_std = eof_proj * self.var_eof_std_factor[var_key]
             fcast_state.append(eof_proj_std)
 
@@ -274,6 +301,7 @@ class LIMForecaster(BaseForecaster):
                     var_key]
 
             if var_key in compressed_keys:
+                supplement_mask = compressed_keys[var_key]
                 phys_space_fcast = self._decompress_field(var_key,
                                                           phys_space_fcast)
 
@@ -331,9 +359,17 @@ class LIMForecaster(BaseForecaster):
         avg = out_arr.real.mean(axis=0)
         return res
 
-    def _decompress_field(self, key, data):
+    def _decompress_field(self, key, data, supplement_mask=None):
         # Simplified pylim.DataObject.inflate_full_grid because I don't want to
         # store the entire calibration object for each field
+
+        spatial_shp = list(*data.shape[:-1])
+
+        # Adjustment for fields from other models that may have different NaNs
+        if supplement_mask is not None:
+            tmp_data = np.empty(spatial_shp + [len(supplement_mask)]) * np.nan
+            tmp_data[..., supplement_mask] = data
+            data = tmp_data
 
         valid_data = self.valid_data_mask[key]
         

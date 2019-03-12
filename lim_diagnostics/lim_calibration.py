@@ -30,22 +30,27 @@ plot_eofs = False
 plot_state_eofs = False
 
 plot_lim_modes = False
-plot_num_lim_modes = 10
+plot_num_lim_modes = 20
 
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
 fcast_against = 'mpi-esm-p_last_millenium'
+is_diff_model = True
 fcast_start_yr = 851
+
+# Only use fields specified in prior state dimension. False emulates
+# reconstruction state, including PSM required averages of fields
+base_only = True
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
 
 do_perfect_fcast = True
 do_scalar_verif = True
-plot_scalar_verif = False
+plot_scalar_verif = True
 do_spatial_verif = True
-plot_spatial_verif = False
+plot_spatial_verif = True
 
 # Ensemble noise integration forecast experiments
 do_ens_fcast = False
@@ -517,11 +522,14 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
     recon_period = cfg.core.recon_period
     save_analysis_ye = cfg.prior.outputs['analysis_Ye']
 
-    # Get the necessary averaging intervals for the gridded data
-    prox_manager = LMR_proxy.ProxyManager(cfg.proxies, cfg.psm,
-                                          recon_period,
-                                          include_eval=save_analysis_ye)
-    req_avg_intervals = prox_manager.avg_interval_by_psm_type
+    if not base_only:
+        # Get the necessary averaging intervals for the gridded data
+        prox_manager = LMR_proxy.ProxyManager(cfg.proxies, cfg.psm,
+                                              recon_period,
+                                              include_eval=save_analysis_ye)
+        req_avg_intervals = prox_manager.avg_interval_by_psm_type
+    else:
+        req_avg_intervals = {}
 
     # Load the state
     state = LMR_gridded.State.from_config(cfg.prior, req_avg_intervals)
@@ -613,11 +621,9 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
         state = LMR_gridded.State.from_config(full_time_cfg.prior,
                                               req_avg_intervals=req_avg_intervals)
 
-
-
-
         reduced_state, compressed = \
-            lim_fcaster.phys_space_data_to_fcast_space(state)
+        lim_fcaster.phys_space_data_to_fcast_space(state,
+                                                   is_diff_model)
 
         start = fcast_start_yr
         end = start + reduced_state.shape[0]
@@ -726,52 +732,62 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
 
 if __name__ == '__main__':
 
-    # levels
-    # params = [
-    #           2, 5, 10, 15, 20, 25,
-    #           30, 31, 32, 33, 34, 35, 36,
-    #           37, 38, 39,
-    #           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
-    # params = [20, 25,
-    #           30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
-    #           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
-    params = [43]
-    pname = 'nmodes'
-    nexp = 'testdev_mpi-esm-p_retmodes{:d}_seasbil_past1000_ens100_LMRdb'
-    proxy_frac = 1.0
-
-    # nens
-    # params = [5, 10, 25, 50, 100, 200]
-    # pname = 'nens'
-    # nexp = 'testdev_{:d}ens_seasbil_ccsm4_past1000_43modes'
-    # proxy_frac = 1.0
-
-    # mc iters
-    # params = np.arange(5)
-    # pname = 'mc_iter'
-    # nexp = 'testdev_{:d}iter_100ens_seasbil_ccsm4_past1000_34modes'
-    # proxy_frac = 0.75
-
     if len(sys.argv) > 1:
         yaml_file = sys.argv[1]
     else:
         yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
-    for i, param in enumerate(params):
+    ### Single Run
+    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+    LMR_config.proxies.proxy_frac = 1.0
+    LMR_config.core.nexp = 'testdev_ccsm_fcast_on_mpi'
+    run(LMR_config, fcast_against=fcast_against,
+        figure_dir=fig_dir)
 
-        LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-        print('RUN SENSITIVITY EXP ({}={:d})'.format(pname, param))
-        LMR_config.proxies.proxy_frac = proxy_frac
-        LMR_config.core.nexp = nexp.format(param)
-
-        # for mc iters
-        # LMR_config.core.seed = param
-
-        # for modes
-        LMR_config.forecaster.lim.fcast_num_pcs = param
-
-        # for nens
-        # nens = param
-
-        run(cfg_class=LMR_config, fcast_against=fcast_against,
-            figure_dir=fig_dir)
+    ### Sensitivity Experiments
+    # levels
+    # params = [
+    #           2, 5, 10, 15, 20, 25,
+    #           30, 31, 32, 33, 34, 35, 36,
+    #           37, 38, 39,
+    #           40,
+    #           # 41, 42, 43, 44, 45, 46, 47, 48, 49, 50
+    # ]
+    # # params = [20, 25,
+    # #           30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+    # #           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
+    # # params = [43]
+    # pname = 'nmodes'
+    # nexp = 'testdev_mpi_atmocn_coupled_retmodes{:d}'
+    # proxy_frac = 1.0
+    #
+    # # nens
+    # # params = [5, 10, 25, 50, 100, 200]
+    # # pname = 'nens'
+    # # nexp = 'testdev_{:d}ens_seasbil_ccsm4_past1000_43modes'
+    # # proxy_frac = 1.0
+    #
+    # # mc iters
+    # # params = np.arange(5)
+    # # pname = 'mc_iter'
+    # # nexp = 'testdev_{:d}iter_100ens_seasbil_ccsm4_past1000_34modes'
+    # # proxy_frac = 0.75
+    #
+    # for i, param in enumerate(params):
+    #
+    #     LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+    #     print('RUN SENSITIVITY EXP ({}={:d})'.format(pname, param))
+    #     LMR_config.proxies.proxy_frac = proxy_frac
+    #     LMR_config.core.nexp = nexp.format(param)
+    #
+    #     # for mc iters
+    #     # LMR_config.core.seed = param
+    #
+    #     # for modes
+    #     LMR_config.forecaster.lim.fcast_num_pcs = param
+    #
+    #     # for nens
+    #     # nens = param
+    #
+    #     run(cfg_class=LMR_config, fcast_against=fcast_against,
+    #         figure_dir=fig_dir)
