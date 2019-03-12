@@ -284,7 +284,7 @@ ccsm4_piControl:
   info:
     multiple_vars: True
     template: '[vardef_template]'
-    available_vars: [tas_sfc_Amon, psl_sfc_Amon,
+    available_vars: [tas_sfc_Amon, psl_sfc_Amon, zg_500hPa_Amon,
                      pr_sfc_Amon,
                      tos_sfc_Omon, ohc_0-700m_Omon,
                      zos_sfc_Omon]
@@ -385,6 +385,35 @@ mpi-esm-p_last_millenium:
         pdsi: scpdsi_sfc_Amon
   datadir: null
   datafile: '[vardef_template]_MPI-ESM-P_past1000_085001-184912.nc'
+  dataformat: NCD
+
+mpi-esm-p_piControl:
+  info:
+    multiple_vars: True
+    template: '[vardef_template]'
+    available_vars: ['tas_sfc_Amon', 'zg_500hPa_Amon',
+                     'psl_sfc_Amon', 'pr_sfc_Amon',
+                     'ohc_0-700m_Omon', 'tos_sfc_Omon',
+                     'zos_sfc_Omon']
+
+    rotated_pole: [tos_sfc_Omon, zos_sfc_Omon, ohc_0-700m_Omon]
+    cell_area: null
+    cell_area_template: '[realm_var]'
+    cell_area_realmvar_def:
+      ocean: 'areacello'
+      atmos: 'areacella'
+    var_realm_def:
+      Omon: ocean
+      Amon: atmos
+
+    psm_var_map:
+      temperature:
+        tas: tas_sfc_Amon
+      moisture:
+        precip: pr_sfc_Amon
+        pdsi: scpdsi_sfc_Amon
+  datadir: null
+  datafile: '[vardef_template]_MPI-ESM-P_piControl_185001-300512.nc'
   dataformat: NCD
 
 loveclim_goosse2005:
