@@ -35,8 +35,8 @@ plot_num_lim_modes = 20
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'mpi-esm-p_last_millenium'
-is_diff_model = True
+fcast_against = 'ccsm4_last_millenium'
+is_diff_model = False
 fcast_start_yr = 851
 
 # Only use fields specified in prior state dimension. False emulates
@@ -46,7 +46,7 @@ base_only = True
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
 
-do_perfect_fcast = True
+do_perfect_fcast = False
 do_scalar_verif = True
 plot_scalar_verif = True
 do_spatial_verif = True
@@ -59,9 +59,9 @@ do_hist = False
 do_reliability = False
 
 # Long integration forecast experiments
-do_long_integration = False
+do_long_integration = True
 integration_len_yr = 1000
-integration_iters = 500
+integration_iters = 250
 
 # ========================
 # END USER PARAMS
@@ -106,7 +106,7 @@ def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, base_keys):
 
 def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                state_lim_space, times, base_keys,
-                               fcast_against_src,
+                               fcast_against_src, compressed_keys,
                                fig_out_dir='.'):
 
     """
@@ -161,6 +161,7 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                                      fcast_1yr,
                                                      state_obj,
                                                      lim_fcast_obj.valid_data_mask,
+                                                     compressed_keys,
                                                      fcast_against_src,
                                                      perf_figdir)
     if do_spatial_verif:
@@ -181,6 +182,7 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
 
 def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
                                    fcast_1yr, state_obj, valid_data_masks,
+                                   compressed_keys,
                                    fcast_against_src, perf_figdir):
     """
 
@@ -222,9 +224,20 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
     for measure_key, factor in scalar_factors.items():
         var_key = measure_key[:-1]
         valid_data = valid_data_masks.get(var_key, None)
+
+        # Handle grids from different model
+        base_factor = base_factors[measure_key]
+
+        if var_key in compressed_keys:
+            suppl_valid = compressed_keys[var_key]
+            if suppl_valid is not None:
+                valid_data = valid_data.copy()
+                valid_data[valid_data] &= suppl_valid
+                base_factor = base_factor[suppl_valid]
+
         ref_dat = mutils.get_field_from_state(state_obj, var_key,
                                               valid_data=valid_data)
-        ref_measure = ref_dat @ base_factors[measure_key]
+        ref_measure = ref_dat @ base_factor
         fcast_measure = fcast_1yr @ factor
 
         measure_out[measure_key] = (ref_measure, fcast_measure)
@@ -495,6 +508,10 @@ def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
     ens_calib_out.to_hdf(ens_calib_fpath, fcast_against_src)
 
 
+def load_full_state(cfg_class):
+    pass
+
+
 def run(cfg_class=None, fcast_against=None, figure_dir=None):
 
     if cfg_class is None:
@@ -609,17 +626,18 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
     if do_perfect_fcast or do_ens_fcast:
 
         if fcast_against is not None:
-            cfg_class.prior.prior_source = fcast_against
+            update_dict = {'prior_source': fcast_against}
         else:
             fcast_against = cfg_class.prior.prior_source
+            update_dict = {}
 
-        cfg_class.core.nens = None
-        cfg_class.prior.detrend = detrend_fcast_ref_data
+        regrid_cfg = cfg_class.regrid()
+        full_prior_cfg = cfg_class.prior(regrid_cfg, nens='all',
+                                         **update_dict)
 
-        full_time_cfg = cfg_class.Config()
-
-        state = LMR_gridded.State.from_config(full_time_cfg.prior,
+        state = LMR_gridded.State.from_config(full_prior_cfg,
                                               req_avg_intervals=req_avg_intervals)
+        full_state_loaded = True
 
         reduced_state, compressed = \
         lim_fcaster.phys_space_data_to_fcast_space(state,
@@ -632,7 +650,7 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
         if do_perfect_fcast:
             perfect_fcast_verification(state, cfg, lim_fcaster, reduced_state,
                                        times, base_keys, fcast_against,
-                                       fig_out_dir=figure_dir)
+                                       compressed, fig_out_dir=figure_dir)
 
         if do_ens_fcast:
             ens_fcast_verification(reduced_state, nens, lim, state, cfg,
@@ -640,7 +658,7 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
                                    fig_out_dir=figure_dir)
     else:
         reduced_state, _ = lim_fcaster.phys_space_data_to_fcast_space(state)
-
+        full_state_loaded = False
     if do_long_integration:
 
         t0 = reduced_state[0:1, :]
@@ -666,68 +684,53 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
          base_scalar_factors] = get_scalar_factors(latgrid, longrid, cfg,
                                                    lim_fcaster, base_keys)
 
-        scalar_outdef = cfg.prior.outputs['scalar_ens']
-        [func_by_var, scalar_output_containers] = \
-            LMR_outputs.prepare_scalar_calculations(scalar_outdef,
-                                                    state, cfg.prior,
-                                                    integration_len_yr,
-                                                    integration_iters,
-                                                    return_insert_func=False)
+        if not full_state_loaded:
+            regrid_cfg = cfg_class.regrid()
+            full_prior_cfg = cfg_class.prior(regrid_cfg, nens='all')
+
+            state = LMR_gridded.State.from_config(full_prior_cfg,
+                                                  req_avg_intervals=req_avg_intervals)
 
         # Calculate scalar output values defined in config
-        for _var_key, scalar_funcs in func_by_var.items():
+        scalar_outputs = {}
+        ref_scalar_outputs = {}
 
-            curr_containers = scalar_output_containers[_var_key]
+        # Get SOI
+        [scalar_factors,
+         scalar_outputs] = vutils.handle_soi_factors(scalar_factors,
+                                                     base_scalar_factors,
+                                                     scalar_outputs,
+                                                     state,
+                                                     last)
+        soi_key, (soi_ref, soi_fcast) = scalar_outputs.popitem()
+        soi_key = '_'.join(soi_key)
+        scalar_outputs[soi_key] = soi_fcast
+        ref_scalar_outputs[soi_key] = soi_ref
 
-            eof_var_span = lim_fcaster.var_span[_var_key]
-            var_slice = slice(*eof_var_span)
-            multi_eof_var = lim_fcaster.calib_eofs[var_slice, :]
-            var_eof = lim_fcaster.var_eofs[_var_key]
+        for measure_key, factor in scalar_factors.items():
 
-            _varname, _avg_interval = _var_key
+            ref_factor = base_scalar_factors[measure_key]
+            var_key = measure_key[:-1]
+            valid_data = lim_fcaster.valid_data_mask.get(var_key, None)
+            ref_data = mutils.get_field_from_state(state, var_key,
+                                                   valid_data=valid_data)
 
-            std_factor = lim_fcaster.var_eof_std_factor[_var_key]
-            last_var_eofspace = last @ multi_eof_var.T
-            last_var_eofspace = last_var_eofspace / std_factor
+            scalar_out = last @ factor
+            measure_key = '_'.join(measure_key)
+            scalar_outputs[measure_key] = scalar_out
+            ref_scalar = ref_data @ ref_factor
+            ref_scalar_outputs[measure_key] = ref_scalar
 
-            decompress = _var_key in lim_fcaster.valid_data_mask
+        scalar_fpath = os.path.join(figure_dir,
+                                    'long_integration_scalar_out.npz')
+        np.savez(scalar_fpath,
+                 time=np.arange(integration_len_yr),
+                 **scalar_outputs)
 
-            if _var_key in lim_fcaster.var_std_factor:
-                var_std_factor = lim_fcaster.var_std_factor[_var_key]
-            else:
-                var_std_factor = None
-
-            time_chk = 100
-
-            for start in np.arange(0, integration_len_yr, time_chk):
-
-                end = start + time_chk
-                if end >= integration_len_yr:
-                    end = None
-
-                time_slice = slice(start, end)
-                curr_dat = last_var_eofspace[time_slice]
-
-                phys_curr_dat = curr_dat @ var_eof.T
-                ens_yr_shp = phys_curr_dat.shape[:-1]
-                sptl_shp = phys_curr_dat.shape[-1]
-                phys_curr_dat = phys_curr_dat.reshape(-1, sptl_shp)
-
-                if var_std_factor is not None:
-                    phys_curr_dat = phys_curr_dat / var_std_factor
-
-                if decompress:
-                    phys_curr_dat = lim_fcaster._decompress_field(_var_key,
-                                                                  phys_curr_dat)
-                for _measure, _measure_func in scalar_funcs.items():
-                    scalar_data = _measure_func(phys_curr_dat.T)
-                    scalar_data = scalar_data.reshape(*ens_yr_shp)
-                    _container = curr_containers[_measure]
-                    _container[time_slice] = scalar_data
-
-        LMR_outputs.save_scalar_ensembles(figure_dir,
-                                          np.arange(integration_len_yr),
-                                          scalar_output_containers)
+        ref_scalar_fpath = os.path.join(figure_dir,
+                                        'ref_long_integration_scalar_out.npz')
+        np.savez(ref_scalar_fpath,
+                 **ref_scalar_outputs)
 
 
 if __name__ == '__main__':
@@ -740,7 +743,7 @@ if __name__ == '__main__':
     ### Single Run
     LMR_config.initialize_config_yaml(LMR_config, yaml_file)
     LMR_config.proxies.proxy_frac = 1.0
-    LMR_config.core.nexp = 'testdev_ccsm_fcast_on_mpi'
+    LMR_config.core.nexp = 'testdev_mpi_atmocn_coupled'
     run(LMR_config, fcast_against=fcast_against,
         figure_dir=fig_dir)
 
