@@ -1521,7 +1521,9 @@ class prior(ConfigGroup):
         self.state_variables = deepcopy(self.state_variables)
         self.detrend = self.detrend
 
-        if nens is None:
+        if nens == 'all':
+            nens = None
+        elif nens is None:
             nens = core.nens
         self.nens = nens
 
@@ -1618,12 +1620,14 @@ class forecaster(ConfigGroup):
         fcast_type = 'perfect'
 
         var_to_std_before_eof = None
+        var_to_separate = None
 
         fcast_lead = 1
         fcast_num_pcs = 20
         dobj_num_pcs = 400
         detrend = True
         ignore_precalib_lim = False
+        save_precalib_lim = True
 
         def __init__(self, regrid_cfg, lmr_path=None, prior_config=None,
                      **kwargs):
@@ -1635,6 +1639,7 @@ class forecaster(ConfigGroup):
             self.match_prior = self.match_prior
 
             self.var_to_std_before_eof = deepcopy(self.var_to_std_before_eof)
+            self.var_to_separate = deepcopy(self.var_to_separate)
 
             if self.match_prior:
                 self.datatag = prior_config.prior_source
@@ -1659,6 +1664,7 @@ class forecaster(ConfigGroup):
             self.dobj_num_pcs = self.dobj_num_pcs
             self.detrend = self.detrend
             self.ignore_precalib_lim = self.ignore_precalib_lim
+            self.save_precalib_lim = self.save_precalib_lim
 
             self._avg_interval_defs = Constants.data['avg_interval']
             self.avg_interval_kwargs = self._avg_interval_defs[self.avg_interval]
