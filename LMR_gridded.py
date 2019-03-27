@@ -1386,7 +1386,7 @@ class PriorVariable(GriddedVariable):
 
         # If more required psms variables need to be loaded take the
         # conservative sample that omits the edges of sample range
-        edge_omit = req_psm_vars is not None
+        edge_omit = bool(req_psm_vars)
 
         prior_dict = OrderedDict()
         for vname, anomaly in var_names.items():
