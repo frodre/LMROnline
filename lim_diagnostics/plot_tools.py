@@ -78,9 +78,10 @@ def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True,
 
 
 def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
-                         projection='robinson', gridlines=True, save_file=None):
+                         projection='robinson', gridlines=True,
+                         save_file=None, panel_width=6, panel_height=4.5):
     projection = init_projection(projection)
-    fig = plt.figure(figsize=(6*ncols, 4.5*nrows))
+    fig = plt.figure(figsize=(panel_width*ncols, panel_height*nrows))
     height_ratios = [20]*nrows
     width_ratios = [20]*ncols
     total_nrows = nrows
@@ -126,9 +127,11 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
             cf = cf_arr[-1][i]
             cax = plt.subplot(cbar_spec)
             plt.colorbar(cf, cax=cax, orientation='horizontal')
+
+    plt.tight_layout(h_pad=0.2, w_pad=0.5)
             
     if save_file is not None:
-        plt.savefig(save_file, dpi=80)
+        plt.savefig(save_file, dpi=120, fmt='png')
 
     if INTERACTIVE_PLOT:
         plt.show()

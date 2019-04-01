@@ -10,6 +10,7 @@ import os
 import pandas as pd
 import numpy as np
 import warnings
+import pickle
 
 import lim_diagnostics.plot_tools as ptools
 import lim_diagnostics.lim_utils as lutils
@@ -46,20 +47,21 @@ base_only = True
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
 
-do_perfect_fcast = False
+do_perfect_fcast = True
 do_scalar_verif = True
-plot_scalar_verif = True
+plot_scalar_verif = False
 do_spatial_verif = True
-plot_spatial_verif = True
+plot_spatial_verif = False
+output_spatial_field_skill = True
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = False
+do_ens_fcast = True 
 nens = 100
 do_hist = False
 do_reliability = False
 
 # Long integration forecast experiments
-do_long_integration = True
+do_long_integration = False
 integration_len_yr = 1000
 integration_iters = 250
 
@@ -154,6 +156,7 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                                base_keys)
 
     output_dfs = []
+    sptl_skill = {}
     if do_scalar_verif:
         output_dfs += scalar_perf_fcast_verification(scalar_factors,
                                                      base_scalar_factors,
@@ -165,19 +168,28 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                                      fcast_against_src,
                                                      perf_figdir)
     if do_spatial_verif:
-        output_dfs += spatial_perf_fcast_verification(base_keys, field_factors,
-                                                      times,
-                                                      fcast_1yr, state_obj,
-                                                      latgrid, longrid,
-                                                      lim_fcast_obj.valid_data_mask,
-                                                      lim_fcast_obj.var_std_factor,
-                                                      fcast_against_src,
-                                                      perf_figdir)
+        [sptl_dfs,
+         sptl_skill] = spatial_perf_fcast_verification(base_keys,
+                                                       field_factors,
+                                                       times,
+                                                       fcast_1yr, state_obj,
+                                                       latgrid, longrid,
+                                                       lim_fcast_obj.valid_data_mask,
+                                                       lim_fcast_obj.var_std_factor,
+                                                       fcast_against_src,
+                                                       perf_figdir)
+        output_dfs += sptl_dfs
 
     if output_dfs:
         perf_fcast_dfs = pd.concat(output_dfs)
         df_savefile = os.path.join(perf_figdir, 'perf_fcast_verif_out_df.h5')
         perf_fcast_dfs.to_hdf(df_savefile, fcast_against_src)
+
+    if output_spatial_field_skill and sptl_skill:
+        pkl_savefile = os.path.join(perf_figdir,
+                                    'perf_fcast_sptl_verif_out.pkl')
+        with open(pkl_savefile, mode='wb') as f:
+            pickle.dump(sptl_skill, f)
 
 
 def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
@@ -321,6 +333,7 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
 
     """
     perf_fcast_dfs = []
+    perf_fcast_spatial = {}
     for var_key in base_keys:
         var_name, avg_interval = var_key
         field_factor = field_factors[var_key]
@@ -343,6 +356,11 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
         nonzero_data = np.logical_not(invalid_data)
 
         ce = ST.calc_ce(fcast_1yr_field, target_field)
+        perf_fcast_spatial[var_key] = {'lac': lac,
+                                       'ce': ce}
+        if valid_data is not None:
+            perf_fcast_spatial[var_key]['valid_data'] = valid_data
+
         anom_corr = ST.calc_lac(fcast_1yr_field.T, target_field.T)
 
         ar1_lac = ST.calc_lac(ar1_field_fcast, target_field)
@@ -403,7 +421,7 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
                                             ar1_anom_corr, var_name,
                                             avg_interval, savefile=acorr_path)
 
-    return perf_fcast_dfs
+    return perf_fcast_dfs, perf_fcast_spatial
 
 
 def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
@@ -626,10 +644,11 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
     if do_perfect_fcast or do_ens_fcast:
 
         if fcast_against is not None:
-            update_dict = {'prior_source': fcast_against}
+            update_dict = {'prior_source': fcast_against,
+                           'detrend': True}
         else:
             fcast_against = cfg_class.prior.prior_source
-            update_dict = {}
+            update_dict = {'detrend': True}
 
         regrid_cfg = cfg_class.regrid()
         full_prior_cfg = cfg_class.prior(regrid_cfg, nens='all',
@@ -741,11 +760,11 @@ if __name__ == '__main__':
         yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
     ### Single Run
-    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-    LMR_config.proxies.proxy_frac = 1.0
-    LMR_config.core.nexp = 'testdev_mpi_atmocn_coupled'
-    run(LMR_config, fcast_against=fcast_against,
-        figure_dir=fig_dir)
+    # LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+    # LMR_config.proxies.proxy_frac = 1.0
+    # LMR_config.core.nexp = 'testdev_mpi_atmocn_coupled'
+    # run(LMR_config, fcast_against=fcast_against,
+    #     figure_dir=fig_dir)
 
     ### Sensitivity Experiments
     # levels
@@ -756,13 +775,14 @@ if __name__ == '__main__':
     #           40,
     #           # 41, 42, 43, 44, 45, 46, 47, 48, 49, 50
     # ]
-    # # params = [20, 25,
-    # #           30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
-    # #           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
-    # # params = [43]
-    # pname = 'nmodes'
-    # nexp = 'testdev_mpi_atmocn_coupled_retmodes{:d}'
-    # proxy_frac = 1.0
+    params = [2, 5, 10, 15, 20, 25, 30,
+              21, 22, 23, 24, 26, 27, 28, 29]
+    #           # 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+    #           # 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
+    #params = [25]
+    pname = 'nmodes'
+    nexp = 'testdev_ccsm4_ohc_only_retmodes{:d}'
+    proxy_frac = 1.0
     #
     # # nens
     # # params = [5, 10, 25, 50, 100, 200]
@@ -776,21 +796,23 @@ if __name__ == '__main__':
     # # nexp = 'testdev_{:d}iter_100ens_seasbil_ccsm4_past1000_34modes'
     # # proxy_frac = 0.75
     #
-    # for i, param in enumerate(params):
-    #
-    #     LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-    #     print('RUN SENSITIVITY EXP ({}={:d})'.format(pname, param))
-    #     LMR_config.proxies.proxy_frac = proxy_frac
-    #     LMR_config.core.nexp = nexp.format(param)
-    #
-    #     # for mc iters
-    #     # LMR_config.core.seed = param
-    #
-    #     # for modes
-    #     LMR_config.forecaster.lim.fcast_num_pcs = param
-    #
-    #     # for nens
-    #     # nens = param
-    #
-    #     run(cfg_class=LMR_config, fcast_against=fcast_against,
-    #         figure_dir=fig_dir)
+
+    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+
+    for i, param in enumerate(params):
+
+        print('RUN SENSITIVITY EXP ({}={:d})'.format(pname, param))
+        LMR_config.proxies.proxy_frac = proxy_frac
+        LMR_config.core.nexp = nexp.format(param)
+
+        # for mc iters
+        # LMR_config.core.seed = param
+
+        # for modes
+        LMR_config.forecaster.lim.fcast_num_pcs = param
+
+        # for nens
+        # nens = param
+
+        run(cfg_class=LMR_config, fcast_against=fcast_against,
+            figure_dir=fig_dir)
