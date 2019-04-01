@@ -202,19 +202,19 @@ def ce_r_results_to_dataframe(var_key, avg_key, output_type,
     return df
 
 
-def red_noise_fit_ar1(data):
-    lag1_autocorr = ST.calc_lac(data[:-1], data[1:])
+def red_noise_fit_ar1(data, lead=1):
+    lag1_autocorr = ST.calc_lac(data[:-lead], data[lead:])
 
     white_noise_var = (1 - lag1_autocorr ** 2) * data.var(ddof=1, axis=0)
 
     return lag1_autocorr, white_noise_var
 
 
-def red_noise_forecast_ar1(data):
+def red_noise_forecast_ar1(data, lead=1):
 
-    ar1_factor, noise_var = red_noise_fit_ar1(data)
+    ar1_factor, noise_var = red_noise_fit_ar1(data, lead=lead)
 
-    forecast = data[:-1] * ar1_factor
+    forecast = data[:-lead] * ar1_factor
 
     return forecast
 

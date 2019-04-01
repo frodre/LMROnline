@@ -55,7 +55,7 @@ plot_spatial_verif = False
 output_spatial_field_skill = True
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = True 
+do_ens_fcast = True
 nens = 100
 do_hist = False
 do_reliability = False
@@ -139,8 +139,10 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
     perf_figdir = os.path.join(fig_out_dir, 'perfect_fcast',
                                fcast_against_src)
     os.makedirs(perf_figdir, exist_ok=True)
+    fcast_lead = 1
 
-    fcast_1yr = lim_fcast_obj.lim.forecast(state_lim_space[:-1], [1])
+    fcast_1yr = lim_fcast_obj.lim.forecast(state_lim_space[:-fcast_lead],
+                                           [fcast_lead])
     fcast_1yr = np.squeeze(fcast_1yr)
 
     # load scalar factors for forecasting experiments
@@ -162,6 +164,7 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                                      base_scalar_factors,
                                                      times,
                                                      fcast_1yr,
+                                                     fcast_lead,
                                                      state_obj,
                                                      lim_fcast_obj.valid_data_mask,
                                                      compressed_keys,
@@ -193,8 +196,8 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
 
 
 def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
-                                   fcast_1yr, state_obj, valid_data_masks,
-                                   compressed_keys,
+                                   fcast, lead, state_obj,
+                                   valid_data_masks, compressed_keys,
                                    fcast_against_src, perf_figdir):
     """
 
@@ -208,8 +211,10 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
         spatial fields by to get the scalar measure
     times
         array of years corresponding to 1-year forecast times
-    fcast_1yr
+    fcast
         lim forecast in lim space
+    lead
+        forecast lead time for AR(t) comparisonr
     state_obj:
         state in full space, used to calculate the target scalar info
     valid_data_masks
@@ -231,7 +236,7 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
                                                             base_factors,
                                                             measure_out,
                                                             state_obj,
-                                                            fcast_1yr)
+                                                            fcast)
 
     for measure_key, factor in scalar_factors.items():
         var_key = measure_key[:-1]
@@ -250,16 +255,16 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
         ref_dat = mutils.get_field_from_state(state_obj, var_key,
                                               valid_data=valid_data)
         ref_measure = ref_dat @ base_factor
-        fcast_measure = fcast_1yr @ factor
+        fcast_measure = fcast @ factor
 
         measure_out[measure_key] = (ref_measure, fcast_measure)
 
     for measure_key, (ref, fcast) in measure_out.items():
         var_name, avg_interval, measure = measure_key
 
-        ar1_fcast = mutils.red_noise_forecast_ar1(ref)
+        ar1_fcast = mutils.red_noise_forecast_ar1(ref, lead=lead)
 
-        target_scalar = ref[1:]
+        target_scalar = ref[lead:]
 
         r_ce_args, r_ce_kwargs = vutils.calc_scalar_ce_r(fcast, target_scalar)
         ar1_r_ce_args, ar1_r_ce_kwargs = vutils.calc_scalar_ce_r(ar1_fcast,

@@ -205,8 +205,10 @@ class LIMForecaster(BaseForecaster):
                     print(f'Saving pre-calibrated LIM: {output_path}')
                     lim_obj._pre_concat_data_std = None
                     lim_obj._separate_vars = None
+                    tmp_calib = lim_obj.calib_data
                     lim_obj.calib_data = None
                     pickle.dump(lim_obj, f)
+                    lim_obj.calib_data = tmp_calib
 
         lim_obj.print_lim_save_attrs()
 
