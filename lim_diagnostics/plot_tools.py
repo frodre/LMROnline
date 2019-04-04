@@ -433,11 +433,15 @@ def plot_scalar_verification(years, fcast, reference, r, ce,
                              auto1_r,  auto1_ce,
                              title, ref_name, ylabel,
                              r_conf95, ce_conf95, auto1_r_conf95,
-                             auto1_ce_conf95, savefile=None):
+                             auto1_ce_conf95, savefile=None,
+                             replace_title=None):
 
     capsize = 5
     mew = 2
-    tseries_title = '1-year LIM Forecast vs. Target:  ' + title
+    if replace_title is None:
+        tseries_title = '1-year LIM Forecast vs. Target:  ' + title
+    else:
+        tseries_title = replace_title
 
     r_conf95 = _convert_bnds_for_errorplot(r_conf95, r)
     auto1_r_conf95 = _convert_bnds_for_errorplot(auto1_r_conf95, auto1_r)
