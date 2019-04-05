@@ -287,8 +287,8 @@ ccsm4_piControl:
     available_vars: [tas_sfc_Amon, psl_sfc_Amon, zg_500hPa_Amon,
                      pr_sfc_Amon,
                      tos_sfc_Omon, ohc_0-700m_Omon,
-                     zos_sfc_Omon]
-    rotated_pole: [tos_sfc_Omon, zos_sfc_Omon, ohc_0-700m_Omon]
+                     zos_sfc_Omon, sos_sfc_Omon]
+    rotated_pole: [tos_sfc_Omon, zos_sfc_Omon, ohc_0-700m_Omon, sos_sfc_Omon]
     cell_area: '[realm_var]_fx_CCSM4_piControl_r0i0p0.nc'
     cell_area_template: '[realm_var]'
     cell_area_realmvar_def:
