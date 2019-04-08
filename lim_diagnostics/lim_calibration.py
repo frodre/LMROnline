@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # defaults to config.core.nexp in working directory
-fig_dir = '/home/disk/p/wperkins/ipynb/lim_diagnostics'
+fig_dir = '/home/disk/p/wperkins/ipynb/lim_diagnostics/realistic_seasonal'
 
 # Fig Output
 plot_neofs = 10
@@ -36,13 +36,13 @@ plot_num_lim_modes = 20
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_last_millenium'
+fcast_against = 'ccsm4_piControl'
 is_diff_model = False
 fcast_start_yr = 851
 
 # Only use fields specified in prior state dimension. False emulates
 # reconstruction state, including PSM required averages of fields
-base_only = True
+base_only = False
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
@@ -52,10 +52,10 @@ do_scalar_verif = True
 plot_scalar_verif = False
 do_spatial_verif = True
 plot_spatial_verif = False
-output_spatial_field_skill = True
+output_spatial_field_skill = False
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = True
+do_ens_fcast = False
 nens = 100
 do_hist = False
 do_reliability = False
@@ -578,9 +578,9 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
         LMR_gridded.PriorVariable.get_base_and_psm_req_vars(cfg.prior,
                                                             req_avg_intervals)
 
-    load_keys = base_keys + psm_req_keys
-    lim_fcaster = LMR_forecaster.LIMForecaster.from_config(cfg.forecaster,
-                                                           load_keys)
+    lim_fcaster = LMR_forecaster.LIMForecaster.from_config(
+        cfg.forecaster, base_keys, psm_req_var_keys=psm_req_keys
+    )
 
     regrid_grid = cfg.prior.regrid_cfg.esmpy_regrid_to
 
@@ -773,20 +773,11 @@ if __name__ == '__main__':
 
     ### Sensitivity Experiments
     # levels
-    # params = [
-    #           2, 5, 10, 15, 20, 25,
-    #           30, 31, 32, 33, 34, 35, 36,
-    #           37, 38, 39,
-    #           40,
-    #           # 41, 42, 43, 44, 45, 46, 47, 48, 49, 50
-    # ]
-    params = [2, 5, 10, 15, 20, 25, 30,
-              21, 22, 23, 24, 26, 27, 28, 29]
-    #           # 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
-    #           # 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
+    params = [5, 10, 15, 20, 25, 30,]
+              # 21, 22, 23, 24, 26, 27, 28, 29]
     #params = [25]
     pname = 'nmodes'
-    nexp = 'testdev_ccsm4_ohc_only_retmodes{:d}'
+    nexp = 'testdev_ccsm4_seasbil_pagesv2_sepPSMvar_retmodes{:d}'
     proxy_frac = 1.0
     #
     # # nens

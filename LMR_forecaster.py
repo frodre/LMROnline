@@ -1,4 +1,6 @@
 from abc import abstractmethod
+from copy import deepcopy
+from collections import defaultdict
 import numpy as np
 import logging
 import hashlib
@@ -45,19 +47,21 @@ class LIMForecaster(BaseForecaster):
     Linear Inverse Model Forecaster
     """
 
-    def __init__(self, lim_config, load_vars, base_avg_interval, nelem_in_yr,
+    def __init__(self, lim_config, load_vars, var_groups, nelem_in_yr,
                  dobj_num_pcs, multivar_num_pcs, detrend, fcast_type, prior_map,
                  fcast_lead, match_prior, save_attrs, std_before_eof_vars=None,
-                 var_to_separate=None, store_calib=False):
+                 store_calib=False):
 
         FcastVar = LMR_gridded.ForecasterVariable
-        fcast_var_gen = FcastVar.load_all_gen(lim_config, load_vars)
 
         self.valid_data_mask = {}
         self.var_eofs = {}
         self.var_order = []
         self.var_span = {}
         self.calib_yr_range = {}
+        self.grp_calib_eofs = {}
+        self.grp_multivar_eof_stats = {}
+        self.grp_calib_data = {}
         self.var_eof_std_factor = {}
         self.var_std_factor = {}
         self.var_eof_stats = {}
@@ -65,54 +69,28 @@ class LIMForecaster(BaseForecaster):
         self._end = 0
 
         # Used for data concatenation
-        self._pre_concat_data_std = []
-        self._separate_vars = {}
+        self._pre_eof_data_std = defaultdict(list)
 
         # list of datatag, multivar_num_pcs, dobj_num_pcs, load_vars
         self._save_attrs = save_attrs
 
-        for key, fcast_var in fcast_var_gen:
+        for grp_key, (grp_nmodes, grp_var_list) in var_groups.items():
 
-            # Convert data into pylim.DataObject and then perform processing
-            dobj = self._process_forecast_variable(key, fcast_var, detrend,
-                                                   nelem_in_yr, dobj_num_pcs,
-                                                   std_before_eof_vars)
+            fcast_var_gen = FcastVar.load_all_gen(lim_config, grp_var_list)
 
-            cur_varname, cur_avg_interval = key
-            if cur_varname in var_to_separate:
-                self._separate_vars[key] = dobj
-                # skip variables we want to separate
-                continue
+            for key, fcast_var in fcast_var_gen:
 
-            # Handle combination into LIMState
-            self._process_lim_state_params(key, dobj)
+                # Convert data into pylim.DataObject and then perform processing
+                dobj = self._process_forecast_variable(key, fcast_var, detrend,
+                                                       nelem_in_yr,
+                                                       dobj_num_pcs,
+                                                       std_before_eof_vars)
 
-        calib_state_std, shave_yr_range = self._combine_lim_state_data()
+                # Handle combination into LIMState
+                self._process_lim_state_params(key, grp_key, dobj)
 
-        # Calculate multi-variate EOFs
-        [calib_state_eofs,
-         calib_state_svals,
-         calib_state_eof_stats] = _calc_limstate_eofs(calib_state_std,
-                                                      multivar_num_pcs)
-        self.calib_eofs = calib_state_eofs
-        ret_variance = calib_state_eof_stats['var_expl_by_ret'] * 100
-        print(f'Variance % retained in multi-variate EOF truncation: '
-              f'{ret_variance:3.1f}%')
-
-        self.multi_var_eof_stats = calib_state_eof_stats
-
-        # Project unstandardized data on the calculated EOFs
-        eof_proj_calib = calib_state_std @ calib_state_eofs
-
-        # Handle separate state information
-        eof_proj_calib = self._process_separate_vars(eof_proj_calib,
-                                                     shave_yr_range,
-                                                     var_to_separate)
-
-        if store_calib:
-            self.calib_data = eof_proj_calib
-        else:
-            self.calib_data = None
+        self._combine_lim_state_data()
+        eof_proj_calib = self._form_mvar_eof_state(var_groups, store_calib)
 
         if fcast_type == 'noise_integrate':
             fit_noise = True
@@ -136,7 +114,8 @@ class LIMForecaster(BaseForecaster):
                              '{}'.format(fcast_type))
 
     @classmethod
-    def from_config(cls, forecaster_config, state_var_keys, store_calib=False):
+    def from_config(cls, forecaster_config, state_var_keys,
+                    psm_req_var_keys=None, store_calib=False):
         # TODO: hardcoded annual or greater
         nelem_in_yr = 1
         lim_cfg = forecaster_config.lim
@@ -158,18 +137,21 @@ class LIMForecaster(BaseForecaster):
         if match_prior:
             load_vars = state_var_keys
         else:
-            load_vars = FcastVar.get_fcast_prior_match_vars(lim_cfg.fcast_varnames)
+            # TODO: I'm not sure this works correcly with psm required variables
+            load_vars = FcastVar.get_fcast_prior_match_vars(
+                lim_cfg.fcast_varnames, lim_cfg.prior_mapping,
+                state_var_keys)
 
-        # TODO: Figure out how to save with separated variables
-        load_vars.sort()
-        save_attrs = [lim_cfg.datatag, num_pcs, dobj_num_pcs] + list(load_vars)
-        for i, curr_item in enumerate(save_attrs):
-            if isinstance(curr_item, tuple):
-                # join the variable key (var_name, avg_interval)
-                save_attrs[i] = '_'.join(curr_item)
-            else:
-                # turn potential other items into a string
-                save_attrs[i] = str(save_attrs[i])
+        [var_load_groups,
+         save_str_items] = cls._handle_config_var_separation(var_to_separate,
+                                                             load_vars,
+                                                             num_pcs,
+                                                             psm_req_var_keys,
+                                                             base_avg_interval)
+
+        # Create file string using hashing
+        save_attrs = [lim_cfg.datatag, str(dobj_num_pcs)]
+        save_attrs += save_str_items
         save_str = '_'.join(save_attrs)
         save_str = save_str.encode('utf-8')
         save_hasher = hashlib.md5()
@@ -190,11 +172,10 @@ class LIMForecaster(BaseForecaster):
 
         except IOError as e:
             print(e)
-            lim_obj = cls(lim_cfg, load_vars, base_avg_interval, nelem_in_yr,
+            lim_obj = cls(lim_cfg, load_vars, var_load_groups, nelem_in_yr,
                           dobj_num_pcs, num_pcs, detrend, fcast_type, prior_map,
                           fcast_lead, match_prior, save_attrs,
                           std_before_eof_vars=var_to_std_before_eof,
-                          var_to_separate=var_to_separate,
                           store_calib=store_calib)
 
             if save_precalib:
@@ -203,16 +184,75 @@ class LIMForecaster(BaseForecaster):
 
                 with open(output_path, 'wb') as f:
                     print(f'Saving pre-calibrated LIM: {output_path}')
-                    lim_obj._pre_concat_data_std = None
+                    lim_obj._pre_eof_data_std = None
                     lim_obj._separate_vars = None
-                    tmp_calib = lim_obj.calib_data
-                    lim_obj.calib_data = None
+                    tmp_calib = lim_obj.grp_calib_data
+                    lim_obj.grp_calib_data = None
                     pickle.dump(lim_obj, f)
-                    lim_obj.calib_data = tmp_calib
+                    lim_obj.grp_calib_data = tmp_calib
 
         lim_obj.print_lim_save_attrs()
 
         return lim_obj
+
+    @classmethod
+    def _handle_config_var_separation(cls, var_to_separate, all_load_keys,
+                                      main_nmodes,
+                                      psm_req_var_keys, avg_interval):
+        """Process requested variables to separate into groups for the LIM"""
+
+        all_load_keys = deepcopy(all_load_keys)
+        sep_psms_key = 'psm_req_vars'
+
+        grps_to_sep = {}
+        not_assigned = set(all_load_keys)
+        if sep_psms_key in var_to_separate:
+
+            if psm_req_var_keys is None:
+                raise ValueError('List of psm variable keys required if '
+                                 'separation is requested')
+
+            num_psm_grp_modes = var_to_separate.pop(sep_psms_key)
+            psm_req_var_keys.sort()
+            grps_to_sep[sep_psms_key] = (num_psm_grp_modes,
+                                         psm_req_var_keys)
+            not_assigned -= set(psm_req_var_keys)
+
+        for grp_name, num_modes_ret in var_to_separate.items():
+            if isinstance(num_modes_ret, int):
+                # single variable
+                var_key = (grp_name, avg_interval)
+                not_assigned -= set(var_key)
+                grps_to_sep[grp_name] = (num_modes_ret, [var_key])
+            elif not isinstance(num_modes_ret, tuple):
+                raise ValueError('var_to_separate should either contain an'
+                                 'integer or tuple<int, list> to specify '
+                                 'separation')
+            else:
+                num_modes_ret, grp_vars = num_modes_ret
+                not_assigned -= set(grp_vars)
+
+        not_assigned = list(not_assigned)
+        not_assigned.sort()
+
+        grps_to_sep['main'] = (main_nmodes, not_assigned)
+        sep_save_str_items = cls._get_sep_var_string_items(grps_to_sep)
+
+        return grps_to_sep, sep_save_str_items
+
+    @staticmethod
+    def _get_sep_var_string_items(var_to_sep):
+
+        save_str_items = []
+        for grp_key, (grp_nmodes, var_keys) in var_to_sep.items():
+            save_str_items += ['_'.join([grp_key, str(grp_nmodes)])]
+            var_key_strs = ['_'.join(item) for item in var_keys]
+            save_str_items += var_key_strs
+
+        # save_str_items.sort()
+        # save_str = '_'.join(save_str_items)
+
+        return save_str_items
 
     def forecast(self, state_obj):
         """Perfect no-noise forecast. Drastically reduces output variance."""
@@ -313,16 +353,18 @@ class LIMForecaster(BaseForecaster):
 
     def print_lim_save_attrs(self):
         datatag = self._save_attrs[0]
-        mvar_npcs = int(self._save_attrs[1])
-        dobj_npcs = int(self._save_attrs[2])
-        load_vars = self._save_attrs[3:]
+        dobj_npcs = int(self._save_attrs[1])
+        load_vars = self._save_attrs[2:]
 
         dobj_eof_str = ''
         for var_key, eof_stats in self.var_eof_stats.items():
             tot_var_ret = eof_stats['var_expl_by_ret'] * 100
             dobj_eof_str += f'\t{var_key}: \t{tot_var_ret:3.1f}\n'
 
-        multi_var_pct = self.multi_var_eof_stats['var_expl_by_ret'] * 100
+        mvar_eof_str = ''
+        for grp_key, var_ret in self.grp_multivar_eof_stats.items():
+            mvar_pct_ret = var_ret['var_expl_by_ret'] * 100
+            mvar_eof_str += f'\t{grp_key}: \t{mvar_pct_ret:2.1f}\n'
 
         str = (f'\nCalibrated LIM Attributes:\n'
                f'==========================\n'
@@ -330,9 +372,8 @@ class LIMForecaster(BaseForecaster):
                f'dobj num pcs: {dobj_npcs:3d}\n'
                f'dobj EOF percentage variance retained:\n'
                f'{dobj_eof_str}'
-               f'multivar num pcs: {mvar_npcs:3d}\n'
-               f'percentage of multi-variate variance retained: '
-               f'\t{multi_var_pct:3.1f}\n'
+               f'percentage of multi-variate variance retained:\n'
+               f'{mvar_eof_str}'
                f'included variable/avg_intervals: {load_vars}\n'
                f'==========================\n')
 
@@ -419,13 +460,13 @@ class LIMForecaster(BaseForecaster):
 
         return data_obj
 
-    def _process_lim_state_params(self, key, data_obj):
+    def _process_lim_state_params(self, key, grp_key, data_obj):
         self.var_order.append(key)
 
         # Standardized data for calculating the multi-variate EOFs
         dobj_data_std = data_obj.data
 
-        self._pre_concat_data_std.append(dobj_data_std)
+        self._pre_eof_data_std[grp_key].append(dobj_data_std)
         self._end = self._start + dobj_data_std.shape[1]
         self.var_span[key] = (self._start, self._end)
         self._start = self._end
@@ -438,24 +479,99 @@ class LIMForecaster(BaseForecaster):
             late_start = max(late_start, yr_start)
             early_end = min(early_end, yr_end)
 
-        for i, key in enumerate(self.var_order):
-            var_data_std = self._pre_concat_data_std[i]
+        start_idx = 0
+        for grp_key, concat_data in self._pre_eof_data_std.items():
+            for i, var_data_std in enumerate(concat_data):
 
-            yr_start, yr_end = self.calib_yr_range[key]
+                key = self.var_order[i + start_idx]
+                yr_start, yr_end = self.calib_yr_range[key]
 
-            shave_start = late_start - yr_start
-            shave_end = early_end - yr_end
+                shave_start = late_start - yr_start
+                shave_end = early_end - yr_end
 
-            if shave_end == 0:
-                shave_end = None
+                if shave_end == 0:
+                    shave_end = None
 
-            adj_slice = slice(shave_start, shave_end)
+                adj_slice = slice(shave_start, shave_end)
 
-            self._pre_concat_data_std[i] = var_data_std[adj_slice]
+                concat_data[i] = var_data_std[adj_slice]
 
-        lim_state_std = np.concatenate(self._pre_concat_data_std, axis=1)
+            start_idx += i + 1
+            self._pre_eof_data_std[grp_key] = np.concatenate(concat_data, axis=1)
 
-        return lim_state_std, (late_start, early_end)
+    def _form_mvar_eof_state(self, var_grps, store_calib):
+
+        mvar_projected_data = []
+        for grp_key, (grp_neofs, grp_var_keys) in var_grps.items():
+            grp_calib_state = self._pre_eof_data_std[grp_key]
+
+            if len(grp_var_keys) > 1:
+                grp_eof_proj = self._calc_mvar_eofs(grp_key, grp_calib_state,
+                                                    grp_neofs)
+            else:
+                grp_eof_proj = self._handle_single_var_mvar_eofs(grp_key,
+                                                                 grp_neofs,
+                                                                 grp_calib_state)
+
+            mvar_projected_data.append(grp_eof_proj)
+            if store_calib:
+                self.grp_calib_data[grp_key] = grp_eof_proj
+
+        mvar_projected_data = np.concatenate(mvar_projected_data, axis=1)
+
+        # Combine EOFs into cohesive array
+        # TODO: is this necessary any longer?
+        i_len, j_len = 0, 0
+        mvar_eof_lims = {}
+        for grp_key, grp_eofs in self.grp_calib_eofs.items():
+            i_shp, j_shp = grp_eofs.shape
+            end_i = i_len + i_shp
+            end_j = j_len + j_shp
+
+            mvar_eof_lims[grp_key] = ((i_len, end_i), (j_len, end_j))
+            i_len = end_i
+            j_len = end_j
+
+        combined_calib_eofs = np.zeros((i_len, j_len))
+        for grp_key, grp_eofs in self.grp_calib_eofs.items():
+            i_range, j_range = mvar_eof_lims[grp_key]
+            combined_calib_eofs[slice(*i_range), slice(*j_range)] = grp_eofs
+        self.calib_eofs = combined_calib_eofs
+
+        return mvar_projected_data
+
+    def _handle_single_var_mvar_eofs(self, grp_key, neofs, grp_calib_state):
+
+        print(f'Handling multivar EOF translation for single var group: '
+              f'{grp_key}')
+
+        # don't need to do another EOF decomposition
+        var_feature_len = grp_calib_state.shape[1]
+        eof_translate = np.eye(var_feature_len)
+        self.grp_calib_eofs[grp_key] = eof_translate[:, :neofs]
+        eof_proj_calib = grp_calib_state[:, :neofs]
+
+        return eof_proj_calib
+
+    def _calc_mvar_eofs(self, grp_key, grp_calib_state, grp_neofs):
+
+        # Calculate multi-variate EOFs
+        [grp_state_eofs,
+         grp_state_svals,
+         grp_state_eof_stats] = _calc_limstate_eofs(grp_calib_state,
+                                                    grp_neofs)
+
+        self.grp_calib_eofs[grp_key] = grp_state_eofs
+        ret_variance = grp_state_eof_stats['var_expl_by_ret'] * 100
+        print(f'Variance % retained in multi-variate EOF truncation for '
+              f'{grp_key} group: {ret_variance:3.1f}%')
+
+        self.grp_multivar_eof_stats[grp_key] = grp_state_eof_stats
+
+        # Project unstandardized data on the calculated EOFs
+        eof_proj_calib = grp_calib_state @ grp_state_eofs
+
+        return eof_proj_calib
 
     def _process_separate_vars(self, eof_proj_calib,
                                shave_yr_range, var_to_separate):
