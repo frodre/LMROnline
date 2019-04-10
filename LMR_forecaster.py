@@ -50,7 +50,7 @@ class LIMForecaster(BaseForecaster):
     def __init__(self, lim_config, load_vars, var_groups, nelem_in_yr,
                  dobj_num_pcs, multivar_num_pcs, detrend, fcast_type, prior_map,
                  fcast_lead, match_prior, save_attrs, std_before_eof_vars=None,
-                 store_calib=False):
+                 store_calib=False, uncouple_groups=None):
 
         FcastVar = LMR_gridded.ForecasterVariable
 
@@ -62,6 +62,7 @@ class LIMForecaster(BaseForecaster):
         self.grp_calib_eofs = {}
         self.grp_multivar_eof_stats = {}
         self.grp_calib_data = {}
+        self.grp_span = {}
         self.var_eof_std_factor = {}
         self.var_std_factor = {}
         self.var_eof_stats = {}
@@ -97,8 +98,17 @@ class LIMForecaster(BaseForecaster):
         else:
             fit_noise = False
 
+        # component indices to remove forward influence on other fields
+        if uncouple_groups:
+            uncouple_grp_ranges = [self.grp_span[key]
+                                   for key in uncouple_groups]
+        else:
+            uncouple_grp_ranges = None
+
+        # TODO: add in the component zeroing to G or L?
         self.lim = LIM.LIM(eof_proj_calib, nelem_in_tau1=nelem_in_yr,
-                           fit_noise=fit_noise, max_neg_Qeval=10)
+                           fit_noise=fit_noise, max_neg_Qeval=40,
+                           uncouple_ranges=uncouple_grp_ranges)
         self.prior_map = prior_map
         self.fcast_lead = fcast_lead
         self.match_prior = match_prior
@@ -130,6 +140,7 @@ class LIMForecaster(BaseForecaster):
         save_precalib = lim_cfg.save_precalib_lim
         var_to_std_before_eof = lim_cfg.var_to_std_before_eof
         var_to_separate = lim_cfg.var_to_separate
+        uncouple_groups = lim_cfg.uncouple_groups
         base_avg_interval = lim_cfg.avg_interval
 
         FcastVar = LMR_gridded.ForecasterVariable
@@ -151,6 +162,8 @@ class LIMForecaster(BaseForecaster):
 
         # Create file string using hashing
         save_attrs = [lim_cfg.datatag, str(dobj_num_pcs)]
+        if uncouple_groups is not None and uncouple_groups:
+            save_attrs += ['uncoupled', *uncouple_groups]
         save_attrs += save_str_items
         save_str = '_'.join(save_attrs)
         save_str = save_str.encode('utf-8')
@@ -176,7 +189,8 @@ class LIMForecaster(BaseForecaster):
                           dobj_num_pcs, num_pcs, detrend, fcast_type, prior_map,
                           fcast_lead, match_prior, save_attrs,
                           std_before_eof_vars=var_to_std_before_eof,
-                          store_calib=store_calib)
+                          store_calib=store_calib,
+                          uncouple_groups=uncouple_groups)
 
             if save_precalib:
                 if not os.path.exists(output_dir):
@@ -496,12 +510,13 @@ class LIMForecaster(BaseForecaster):
 
                 concat_data[i] = var_data_std[adj_slice]
 
-            start_idx += i + 1
+            start_idx += i
             self._pre_eof_data_std[grp_key] = np.concatenate(concat_data, axis=1)
 
     def _form_mvar_eof_state(self, var_grps, store_calib):
 
         mvar_projected_data = []
+        grp_span_start = 0
         for grp_key, (grp_neofs, grp_var_keys) in var_grps.items():
             grp_calib_state = self._pre_eof_data_std[grp_key]
 
@@ -512,6 +527,10 @@ class LIMForecaster(BaseForecaster):
                 grp_eof_proj = self._handle_single_var_mvar_eofs(grp_key,
                                                                  grp_neofs,
                                                                  grp_calib_state)
+
+            grp_span_end = grp_span_start + grp_eof_proj.shape[1]
+            self.grp_span[grp_key] = (grp_span_start, grp_span_end)
+            grp_span_start = grp_span_end
 
             mvar_projected_data.append(grp_eof_proj)
             if store_calib:
