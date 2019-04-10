@@ -2,6 +2,7 @@ import os
 import numpy as np
 from multiprocessing import Pool
 from itertools import product
+from collections import defaultdict
 
 import LMR_outputs as lmout
 from LMR_utils import crps
@@ -12,7 +13,16 @@ import lim_diagnostics.misc_utils as mutils
 
 
 def get_scalar_factors(scalar_measures, avg_interval, var_valid_data, prior_cfg,
-                       latgrid, longrid, cell_area=None):
+                       latgrid, longrid, cell_area=None, psm_req_var_keys=None):
+
+    # divvy out var_keys loaded by psm by var_name
+    if psm_req_var_keys is not None:
+        psm_varname_varkey_map = defaultdict(list)
+        for psm_var_key in psm_req_var_keys:
+            psm_var_name, psm_avg_int = psm_var_key
+            psm_varname_varkey_map[psm_var_name].append(psm_var_key)
+    else:
+        psm_varname_varkey_map = None
 
     scalar_factors = {}
     for varname, measure_list in scalar_measures.items():
@@ -31,6 +41,13 @@ def get_scalar_factors(scalar_measures, avg_interval, var_valid_data, prior_cfg,
             scalar_factors[factor_key] = \
                 lmout.get_scalar_factor(measure, varname, prior_cfg, lat, lon,
                                         cell_area=cell_area)
+
+            # scalar factor is same for equivalent variable names
+            if psm_varname_varkey_map and varname in psm_varname_varkey_map:
+                for psm_var_key in psm_varname_varkey_map[varname]:
+                    psm_factor_key = (*psm_var_key, measure)
+                    scalar_factors[psm_factor_key] = scalar_factors[factor_key]
+
 
     return scalar_factors
 

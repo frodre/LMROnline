@@ -36,7 +36,7 @@ plot_num_lim_modes = 20
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_piControl'
+fcast_against = 'ccsm4_last_millenium'
 is_diff_model = False
 fcast_start_yr = 851
 
@@ -46,6 +46,9 @@ base_only = False
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
+
+# Include scalar factors related to psm_required variables
+include_psm_req_output = True and not base_only
 
 do_perfect_fcast = True
 do_scalar_verif = True
@@ -85,18 +88,20 @@ var_units = {'tas_sfc_Amon': 'K',
              'pr_sfc_Amon': 'mm'}
 
 
-def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, base_keys):
+def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, incl_keys,
+                       psm_keys=None):
     base_scalar_factors = \
         vutils.get_scalar_factors(cfg_obj.prior.outputs['scalar_ens'],
                                   cfg_obj.prior.avg_interval,
                                   lim_fcast_obj.valid_data_mask,
                                   cfg_obj.prior,
-                                  latgrid, longrid)
+                                  latgrid, longrid,
+                                  psm_req_var_keys=psm_keys)
 
     # include EOFs to go straight from LIM space -> scalar measure
     scalar_factors, field_factors = \
         vutils.add_eofs_to_scalar_factors(base_scalar_factors, lim_fcast_obj,
-                                          base_keys)
+                                          incl_keys)
 
     # scalar_factors: lim_space -> scalar
     # field_factors: lim_space -> full_space
@@ -109,7 +114,7 @@ def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, base_keys):
 def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                state_lim_space, times, base_keys,
                                fcast_against_src, compressed_keys,
-                               fig_out_dir='.'):
+                               fig_out_dir='.', psm_req_keys=None):
 
     """
 
@@ -150,12 +155,18 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
     latgrid = grid_coords['lat']
     longrid = grid_coords['lon']
 
+    if psm_req_keys is not None:
+        incl_keys = base_keys + psm_req_keys
+    else:
+        incl_keys = base_keys
+
     [scalar_factors,
      field_factors,
      base_scalar_factors] = get_scalar_factors(latgrid, longrid,
                                                cfg_obj,
                                                lim_fcast_obj,
-                                               base_keys)
+                                               incl_keys,
+                                               psm_keys=psm_req_keys)
 
     output_dfs = []
     sptl_skill = {}
@@ -172,7 +183,7 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
                                                      perf_figdir)
     if do_spatial_verif:
         [sptl_dfs,
-         sptl_skill] = spatial_perf_fcast_verification(base_keys,
+         sptl_skill] = spatial_perf_fcast_verification(incl_keys,
                                                        field_factors,
                                                        times,
                                                        fcast_1yr, state_obj,
@@ -297,7 +308,7 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
     return perf_fcast_dfs
 
 
-def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
+def spatial_perf_fcast_verification(incl_keys, field_factors, times, fcast_1yr,
                                     state_obj, latgrid, longrid,
                                     valid_data_masks, var_std_factors,
                                     fcast_against_src, perf_figdir):
@@ -306,7 +317,7 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
 
     Parameters
     ----------
-    base_keys
+    incl_keys
         State keys for the basic output variables specifified in the
         configuration. Keys are of the form (var_name, avg_interval)
     field_factors
@@ -339,7 +350,7 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
     """
     perf_fcast_dfs = []
     perf_fcast_spatial = {}
-    for var_key in base_keys:
+    for var_key in incl_keys:
         var_name, avg_interval = var_key
         field_factor = field_factors[var_key]
 
@@ -431,7 +442,7 @@ def spatial_perf_fcast_verification(base_keys, field_factors, times, fcast_1yr,
 
 def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
                            cfg_obj, lim_fcast_obj, base_keys, fcast_against_src,
-                           fig_out_dir='.'):
+                           fig_out_dir='.', psm_req_keys=None):
 
     t0 = state_lim_space[:-1]
     ens_1yr_fcast = lutils.ens_1yr_fcast(num_ens_members, lim, t0)
@@ -444,7 +455,8 @@ def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
     [scalar_factors,
      field_factors,
      base_scalar_factors] = get_scalar_factors(latgrid, longrid, cfg_obj,
-                                               lim_fcast_obj, base_keys)
+                                               lim_fcast_obj, base_keys,
+                                               psm_keys=psm_req_keys)
     ens_figdir = os.path.join(fig_out_dir, 'ens_fcast',
                               fcast_against_src)
     os.makedirs(ens_figdir, exist_ok=True)
@@ -529,10 +541,6 @@ def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
     ens_calib_fpath = os.path.join(ens_figdir, ens_calib_fname)
     ens_calib_out = pd.concat(ens_calib_dfs)
     ens_calib_out.to_hdf(ens_calib_fpath, fcast_against_src)
-
-
-def load_full_state(cfg_class):
-    pass
 
 
 def run(cfg_class=None, fcast_against=None, figure_dir=None):
@@ -671,15 +679,22 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
         end = start + reduced_state.shape[0]
         times = list(range(start, end))[1:]
 
+        if include_psm_req_output:
+            incl_psm_keys = psm_req_keys
+        else:
+            incl_psm_keys = None
+
         if do_perfect_fcast:
             perfect_fcast_verification(state, cfg, lim_fcaster, reduced_state,
                                        times, base_keys, fcast_against,
-                                       compressed, fig_out_dir=figure_dir)
+                                       compressed, fig_out_dir=figure_dir,
+                                       psm_req_keys=incl_psm_keys)
 
         if do_ens_fcast:
             ens_fcast_verification(reduced_state, nens, lim, state, cfg,
                                    lim_fcaster, base_keys, fcast_against,
-                                   fig_out_dir=figure_dir)
+                                   fig_out_dir=figure_dir,
+                                   psm_req_keys=incl_psm_keys)
     else:
         reduced_state, _ = lim_fcaster.phys_space_data_to_fcast_space(state)
         full_state_loaded = False
