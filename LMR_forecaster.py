@@ -511,7 +511,7 @@ class LIMForecaster(BaseForecaster):
 
                 concat_data[i] = var_data_std[adj_slice]
 
-            start_idx += i
+            start_idx += i + 1
             self._pre_eof_data_std[grp_key] = np.concatenate(concat_data, axis=1)
 
     def _form_mvar_eof_state(self, var_grps, store_calib):
