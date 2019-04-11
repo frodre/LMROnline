@@ -215,7 +215,7 @@ class LIMForecaster(BaseForecaster):
                                       psm_req_var_keys, avg_interval):
         """Process requested variables to separate into groups for the LIM"""
 
-        all_load_keys = deepcopy(all_load_keys)
+        all_load_keys = deepcopy(all_load_keys + psm_req_var_keys)
         sep_psms_key = 'psm_req_vars'
 
         grps_to_sep = {}
@@ -238,6 +238,7 @@ class LIMForecaster(BaseForecaster):
                 var_key = (grp_name, avg_interval)
                 not_assigned -= set(var_key)
                 grps_to_sep[grp_name] = (num_modes_ret, [var_key])
+                not_assigned -= {var_key}
             elif not isinstance(num_modes_ret, tuple):
                 raise ValueError('var_to_separate should either contain an'
                                  'integer or tuple<int, list> to specify '
