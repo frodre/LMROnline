@@ -1,9 +1,3 @@
-import LMR_proxy
-import LMR_gridded
-import LMR_forecaster
-import LMR_config
-import LMR_outputs
-
 import logging
 import sys
 import os
@@ -16,6 +10,12 @@ import lim_diagnostics.plot_tools as ptools
 import lim_diagnostics.lim_utils as lutils
 import lim_diagnostics.verif_utils as vutils
 import lim_diagnostics.misc_utils as mutils
+
+import LMR_proxy
+import LMR_gridded
+import LMR_forecaster
+import LMR_config
+import LMR_outputs
 
 import pylim.Stats as ST
 
@@ -36,7 +36,7 @@ plot_num_lim_modes = 20
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_last_millenium'
+fcast_against = 'ccsm4_piControl'
 is_diff_model = False
 fcast_start_yr = 851
 
@@ -48,20 +48,20 @@ base_only = False
 detrend_fcast_ref_data = True
 
 # Include scalar factors related to psm_required variables
-include_psm_req_output = True and not base_only
+include_psm_req_output = False and not base_only
 
 do_perfect_fcast = True
 do_scalar_verif = True
-plot_scalar_verif = False
+plot_scalar_verif = True
 do_spatial_verif = True
-plot_spatial_verif = False
-output_spatial_field_skill = False
+plot_spatial_verif = True
+output_spatial_field_skill = True
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = False
+do_ens_fcast = True
 nens = 100
-do_hist = False
-do_reliability = False
+do_hist = True
+do_reliability = True
 
 # Long integration forecast experiments
 do_long_integration = False
@@ -788,11 +788,13 @@ if __name__ == '__main__':
 
     ### Sensitivity Experiments
     # levels
-    params = [5, 10, 15, 20, 25, 30,]
-              # 21, 22, 23, 24, 26, 27, 28, 29]
-    #params = [25]
+    # params = [5, 10, 15, 20, 25, 30]
+    # params = [25, 26, 27, 28, 29, 30, 31, 32, 33]
+    params = [17]
+    # params = [24]
     pname = 'nmodes'
-    nexp = 'testdev_ccsm4_seasbil_pagesv2_sepPSMvar_retmodes{:d}'
+    # nexp = 'testdev_ccsm4_seasbil_pagesv2_coupPSMvar_ohc18fixed_retmodes{:d}'
+    nexp = 'testdev_ccsm4_seasbil_pagesv2_coupPSMvar24mode_retOHCmodes{:d}'
     proxy_frac = 1.0
     #
     # # nens
@@ -820,8 +822,8 @@ if __name__ == '__main__':
         # LMR_config.core.seed = param
 
         # for modes
-        LMR_config.forecaster.lim.fcast_num_pcs = param
-
+        # LMR_config.forecaster.lim.fcast_num_pcs = param
+        LMR_config.forecaster.lim.var_to_separate['ohc_0-700m_Omon'] = param
         # for nens
         # nens = param
 

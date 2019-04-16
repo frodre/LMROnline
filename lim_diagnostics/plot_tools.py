@@ -1,5 +1,5 @@
 import matplotlib
-# matplotlib.use('tkagg')
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 import matplotlib.patches as patches
