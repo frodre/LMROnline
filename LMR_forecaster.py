@@ -214,8 +214,10 @@ class LIMForecaster(BaseForecaster):
                                       main_nmodes,
                                       psm_req_var_keys, avg_interval):
         """Process requested variables to separate into groups for the LIM"""
+        if psm_req_var_keys is not None and psm_req_var_keys:
+            all_load_keys += psm_req_var_keys
 
-        all_load_keys = deepcopy(all_load_keys + psm_req_var_keys)
+        all_load_keys = deepcopy(all_load_keys)
         sep_psms_key = 'psm_req_vars'
 
         grps_to_sep = {}
@@ -421,7 +423,7 @@ class LIMForecaster(BaseForecaster):
         # Simplified pylim.DataObject.inflate_full_grid because I don't want to
         # store the entire calibration object for each field
 
-        spatial_shp = list(*data.shape[:-1])
+        spatial_shp = list(data.shape[:-1])
 
         # Adjustment for fields from other models that may have different NaNs
         if supplement_mask is not None:
