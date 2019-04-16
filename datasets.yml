@@ -285,7 +285,7 @@ ccsm4_piControl:
     multiple_vars: True
     template: '[vardef_template]'
     available_vars: [tas_sfc_Amon, psl_sfc_Amon, zg_500hPa_Amon,
-                     pr_sfc_Amon,
+                     pr_sfc_Amon, rlut_toa_Amon,
                      tos_sfc_Omon, ohc_0-700m_Omon,
                      zos_sfc_Omon, sos_sfc_Omon]
     rotated_pole: [tos_sfc_Omon, zos_sfc_Omon, ohc_0-700m_Omon, sos_sfc_Omon]
