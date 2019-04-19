@@ -141,7 +141,8 @@ GFDLECDA:
     template: '[vardef_template]'
     available_vars: [sst_, ohc_0-700m_, sss_]
 
-  cell_area: null
+    cell_area: null
+    rotated_pole: [ohc_0-700m_]
   datadir: null
   datafile: '[vardef_template]GFDLECDAv3.1_196101-201012.nc'
   dataformat: NCD
@@ -152,7 +153,9 @@ HadleyEN4:
     template: '[vardef_template]'
     available_vars: [ohc_0-700m_, sst_, sss_]
 
-  cell_area: null
+    rotated_pole: [ohc_0-700m_]
+    cell_area: null
+
   datadir: null
   datafile: '[vardef_template]HadleyEN4.2.1g10_190001-201012.nc'
   dataformat: NCD
@@ -163,7 +166,8 @@ ORAS4:
     template: '[vardef_template]'
     available_vars: [sst_, ohc_0-700m_]
 
-  cell_area: null
+    cell_area: null
+    rotated_pole: [ohc_0-700m_]
   datadir: null
   datafile: '[vardef_template]ORAS4_195801-200912.nc'
   dataformat: NCD
@@ -174,7 +178,7 @@ ORA20C:
     template: '[vardef_template]'
     available_vars: [ohc_0-700m_, sst_, sss_]
 
-  cell_area: null
+    cell_area: null
   datadir: null
   datafile: '[vardef_template]ORA20C_ensemble_mean_190001-200912.nc'
   dataformat: NCD
@@ -185,7 +189,8 @@ SODA:
     template: '[vardef_template]'
     available_vars: [sst_, ohc_0-700m_, sss_]
 
-  cell_area: null
+    cell_area: null
+    rotated_pole: [ohc_0-700m_]
   datadir: null
   datafile: '[vardef_template]SODAv2.2.4_187101-200812.nc'
   dataformat: NCD
@@ -196,7 +201,8 @@ WOA09:
     template: '[vardef_template]'
     available_vars: [sst_, ohc_0-700m_]
 
-  cell_area: null
+    cell_area: null
+    rotated_pole: [ohc_0-700m_]
   datadir: null
   datafile: '[vardef_template]WOA09_195501-201712.nc'
   dataformat: NCD
