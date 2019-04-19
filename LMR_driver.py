@@ -242,7 +242,7 @@ def LMR_driver_callable(cfg=None):
     # ==========================================================================
     # Loop over all years and proxies, and perform assimilation ----------------
     # ==========================================================================
-    Xb_one.stash_state('orig')
+    Xb_one.stash_state('orig_aug')
 
     start_yr, end_yr = recon_period
     assim_times = np.arange(start_yr, end_yr+1)
@@ -315,6 +315,8 @@ def LMR_driver_callable(cfg=None):
             # Recalculate Ye values
             ye_all = LMR_proxy.calc_assim_ye_vals(prox_manager, Xb_one)
             Xb_one.reset_augmented_ye(ye_all)
+        else:
+            Xb_one.stash_recall_state_list('orig_aug', copy=True)
 
     end_time = time() - begin_time
 
