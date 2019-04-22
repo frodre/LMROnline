@@ -207,6 +207,17 @@ WOA09:
   datafile: '[vardef_template]WOA09_195501-201712.nc'
   dataformat: NCD
 
+Cheng17:
+  info:
+    multiple_vars: True
+    template: null
+    available_vars: [OHC100, OHC300, OHC700, OHC1500, OHC2000]
+
+    cell_area: null
+  datadir: null
+  datafile: 'ohc_IAP_Omon_194001-201712.nc'
+  dataformat: NCD
+
 
 
 # ===============================================================
