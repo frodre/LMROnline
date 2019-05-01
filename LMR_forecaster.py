@@ -238,16 +238,21 @@ class LIMForecaster(BaseForecaster):
             if isinstance(num_modes_ret, int):
                 # single variable
                 var_key = (grp_name, avg_interval)
-                not_assigned -= set(var_key)
-                grps_to_sep[grp_name] = (num_modes_ret, [var_key])
-                not_assigned -= {var_key}
+
+                # Only add if it's in designated variables to load
+                if var_key in all_load_keys:
+                    not_assigned -= set(var_key)
+                    grps_to_sep[grp_name] = (num_modes_ret, [var_key])
+                    not_assigned -= {var_key}
             elif not isinstance(num_modes_ret, tuple):
                 raise ValueError('var_to_separate should either contain an'
                                  'integer or tuple<int, list> to specify '
                                  'separation')
             else:
                 num_modes_ret, grp_vars = num_modes_ret
-                not_assigned -= set(grp_vars)
+                incl_grp_vars = [curr_var for curr_var in grp_vars
+                                 if curr_var in all_load_keys]
+                not_assigned -= set(incl_grp_vars)
 
         not_assigned = list(not_assigned)
         not_assigned.sort()
