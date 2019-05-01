@@ -81,9 +81,15 @@ def add_eofs_to_scalar_factors(base_factors, lim_fcaster, base_state_keys):
     return full_scalar_factors, full_field_factors
 
 
-def calc_scalar_ce_r(fcast, reference, is_ar1=False):
-    [r, r_conf95] = lutils.conf_bound95(fcast, reference, metric='r')
-    [ce, ce_conf95] = lutils.conf_bound95(fcast, reference, metric='ce')
+def calc_scalar_ce_r(fcast, reference, is_ar1=False, calc_conf95=True):
+    if calc_conf95:
+        [r, r_conf95] = lutils.conf_bound95(fcast, reference, metric='r')
+        [ce, ce_conf95] = lutils.conf_bound95(fcast, reference, metric='ce')
+    else:
+        r = np.corrcoef(fcast, reference)[0, 1]
+        ce = lutils.ST.calc_ce(fcast, reference)
+        r_conf95 = None
+        ce_conf95 = None
 
     r_key = 'r_conf95'
     ce_key = 'ce_conf95'

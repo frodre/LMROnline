@@ -36,13 +36,13 @@ plot_num_lim_modes = 20
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_piControl'
+fcast_against = 'ccsm4_last_millenium'
 is_diff_model = False
 fcast_start_yr = 851
 
 # Only use fields specified in prior state dimension. False emulates
 # reconstruction state, including PSM required averages of fields
-base_only = False
+base_only = True
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
@@ -50,7 +50,7 @@ detrend_fcast_ref_data = True
 # Include scalar factors related to psm_required variables
 include_psm_req_output = False and not base_only
 
-do_perfect_fcast = True
+do_perfect_fcast = False
 do_scalar_verif = True
 plot_scalar_verif = True
 do_spatial_verif = True
@@ -58,13 +58,13 @@ plot_spatial_verif = True
 output_spatial_field_skill = True
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = True
+do_ens_fcast = False
 nens = 100
 do_hist = True
 do_reliability = True
 
 # Long integration forecast experiments
-do_long_integration = False
+do_long_integration = True
 integration_len_yr = 1000
 integration_iters = 250
 
@@ -209,7 +209,8 @@ def perfect_fcast_verification(state_obj, cfg_obj, lim_fcast_obj,
 def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
                                    fcast, lead, state_obj,
                                    valid_data_masks, compressed_keys,
-                                   fcast_against_src, perf_figdir):
+                                   fcast_against_src, perf_figdir,
+                                   calc_srs_conf95=True):
     """
 
     Parameters
@@ -277,10 +278,12 @@ def scalar_perf_fcast_verification(scalar_factors, base_factors, times,
 
         target_scalar = ref[lead:]
 
-        r_ce_args, r_ce_kwargs = vutils.calc_scalar_ce_r(fcast, target_scalar)
-        ar1_r_ce_args, ar1_r_ce_kwargs = vutils.calc_scalar_ce_r(ar1_fcast,
-                                                                 target_scalar,
-                                                                 is_ar1=True)
+        r_ce_args, r_ce_kwargs = \
+            vutils.calc_scalar_ce_r(fcast, target_scalar,
+                                    calc_conf95=calc_srs_conf95)
+        ar1_r_ce_args, ar1_r_ce_kwargs = \
+            vutils.calc_scalar_ce_r(ar1_fcast, target_scalar, is_ar1=True,
+                                    calc_conf95=calc_srs_conf95)
 
         verif_df = mutils.ce_r_results_to_dataframe(var_name,
                                                     avg_interval,
@@ -703,9 +706,10 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
         t0 = reduced_state[0:1, :]
 
         # long integration with buffer of 50 years to forget initial state
+        # 2880 timesteps ~ 3 hr timestep
         last = lutils.ens_long_integration(integration_iters,
                                            integration_len_yr + 50,
-                                           lim, t0)
+                                           lim, t0, timesteps=2880)
 
         last = last[50:]
 
@@ -780,22 +784,22 @@ if __name__ == '__main__':
         yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
     ### Single Run
-    # LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-    # LMR_config.proxies.proxy_frac = 1.0
-    # LMR_config.core.nexp = 'testdev_mpi_atmocn_coupled'
-    # run(LMR_config, fcast_against=fcast_against,
-    #     figure_dir=fig_dir)
+    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+    LMR_config.proxies.proxy_frac = 1.0
+    LMR_config.core.nexp = 'testdev_ccsm4_atmocn_coupled'
+    run(LMR_config, fcast_against=fcast_against,
+        figure_dir=fig_dir)
 
     ### Sensitivity Experiments
     # levels
     # params = [5, 10, 15, 20, 25, 30]
     # params = [25, 26, 27, 28, 29, 30, 31, 32, 33]
-    params = [17]
+    # params = [17]
     # params = [24]
-    pname = 'nmodes'
+    # pname = 'nmodes'
     # nexp = 'testdev_ccsm4_seasbil_pagesv2_coupPSMvar_ohc18fixed_retmodes{:d}'
-    nexp = 'testdev_ccsm4_seasbil_pagesv2_coupPSMvar24mode_retOHCmodes{:d}'
-    proxy_frac = 1.0
+    # nexp = 'testdev_ccsm4_seasbil_pagesv2_coupPSMvar24mode_retOHCmodes{:d}'
+    # proxy_frac = 1.0
     #
     # # nens
     # # params = [5, 10, 25, 50, 100, 200]
@@ -810,22 +814,22 @@ if __name__ == '__main__':
     # # proxy_frac = 0.75
     #
 
-    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-
-    for i, param in enumerate(params):
-
-        print('RUN SENSITIVITY EXP ({}={:d})'.format(pname, param))
-        LMR_config.proxies.proxy_frac = proxy_frac
-        LMR_config.core.nexp = nexp.format(param)
-
-        # for mc iters
-        # LMR_config.core.seed = param
-
-        # for modes
-        # LMR_config.forecaster.lim.fcast_num_pcs = param
-        LMR_config.forecaster.lim.var_to_separate['ohc_0-700m_Omon'] = param
-        # for nens
-        # nens = param
-
-        run(cfg_class=LMR_config, fcast_against=fcast_against,
-            figure_dir=fig_dir)
+    # LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+    #
+    # for i, param in enumerate(params):
+    #
+    #     print('RUN SENSITIVITY EXP ({}={:d})'.format(pname, param))
+    #     LMR_config.proxies.proxy_frac = proxy_frac
+    #     LMR_config.core.nexp = nexp.format(param)
+    #
+    #     # for mc iters
+    #     # LMR_config.core.seed = param
+    #
+    #     # for modes
+    #     # LMR_config.forecaster.lim.fcast_num_pcs = param
+    #     LMR_config.forecaster.lim.var_to_separate['ohc_0-700m_Omon'] = param
+    #     # for nens
+    #     # nens = param
+    #
+    #     run(cfg_class=LMR_config, fcast_against=fcast_against,
+    #         figure_dir=fig_dir)
