@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('agg')
+# matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 import matplotlib.patches as patches
@@ -37,7 +37,7 @@ def init_projection(projection):
     
 def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True, 
                     data_bound=None, projection='robinson', gridlines=True,
-                    extend='neither',
+                    extend='neither', xlabel=None, xlabel_size=13,
                     **kwargs):
     
     if lat.ndim != 2 or lon.ndim != 2:
@@ -62,13 +62,19 @@ def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True,
         bnd1, bnd2 = data_bound
 
     cf = ax.pcolormesh(lon, lat, data, vmin=bnd1, vmax=bnd2,
-                      transform=ccrs.PlateCarree(), **kwargs)
+                       transform=ccrs.PlateCarree(),
+                       rasterized=True, **kwargs)
     ax.set_aspect('auto')
     ax.coastlines(alpha=0.7)
     if gridlines:
         ax.gridlines()
-    ax.set_title(title)
+    ax.set_title(title, size=14)
     ax.set_global()
+
+    if xlabel is not None:
+        ax.text(-0.05, 0.5, xlabel, va='center', ha='center',
+                rotation='vertical', rotation_mode='anchor',
+                transform=ax.transAxes, size=xlabel_size)
     
     if do_colorbar and spec is not None:
         plt.colorbar(cf, cax=plt.subplot(spec[1]), orientation='horizontal',
@@ -79,7 +85,8 @@ def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True,
 
 def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
                          projection='robinson', gridlines=True,
-                         save_file=None, panel_width=6, panel_height=4.5):
+                         save_file=None, panel_width=6, panel_height=4.5,
+                         fmt='png'):
     projection = init_projection(projection)
     fig = plt.figure(figsize=(panel_width*ncols, panel_height*nrows))
     height_ratios = [20]*nrows
@@ -131,7 +138,7 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
     plt.tight_layout(h_pad=0.2, w_pad=0.5)
             
     if save_file is not None:
-        plt.savefig(save_file, dpi=120, fmt='png')
+        plt.savefig(save_file, dpi=300, fmt=fmt)
 
     if INTERACTIVE_PLOT:
         plt.show()
