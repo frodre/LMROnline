@@ -40,6 +40,47 @@ class ConfigGroup(object):
             update_config_attrs_yaml(kwargs, self)
 
 
+# Class for general gridded objects
+class _GriddedConfig(ConfigGroup):
+
+    datatag = None
+
+    detrend = False
+
+    def __init__(self, regrid_cfg, lmr_path=None,
+                 avg_interval=None, **kwargs):
+        super().__init__(**kwargs)
+
+        self.datatag = self.datatag
+        self.regrid_cfg = regrid_cfg
+
+        dataset_descr = _DataInfo.get_info(self.datatag)
+        self.datainfo = dataset_descr['info']
+        self.datadir = dataset_descr['datadir']
+        self.datafile = dataset_descr['datafile']
+        self.dataformat = dataset_descr['dataformat']
+
+        self.detrend = self.detrend
+
+        self.avg_interval = avg_interval
+        if self.avg_interval is not None:
+            self.avg_interval_kwargs = Constants.data['avg_interval'][self.avg_interval]
+        else:
+            self.avg_interval_kwargs = None
+
+        if lmr_path is None:
+            lmr_path = core.lmr_path
+
+        if self.datadir is None:
+            self.datadir = join(lmr_path, 'data', 'analyses', self.datatag)
+        else:
+            self.datadir = self.datadir
+
+    def update_avg_interval(self, avg_interval, avg_interval_kwargs):
+        self.avg_interval = avg_interval
+        self.avg_interval_kwargs = avg_interval_kwargs
+
+
 class _YamlStorage(object):
     """
     Generic object for loading in dictionaries from yaml files, 
@@ -153,7 +194,7 @@ class wrapper(ConfigGroup):
     ##** END User Parameters **##
 
     def __init__(self, **kwargs):
-        super(self.__class__, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.iter_range = self.iter_range
 
@@ -270,7 +311,7 @@ class core(ConfigGroup):
     ##** END User Parameters **##
 
     def __init__(self, curr_iter=None, **kwargs):
-        super(self.__class__, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.recon_timescale = int(self.recon_timescale)
 
@@ -424,7 +465,7 @@ class proxies(ConfigGroup):
         # initialization of the proxy group configurations.
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(proxies.ProxyConfigGroup, self).__init__(**kwargs)
+            super().__init__(**kwargs)
             if lmr_path is None:
                 lmr_path = core.lmr_path
 
@@ -553,7 +594,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(proxies.PAGES2kv1, self).__init__(lmr_path=lmr_path, **kwargs)
+            super().__init__(lmr_path=lmr_path, **kwargs)
 
             self.simple_filters = {'PAGES 2k Region': self.regions,
                                    'Resolution (yr)': self.proxy_resolution}
@@ -714,7 +755,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(proxies.LMRdb, self).__init__(lmr_path=lmr_path, **kwargs)
+            super().__init__(lmr_path=lmr_path, **kwargs)
             self.metafile_proxy = self.metafile_proxy.format(self.dbversion)
             self.datafile_proxy = self.datafile_proxy.format(self.dbversion)
             self.database_filter = list(self.database_filter)
@@ -792,7 +833,7 @@ class proxies(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, lmr_path=None, **kwargs):
-            super(proxies.NCDCdtda, self).__init__(lmr_path=lmr_path, **kwargs)
+            super().__init__(lmr_path=lmr_path, **kwargs)
 
             self.database_filter = list(self.database_filter)
             self.simple_filters = {'Resolution (yr)': self.proxy_resolution}
@@ -804,7 +845,7 @@ class proxies(ConfigGroup):
         self.LMRdb = self.LMRdb(lmr_path=lmr_path, **kwargs.pop('LMRdb', {}))
         self.NCDCdtda = self.NCDCdtda(lmr_path=lmr_path, **kwargs.pop('NCDCdtda', {}))
 
-        super(self.__class__, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         
         self.use_from = self.use_from
         self.proxy_frac = self.proxy_frac
@@ -841,7 +882,7 @@ class psm(ConfigGroup):
     # between proxy and instrumental data (statistical PSMs only)
     calib_period = (1850, 2015)
 
-    class linear(ConfigGroup):
+    class linear(_GriddedConfig):
         """
         Parameters for the linear fit PSM.
 
@@ -888,17 +929,9 @@ class psm(ConfigGroup):
                      anom_reference_period=None,
                      proxy_use_from=None, calib_period=None,
                      **kwargs):
-            super(self.__class__, self).__init__(**kwargs)
+            super().__init__(regrid_cfg, lmr_path=lmr_path, **kwargs)
 
-            self.datatag = self.datatag
-            self.regrid_cfg = regrid_cfg
             self.ignore_pre_calib = self.ignore_pre_calib
-
-            dataset_descr = _DataInfo.get_info(self.datatag)
-            self.datainfo = dataset_descr['info']
-            self.datadir = dataset_descr['datadir']
-            self.datafile = dataset_descr['datafile']
-            self.dataformat = dataset_descr['dataformat']
 
             self.psm_r_crit = self.psm_r_crit
             self.min_data_req_frac = self.min_data_req_frac
@@ -923,24 +956,10 @@ class psm(ConfigGroup):
                 calib_period = psm.calib_period
             self.calib_period = calib_period
 
-
-            if 'PAGES2kv1' in self.proxy_use_from and 'season' in self.avg_type:
-                raise ValueError('No seasonality information in PAGES2kv1 '
-                                 'database.  Change avg_period to "annual" in '
-                                 'your configuration')
-
             # Avg_interval values will be set on a per proxy basis when
             # calibrating
             self.avg_interval = None
             self.avg_interval_kwargs = None
-
-            if lmr_path is None:
-                lmr_path = core.lmr_path
-
-            if self.datadir is None:
-                self.datadir = join(lmr_path, 'data', 'analyses', self.datatag)
-            else:
-                self.datadir = self.datadir
 
             if self.pre_calib_datafile is None:
 
@@ -978,10 +997,6 @@ class psm(ConfigGroup):
                                  'o choose specific variable. Switch '
                                  'datatag_calib in the config.')
             self.psm_required_variables = self.datainfo['psm_vartype']
-
-        def update_avg_interval(self, avg_interval, avg_interval_kwargs):
-            self.avg_interval = avg_interval
-            self.avg_interval_kwargs = avg_interval_kwargs
                 
     class linear_TorP(ConfigGroup):                
         """
@@ -1047,7 +1062,7 @@ class psm(ConfigGroup):
 
         def __init__(self, regrid_cfg, lmr_path=None, proxy_use_from=None,
                      calib_period=None, anom_reference_period=None, **kwargs):
-            super(self.__class__, self).__init__(**kwargs)
+            super().__init__(**kwargs)
 
             self.min_data_req_frac = self.min_data_req_frac
 
@@ -1147,7 +1162,7 @@ class psm(ConfigGroup):
         def __init__(self, regrid_cfg, lmr_path=None, proxy_use_from=None,
                      calib_period=None, anom_reference_period=None, **kwargs):
 
-            super(self.__class__, self).__init__(**kwargs)
+            super().__init__(**kwargs)
 
             self.min_data_req_frac = self.min_data_req_frac
 
@@ -1264,7 +1279,7 @@ class psm(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, **kwargs):
-            super(self.__class__, self).__init__(**kwargs)
+            super().__init__(**kwargs)
 
             self.radius_influence = self.radius_influence
             self.datadir_obsError = self.datadir_obsError
@@ -1325,7 +1340,7 @@ class psm(ConfigGroup):
         ##** END User Parameters **##
 
         def __init__(self, **kwargs):
-            super(self.__class__, self).__init__(**kwargs)
+            super().__init__(**kwargs)
 
             if self.datadir_BayesRegressionData is None:
                 self.datadir_BayesRegressionData = join(core.lmr_path, 'PSM')
@@ -1383,7 +1398,7 @@ class psm(ConfigGroup):
         self.h_interp = self.h_interp(**kwargs.pop('h_interp', {}))
         self.bayesreg_uk37 = self.bayesreg_uk37(**kwargs.pop('bayesreg_uk37', {}))
 
-        super(self.__class__, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         # Add constants instance for averaging periods (NOT A COPY)
         self._avg_def_constants = Constants.data['avg_interval']
@@ -1506,7 +1521,7 @@ class prior(ConfigGroup):
 
     def __init__(self, regrid_cfg, lmr_path=None, seed=None, nens=None,
                  **kwargs):
-        super(self.__class__, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.prior_source = self.prior_source
         self.regrid_cfg = regrid_cfg
@@ -1632,7 +1647,7 @@ class forecaster(ConfigGroup):
         def __init__(self, regrid_cfg, lmr_path=None, prior_config=None,
                      **kwargs):
 
-            super(ConfigGroup, self).__init__(**kwargs)
+            super().__init__(**kwargs)
 
             self.regrid_cfg = regrid_cfg
 
@@ -1643,10 +1658,10 @@ class forecaster(ConfigGroup):
 
             if self.match_prior:
                 self.datatag = prior_config.prior_source
-                self.fcast_varnames = list(prior.state_variables.keys())
+                self.fcast_varnames = list(prior_config.state_variables.keys())
                 self.prior_mapping = {state_var: state_var
                                       for state_var in self.fcast_varnames}
-                self.avg_interval = prior.avg_interval
+                self.avg_interval = prior_config.avg_interval
             else:
                 self.datatag = self.datatag
                 self.fcast_varnames = list(self.fcast_varnames)
@@ -1704,7 +1719,7 @@ class forecaster(ConfigGroup):
                             prior_config=prior_config,
                             **kwargs.pop('lim', {}))
 
-        super(ConfigGroup, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.use_forecaster = self.use_forecaster
 
 
@@ -1758,7 +1773,7 @@ class regrid(ConfigGroup):
     esmpy_regrid_to = 't42'
 
     def __init__(self, **kwargs):
-        super(self.__class__, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.ignore_pre_avg_file = self.ignore_pre_avg_file
         self.save_pre_avg_file = self.save_pre_avg_file

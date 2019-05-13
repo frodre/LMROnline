@@ -6,6 +6,7 @@ import matplotlib.patches as patches
 import matplotlib.colors as colors
 import cartopy.crs as ccrs
 import numpy as np
+import string
 
 import lim_diagnostics.lim_utils as lutils
 import lim_diagnostics.misc_utils as mutils
@@ -21,6 +22,8 @@ _VARNAME_MAP = {'tos_sfc_Omon': 'SST',
                 'pr_sfc_Amon': 'PR',
                 'zos_sfc_Omon': 'SSH',
                 'zg_500hPa_Amon': 'ZG_500hPa'}
+
+_col_letters = string.ascii_lowercase
 
 
 def init_projection(projection):
@@ -86,7 +89,7 @@ def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True,
 def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
                          projection='robinson', gridlines=True,
                          save_file=None, panel_width=6, panel_height=4.5,
-                         fmt='png'):
+                         fmt='png', plot_column_letters=False):
     projection = init_projection(projection)
     fig = plt.figure(figsize=(panel_width*ncols, panel_height*nrows))
     height_ratios = [20]*nrows
@@ -116,6 +119,9 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
             ax.background_patch.set_facecolor('#020b36')
             plot_kwargs.update({'ax': ax})
             cf = spatial_plotter(*plot_args, gridlines=gridlines, **plot_kwargs)
+            if plot_column_letters and i == 0:
+                ax.text(-0.05, 1.1, '({})'.format(_col_letters[j]),
+                        weight='bold', fontsize=14, transform=ax.transAxes)
             cf_arr[i].append(cf)
     
     if cbar_type == 'single':

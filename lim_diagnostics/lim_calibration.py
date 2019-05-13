@@ -42,7 +42,7 @@ fcast_start_yr = 851
 
 # Only use fields specified in prior state dimension. False emulates
 # reconstruction state, including PSM required averages of fields
-base_only = True
+base_only = False
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
@@ -50,7 +50,7 @@ detrend_fcast_ref_data = True
 # Include scalar factors related to psm_required variables
 include_psm_req_output = False and not base_only
 
-do_perfect_fcast = False
+do_perfect_fcast = True
 do_scalar_verif = True
 plot_scalar_verif = True
 do_spatial_verif = True
@@ -58,7 +58,7 @@ plot_spatial_verif = True
 output_spatial_field_skill = True
 
 # Ensemble noise integration forecast experiments
-do_ens_fcast = False
+do_ens_fcast = True
 nens = 100
 do_hist = True
 do_reliability = True
@@ -709,7 +709,8 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
         # 2880 timesteps ~ 3 hr timestep
         last = lutils.ens_long_integration(integration_iters,
                                            integration_len_yr + 50,
-                                           lim, t0, timesteps=2880)
+                                           lim, t0, timesteps=2880,
+                                           use_multiprocess=True)
 
         last = last[50:]
 
@@ -784,52 +785,53 @@ if __name__ == '__main__':
         yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
     ### Single Run
-    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-    LMR_config.proxies.proxy_frac = 1.0
-    LMR_config.core.nexp = 'testdev_ccsm4_atmocn_coupled'
-    run(LMR_config, fcast_against=fcast_against,
-        figure_dir=fig_dir)
+    # LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+    # LMR_config.proxies.proxy_frac = 1.0
+    # LMR_config.core.nexp = 'testdev_ccsm4_atmocn_coupOHC_newtimestep'
+    # run(LMR_config, fcast_against=fcast_against,
+    #     figure_dir=fig_dir)
 
     ### Sensitivity Experiments
     # levels
-    # params = [5, 10, 15, 20, 25, 30]
+    # params = [2, 5, 10, 15, 20, 25, 30,
+    #           21, 22, 23, 24, 26, 27, 28, 29]
     # params = [25, 26, 27, 28, 29, 30, 31, 32, 33]
     # params = [17]
-    # params = [24]
-    # pname = 'nmodes'
-    # nexp = 'testdev_ccsm4_seasbil_pagesv2_coupPSMvar_ohc18fixed_retmodes{:d}'
+    params = [29]
+    pname = 'nmodes'
+    nexp = 'testdev_newtstep_ccsm4_atmocn_sepOHC_retmodes{:d}'
     # nexp = 'testdev_ccsm4_seasbil_pagesv2_coupPSMvar24mode_retOHCmodes{:d}'
-    # proxy_frac = 1.0
-    #
-    # # nens
-    # # params = [5, 10, 25, 50, 100, 200]
-    # # pname = 'nens'
-    # # nexp = 'testdev_{:d}ens_seasbil_ccsm4_past1000_43modes'
-    # # proxy_frac = 1.0
-    #
-    # # mc iters
-    # # params = np.arange(5)
-    # # pname = 'mc_iter'
-    # # nexp = 'testdev_{:d}iter_100ens_seasbil_ccsm4_past1000_34modes'
-    # # proxy_frac = 0.75
-    #
+    proxy_frac = 1.0
 
-    # LMR_config.initialize_config_yaml(LMR_config, yaml_file)
-    #
-    # for i, param in enumerate(params):
-    #
-    #     print('RUN SENSITIVITY EXP ({}={:d})'.format(pname, param))
-    #     LMR_config.proxies.proxy_frac = proxy_frac
-    #     LMR_config.core.nexp = nexp.format(param)
-    #
-    #     # for mc iters
-    #     # LMR_config.core.seed = param
-    #
-    #     # for modes
-    #     # LMR_config.forecaster.lim.fcast_num_pcs = param
-    #     LMR_config.forecaster.lim.var_to_separate['ohc_0-700m_Omon'] = param
-    #     # for nens
-    #     # nens = param
-    #
-    #     run(cfg_class=LMR_config, fcast_against=fcast_against,
-    #         figure_dir=fig_dir)
+    # nens
+    # params = [5, 10, 25, 50, 100, 200]
+    # pname = 'nens'
+    # nexp = 'testdev_{:d}ens_seasbil_ccsm4_past1000_43modes'
+    # proxy_frac = 1.0
+
+    # mc iters
+    # params = np.arange(5)
+    # pname = 'mc_iter'
+    # nexp = 'testdev_{:d}iter_100ens_seasbil_ccsm4_past1000_34modes'
+    # proxy_frac = 0.75
+
+
+    LMR_config.initialize_config_yaml(LMR_config, yaml_file)
+
+    for i, param in enumerate(params):
+
+        print('RUN SENSITIVITY EXP ({}={:d})'.format(pname, param))
+        LMR_config.proxies.proxy_frac = proxy_frac
+        LMR_config.core.nexp = nexp.format(param)
+
+        # for mc iters
+        # LMR_config.core.seed = param
+
+        # for modes
+        LMR_config.forecaster.lim.fcast_num_pcs = param
+        # LMR_config.forecaster.lim.var_to_separate['ohc_0-700m_Omon'] = param
+        # for nens
+        # nens = param
+
+        run(cfg_class=LMR_config, fcast_against=fcast_against,
+            figure_dir=fig_dir)

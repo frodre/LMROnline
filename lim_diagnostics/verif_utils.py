@@ -323,7 +323,7 @@ def _standardize_series(data, std_dev=None, preserve_ens_var=False):
 
 
 def handle_soi_factors(scalar_factors, base_factors, measure_out,
-                       state_obj, fcast_1yr):
+                       state_obj, fcast_1yr=None):
     """
     Take scalar factors and look for required data.  If it's there calculate it
     remove the factors used and add in soi index to the measure_out dictionary.
@@ -373,10 +373,15 @@ def handle_soi_factors(scalar_factors, base_factors, measure_out,
         darwin_psl_ref = ref_psl @ base_factors[darwin_key]
         del base_factors[darwin_key]
 
-        tahiti_psl_fcast = fcast_1yr @ tahiti_factor
-        darwin_psl_fcast = fcast_1yr @ darwin_factor
+        if fcast_1yr is not None:
+            tahiti_psl_fcast = fcast_1yr @ tahiti_factor
+            darwin_psl_fcast = fcast_1yr @ darwin_factor
 
-        soi_fcast = calc_soi_from_gridpoints(tahiti_psl_fcast, darwin_psl_fcast)
+            soi_fcast = calc_soi_from_gridpoints(tahiti_psl_fcast,
+                                                 darwin_psl_fcast)
+        else:
+            soi_fcast = None
+
         soi_ref = calc_soi_from_gridpoints(tahiti_psl_ref, darwin_psl_ref)
 
         soi_key = list(tahiti_key)

@@ -99,7 +99,8 @@ stat_save = False
 #nexp = 'production_mlost_era20c_pagesall_0.75'
 #nexp = 'production_mlost_era20cm_pagesall_0.75'
 # ---
-nexp = 'testdev_short_ocean_ccsm4_online_0pt2rcrit'
+# nexp = 'testdev_ccsm4_LMRdb_be_seasbil_online_29m20sOHC'
+nexp = 'testdev_ccsm4_LMRdb_gis_seasbil_online_29m20sOHC'
 #nexp = 'testdev_ccsm4_bilinear_gisgpcc_PAGESv2_metaPSM_pfrac75'
 # ---
 

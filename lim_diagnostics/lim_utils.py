@@ -304,23 +304,35 @@ def ens_1yr_fcast(nens, lim, t0, timesteps=1440):
     return ens_output
 
 
-def ens_long_integration(nens, length, lim, t0, timesteps=1440):
+def ens_long_integration(nens, length, lim, t0, timesteps=1440,
+                         use_multiprocess=False):
 
     ens_t0 = np.tile(t0, (nens, 1))
     # ens_out = np.empty((1441, nens, t0.shape[1]))
     long_int_out = np.zeros((length, nens, t0.shape[1]))
     # long_int_out_avg = np.zeros_like(long_int_out)
 
-    for i in range(length):
+    if not use_multiprocess:
+        for i in range(length):
 
-        ens_t1 = lim.noise_integration(ens_t0, 1,
-                                       timesteps=timesteps)
-        end_val = ens_t1
-        # avg = ens_out.mean(axis=0)
+            ens_t1 = lim.noise_integration(ens_t0, 1,
+                                           timesteps=timesteps)
+            end_val = ens_t1
+            # avg = ens_out.mean(axis=0)
 
-        long_int_out[i] = end_val
-        # long_int_out_avg[i] = avg
-        ens_t0 = ens_t1
+            long_int_out[i] = end_val
+            # long_int_out_avg[i] = avg
+            ens_t0 = ens_t1
+    else:
+
+        func_args = _var_len_noise_arg_gen(nens, long_int_out, t0, lim, length,
+                                           timesteps)
+        with Pool(processes=8) as proc_pool:
+            res = proc_pool.map(_variable_len_noise_int_func,
+                                func_args)
+
+        for i, dat in enumerate(res):
+            long_int_out[:, i] = dat
 
     return long_int_out
 
@@ -329,6 +341,22 @@ def _noise_int_func(args):
     i, (t0, lim, timesteps) = args
 
     return lim.noise_integration(t0, 1, timesteps=timesteps, seed=i)
+
+
+def _var_len_noise_arg_gen(nens, out_arr, t0, lim, length, timesteps):
+
+    for i in range(nens):
+        arg = (i, out_arr[:, i], t0, lim, length, timesteps)
+        yield arg
+
+
+def _variable_len_noise_int_func(args):
+    i, out_arr, t0, lim, length, timesteps = args
+
+    res = lim.noise_integration(t0, length, timesteps=timesteps, seed=i,
+                                length_out_arr=out_arr)
+
+    return out_arr
 
 
 

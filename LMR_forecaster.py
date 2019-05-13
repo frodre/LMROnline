@@ -50,7 +50,7 @@ class LIMForecaster(BaseForecaster):
     def __init__(self, lim_config, load_vars, var_groups, nelem_in_yr,
                  dobj_num_pcs, multivar_num_pcs, detrend, fcast_type, prior_map,
                  fcast_lead, match_prior, save_attrs, std_before_eof_vars=None,
-                 store_calib=False, uncouple_groups=None):
+                 store_calib=False):
 
         FcastVar = LMR_gridded.ForecasterVariable
 
@@ -98,17 +98,9 @@ class LIMForecaster(BaseForecaster):
         else:
             fit_noise = False
 
-        # component indices to remove forward influence on other fields
-        if uncouple_groups:
-            uncouple_grp_ranges = [self.grp_span[key]
-                                   for key in uncouple_groups]
-        else:
-            uncouple_grp_ranges = None
-
         # TODO: add in the component zeroing to G or L?
         self.lim = LIM.LIM(eof_proj_calib, nelem_in_tau1=nelem_in_yr,
-                           fit_noise=fit_noise, max_neg_Qeval=40,
-                           uncouple_ranges=uncouple_grp_ranges)
+                           fit_noise=fit_noise, max_neg_Qeval=10)
         self.prior_map = prior_map
         self.fcast_lead = fcast_lead
         self.match_prior = match_prior
@@ -140,7 +132,6 @@ class LIMForecaster(BaseForecaster):
         save_precalib = lim_cfg.save_precalib_lim
         var_to_std_before_eof = lim_cfg.var_to_std_before_eof
         var_to_separate = lim_cfg.var_to_separate
-        uncouple_groups = lim_cfg.uncouple_groups
         base_avg_interval = lim_cfg.avg_interval
 
         FcastVar = LMR_gridded.ForecasterVariable
@@ -189,8 +180,7 @@ class LIMForecaster(BaseForecaster):
                           dobj_num_pcs, num_pcs, detrend, fcast_type, prior_map,
                           fcast_lead, match_prior, save_attrs,
                           std_before_eof_vars=var_to_std_before_eof,
-                          store_calib=store_calib,
-                          uncouple_groups=uncouple_groups)
+                          store_calib=store_calib)
 
             if save_precalib:
                 if not os.path.exists(output_dir):
