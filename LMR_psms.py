@@ -49,7 +49,7 @@ import statsmodels.formula.api as sm
 import matplotlib.pyplot as plt
 import scipy.interpolate as interpolate
 
-from scipy.stats import linregress
+from sklearn.linear_model import LinearRegression
 from abc import ABCMeta, abstractmethod
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.io import loadmat
@@ -464,30 +464,56 @@ class LinearPSM(BasePSM):
                                     'available to calibrate PSM. Nobs={:d}'
                                     ''.format(REQ_NOBS, nobs))
 
-        # Perform the regression
-        regress = sm.ols(formula="y ~ Calibration", data=df).fit()
-        # number of data points used in the regression
+        reg_xa = df['Calibration'].values
+        reg_ya = df['y'].values
 
-        # Assign PSM calibration attributes
-        # Extract the needed regression parameters
-        self.intercept = regress.params[0]
-        self.slope = regress.params[1]
+        model = LinearRegression(fit_intercept=True, normalize=False)
+        model.fit(reg_xa[:, None], reg_ya[:])
+        self.intercept = model.intercept_
+        self.slope = model.coef_[0]
         self.NbPts = nobs
-        self.corr = np.sqrt(regress.rsquared)
+
+        yhat = model.predict(reg_xa[:, None])
+        ss_tot = ((reg_ya - reg_ya.mean())**2).sum()
+        ss_res = ((reg_ya - yhat)**2).sum()
+
+        # Model fit
+        self.R2 = 1 - (ss_res / ss_tot)
+        # denom in last term is (n - p - 1) where n is nsamples and p is num
+        # explanatory variables (which is 1 for univariate reg
+        self.R2adj = 1 - (1 - self.R2) * ((nobs - 1) / (nobs - 1 - 1))
+
+        # BIC assumes errors are IID
+        # k is the number of estimated parameters (intercept, slope, ss_res)
+        k = 3
+        self.BIC = nobs * np.log(ss_res/nobs) + k * np.log(nobs)
+        self.AIC = 2 * k - 2 * np.log(ss_res)
+
+
+
+        # Perform the regression
+        # regress = sm.ols(formula="y ~ Calibration", data=df).fit()
+        # # number of data points used in the regression
+        #
+        # # Assign PSM calibration attributes
+        # # Extract the needed regression parameters
+        # self.intercept = regress.params[0]
+        # self.slope = regress.params[1]
+        # self.NbPts = nobs
+        self.corr = np.sqrt(self.R2)
         if self.slope < 0:
             self.corr = -self.corr
 
         # Stats on fit residuals
-        MSE = np.mean(regress.resid ** 2)
-        self.R = MSE
-        SSE = np.sum(regress.resid ** 2)
-        self.SSE = SSE
+        # MSE = np.mean(regress.resid ** 2)
+        self.R = ss_res / nobs
+        self.SSE = ss_res
 
         # Model information
-        self.AIC = regress.aic
-        self.BIC = regress.bic
-        self.R2 = regress.rsquared
-        self.R2adj = regress.rsquared_adj
+        # self.AIC = regress.aic
+        # self.BIC = regress.bic
+        # self.R2 = regress.rsquared
+        # self.R2adj = regress.rsquared_adj
 
         # Extra diagnostics
         reg_xa = df['Calibration'].values
@@ -501,7 +527,7 @@ class LinearPSM(BasePSM):
         if diag_output:
             # Diagnostic output
             print("***PSM stats:")
-            print(regress.summary())
+            # print(regress.summary())
 
             if diag_output_figs:
                 # Figure (scatter plot w/ summary statistics)
@@ -1052,31 +1078,53 @@ class BilinearPSM(BasePSM):
             raise PSMTooFewObsError('Less than {:d} overlapping observations '
                                     'available to calibrate PSM. Nobs={:d}'
                                     ''.format(REQ_NOBS, nobs))
+        reg_xa = df[['Temperature', 'Moisture']].values
+        reg_ya = df['y'].values
 
+        model = LinearRegression(fit_intercept=True, normalize=False)
+        model.fit(reg_xa, reg_ya[:])
+        self.intercept = model.intercept_
+        self.slope_temperature = model.coef_[0]
+        self.slope_moisture = model.coef_[1]
+        self.NbPts = nobs
+
+        yhat = model.predict(reg_xa)
+        ss_tot = ((reg_ya - reg_ya.mean()) ** 2).sum()
+        ss_res = ((reg_ya - yhat) ** 2).sum()
+
+        # Model fit
+        self.R2 = 1 - (ss_res / ss_tot)
+        # denom in last term is (n - p - 1) where n is nsamples and p is num
+        # explanatory variables (which is 1 for univariate reg
+        self.R2adj = 1 - (1 - self.R2) * ((nobs - 1) / (nobs - 2 - 1))
+
+        # BIC assumes errors are IID
+        # k is the number of estimated parameters (intercept, slope, ss_res)
+        k = 4
+        self.BIC = nobs * np.log(ss_res / nobs) + k * np.log(nobs)
+        self.AIC = 2 * k - 2 * np.log(ss_res)
         # Perform the regression
-        regress = sm.ols(formula="y ~ Temperature + Moisture", data=df).fit()
+        # regress = sm.ols(formula="y ~ Temperature + Moisture", data=df).fit()
         #regress = sm.ols(formula="y ~ Temperature * Moisture", data=df).fit() # w/ interaction term
         #regress = sm.ols(formula="y ~ Temperature + Moisture +Temperature:Moisture", data=df).fit() # w/ interaction term
 
         # extract the needed regression parameters
-        self.intercept = regress.params[0]
-        self.slope_temperature = regress.params[1]
-        self.slope_moisture = regress.params[2]
-
-        self.NbPts = nobs
-        self.corr = np.sqrt(regress.rsquared)
+        # self.intercept = regress.params[0]
+        # self.slope_temperature = regress.params[1]
+        # self.slope_moisture = regress.params[2]
+        #
+        # self.NbPts = nobs
+        self.corr = np.sqrt(self.R2)
 
         # Stats on fit residuals
-        MSE = np.mean(regress.resid ** 2)
-        self.R = MSE
-        SSE = np.sum(regress.resid ** 2)
-        self.SSE = SSE
-
-        # Model information
-        self.AIC = regress.aic
-        self.BIC = regress.bic
-        self.R2 = regress.rsquared
-        self.R2adj = regress.rsquared_adj
+        self.R = ss_res / nobs
+        self.SSE = ss_res
+        #
+        # # Model information
+        # self.AIC = regress.aic
+        # self.BIC = regress.bic
+        # self.R2 = regress.rsquared
+        # self.R2adj = regress.rsquared_adj
 
         reg_xa_T = df['Temperature'].values
         reg_xa_P = df['Moisture'].values
