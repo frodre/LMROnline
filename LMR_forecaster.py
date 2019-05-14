@@ -153,8 +153,6 @@ class LIMForecaster(BaseForecaster):
 
         # Create file string using hashing
         save_attrs = [lim_cfg.datatag, str(dobj_num_pcs)]
-        if uncouple_groups is not None and uncouple_groups:
-            save_attrs += ['uncoupled', *uncouple_groups]
         save_attrs += save_str_items
         save_str = '_'.join(save_attrs)
         save_str = save_str.encode('utf-8')
