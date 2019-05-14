@@ -106,6 +106,7 @@ def LMR_driver_callable(cfg=None):
     inflation_fact = core_cfg.inflation_factor
     outputs = prior_cfg.outputs
     save_analysis_ye = outputs['analysis_Ye']
+    save_prior_ye = outputs['prior_Ye']
 
     # ==========================================================================
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< MAIN CODE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -201,22 +202,32 @@ def LMR_driver_callable(cfg=None):
     if reg_inf and verbose > 2:
         print(('\nUsing covariance inflation factor: %8.2f' % inflation_fact))
 
-    if save_analysis_ye:
-        assim_ye_path = join(workdir, 'assim_ye_ens_output.zarr')
-        assim_ye_out = lmr_out.create_Ye_output(assim_ye_path,
-                                                assim_proxy_count,
-                                                nens, ntimes, recon_period)
+    if save_prior_ye:
 
-        if eval_proxy_count is not None:
-            eval_ye_path = join(workdir, 'eval_ye_ens_output.zarr')
-            eval_ye_out = lmr_out.create_Ye_output(eval_ye_path,
-                                                   eval_proxy_count,
-                                                   nens, ntimes, recon_period)
+        if online:
+            use_ntimes = ntimes
         else:
-            eval_ye_out = None
+            use_ntimes = 1
+
+        xb_ye_out = _get_assim_eval_ye_outputs(use_ntimes, nens, recon_period,
+                                               workdir,
+                                               'prior_ye_ens_output.zarr',
+                                               assim_proxy_count,
+                                               eval_proxy_count)
+        assim_xb_ye_out, eval_xb_ye_out = xb_ye_out
     else:
-        assim_ye_out = None
-        eval_ye_out = None
+        assim_xb_ye_out = eval_xb_ye_out = None
+
+    if save_analysis_ye:
+
+        xb_ye_out = _get_assim_eval_ye_outputs(ntimes, nens, recon_period,
+                                               workdir,
+                                               'posterior_ye_ens_output.zarr',
+                                               assim_proxy_count,
+                                               eval_proxy_count)
+        assim_xa_ye_out, eval_xa_ye_out = xb_ye_out
+    else:
+        assim_xa_ye_out = eval_xa_ye_out = None
 
     # ----------------------------------
     # Augment state vector with the Ye's
@@ -226,6 +237,13 @@ def LMR_driver_callable(cfg=None):
     # Extract all the Ye's from master list of proxy objects into numpy array
     ye_all = LMR_proxy.calc_assim_ye_vals(prox_manager, Xb_one)
     Xb_one.augment_state(ye_all)
+
+    if save_prior_ye:
+        assim_xb_ye_out[:, 0] = ye_all
+
+        if eval_proxy_count is not None:
+            eval_ye = LMR_proxy.calc_eval_ye_vals(prox_manager, Xb_one)
+            eval_xb_ye_out[:, 0] = eval_ye
 
     # TODO: replicate single variable prior saving
 
@@ -271,6 +289,15 @@ def LMR_driver_callable(cfg=None):
         lmr_out.save_field_output(iyr, 'prior', Xb_one, field_zarr_outputs,
                                   output_def=outputs['prior'])
 
+        # Save prior Ye values
+        if save_prior_ye and online and iyr != 0:
+            assim_ye = Xb_one.get_var_data('ye_vals')
+            assim_xb_ye_out[:, iyr] = assim_ye
+
+            if eval_proxy_count is not None:
+                eval_ye = LMR_proxy.calc_eval_ye_vals(prox_manager, Xb_one)
+                eval_xb_ye_out[:, iyr] = eval_ye
+
         # Gather proxies / Ye values for the year
         [p_vals, p_errs,
          valid_pidxs] = get_valid_proxies_info(t, prox_manager)
@@ -295,14 +322,14 @@ def LMR_driver_callable(cfg=None):
                                       field_zarr_outputs,
                                       ens_out_funcs=field_get_ens_func)
 
-        # Save Ye Information
+        # Save posterior Ye Information
         if save_analysis_ye:
             assim_ye = Xb_one.get_var_data('ye_vals')
-            assim_ye_out[:, iyr] = assim_ye
+            assim_xa_ye_out[:, iyr] = assim_ye
 
             if eval_proxy_count is not None:
                 eval_ye = LMR_proxy.calc_eval_ye_vals(prox_manager, Xb_one)
-                eval_ye_out[:, iyr] = eval_ye
+                eval_xa_ye_out[:, iyr] = eval_ye
 
         if online:
 
@@ -328,16 +355,16 @@ def LMR_driver_callable(cfg=None):
         print('=====================================================')
 
     if verbose > 0:
-        if assim_ye_out is not None:
+        if assim_xa_ye_out is not None:
             print('-----------------------------------')
             print('Assimilated proxy Ye output info...')
-            print(assim_ye_out.info)
+            print(assim_xa_ye_out.info)
             print('-----------------------------------')
 
-        if eval_ye_out is not None:
+        if eval_xa_ye_out is not None:
             print('-----------------------------------')
             print('Witheld proxy Ye output info...')
-            print(eval_ye_out.info)
+            print(eval_xa_ye_out.info)
             print('-----------------------------------')
 
     # Save Scalar information and proxies assimilated/withheld
@@ -354,6 +381,26 @@ def LMR_driver_callable(cfg=None):
 # ------------------------------------------------------------------------------
 # --------------------------- end of main code ---------------------------------
 # ------------------------------------------------------------------------------
+
+
+def _get_assim_eval_ye_outputs(ntimes, nens, recon_period, workdir, fname,
+                               assim_proxy_count, eval_proxy_count):
+
+        assim_ye_path = join(workdir, 'assim_'+fname)
+        assim_ye_out = lmr_out.create_Ye_output(assim_ye_path,
+                                                assim_proxy_count,
+                                                nens, ntimes,
+                                                recon_period)
+        if eval_proxy_count is not None:
+            eval_ye_path = join(workdir, 'eval_'+fname)
+            eval_ye_out = lmr_out.create_Ye_output(eval_ye_path,
+                                                   eval_proxy_count,
+                                                   nens, ntimes,
+                                                   recon_period)
+        else:
+            eval_ye_out = None
+
+        return assim_ye_out, eval_ye_out
 
 
 class FilterDivergenceError(ValueError):
