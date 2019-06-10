@@ -23,7 +23,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # defaults to config.core.nexp in working directory
-fig_dir = '/home/disk/p/wperkins/ipynb/lim_diagnostics/realistic_seasonal'
+# fig_dir = '/home/disk/p/wperkins/ipynb/lim_diagnostics/'
+fig_dir = '/home/disk/katabatic2/wperkins/pyLIM_output/production_mpi/'
 
 # Fig Output
 plot_neofs = 10
@@ -36,7 +37,7 @@ plot_num_lim_modes = 20
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_last_millenium'
+fcast_against = 'mpi-esm-p_last_millenium'
 is_diff_model = False
 fcast_start_yr = 851
 
@@ -64,7 +65,7 @@ do_hist = True
 do_reliability = True
 
 # Long integration forecast experiments
-do_long_integration = True
+do_long_integration = False
 integration_len_yr = 1000
 integration_iters = 250
 
@@ -78,14 +79,18 @@ var_long_names = {'tas_sfc_Amon': '2m Air T',
                   'ohc_0-700m_Omon': 'OHC 0-700m',
                   'psl_sfc_Amon': 'SLP',
                   'zg_500hPa_Amon': '500 hPa Hght',
-                  'pr_sfc_Amon': 'Sfc Precip'}
+                  'pr_sfc_Amon': 'Sfc Precip',
+                  'rlut_toa_Amon': 'TOA Net LW Up',
+                  'rsut_toa_Amon': 'TOA Net SW up'}
 
 var_units = {'tas_sfc_Amon': 'K',
              'tos_sfc_Omon': 'K',
              'ohc_0-700m_Omon': 'W/m$^2$',
              'psl_sfc_Amon': 'Pa',
              'zg_500hPa_Amon': 'm',
-             'pr_sfc_Amon': 'mm'}
+             'pr_sfc_Amon': 'mm',
+             'rlut_toa_Amon': 'W/m$^2$',
+             'rsut_toa_Amon': 'W/m$^2$'}
 
 
 def get_scalar_factors(latgrid, longrid, cfg_obj, lim_fcast_obj, incl_keys,
@@ -710,7 +715,7 @@ def run(cfg_class=None, fcast_against=None, figure_dir=None):
         last = lutils.ens_long_integration(integration_iters,
                                            integration_len_yr + 50,
                                            lim, t0, timesteps=2880,
-                                           use_multiprocess=True)
+                                           use_multiprocess=False)
 
         last = last[50:]
 
@@ -784,23 +789,22 @@ if __name__ == '__main__':
     else:
         yaml_file = os.path.join(LMR_config.SRC_DIR, 'config.yml')
 
-    ### Single Run
+    # ## Single Run
     # LMR_config.initialize_config_yaml(LMR_config, yaml_file)
     # LMR_config.proxies.proxy_frac = 1.0
-    # LMR_config.core.nexp = 'testdev_ccsm4_atmocn_coupOHC_newtimestep'
+    # LMR_config.core.nexp = 'testdev_ccsm4_atmocn_sepOHC_1day_tstep'
     # run(LMR_config, fcast_against=fcast_against,
     #     figure_dir=fig_dir)
 
     ### Sensitivity Experiments
     # levels
-    # params = [2, 5, 10, 15, 20, 25, 30,
+    # params = [10, 15, 20, 25, 30,
     #           21, 22, 23, 24, 26, 27, 28, 29]
     # params = [25, 26, 27, 28, 29, 30, 31, 32, 33]
-    # params = [17]
-    params = [29]
+    params = [25]
+    # params = [29]
     pname = 'nmodes'
-    nexp = 'testdev_newtstep_ccsm4_atmocn_sepOHC_retmodes{:d}'
-    # nexp = 'testdev_ccsm4_seasbil_pagesv2_coupPSMvar24mode_retOHCmodes{:d}'
+    nexp = 'testdev_mpi_atmocn_sepOHC_retmodes{:d}'
     proxy_frac = 1.0
 
     # nens

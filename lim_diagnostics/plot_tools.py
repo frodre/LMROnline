@@ -41,7 +41,7 @@ def init_projection(projection):
 def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True, 
                     data_bound=None, projection='robinson', gridlines=True,
                     extend='neither', xlabel=None, xlabel_size=13,
-                    **kwargs):
+                    spec=None, **kwargs):
     
     if lat.ndim != 2 or lon.ndim != 2:
         raise ValueError('Lat/Lon fields must be 2D')
@@ -52,8 +52,14 @@ def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True,
         fig = plt.figure(figsize=(8, 5))
         spec = gs.GridSpec(2, 1, height_ratios=[20, 1])
         ax = plt.subplot(spec[0], projection=projection)
+        cax = plt.subplot(spec[1])
+        parent_ax = None
+    elif do_colorbar and spec is None:
+        parent_ax = ax
+        cax = None
     else:
-        spec = None
+        parent_ax = None
+        cax = None
         
     fmax = np.nanmax(data)
     fmin = np.nanmin(data)
@@ -79,8 +85,8 @@ def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True,
                 rotation='vertical', rotation_mode='anchor',
                 transform=ax.transAxes, size=xlabel_size)
     
-    if do_colorbar and spec is not None:
-        plt.colorbar(cf, cax=plt.subplot(spec[1]), orientation='horizontal',
+    if do_colorbar:
+        plt.colorbar(cf, cax=cax, ax=parent_ax, orientation='horizontal',
                      extend=extend)
         
     return cf
@@ -89,7 +95,8 @@ def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True,
 def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
                          projection='robinson', gridlines=True,
                          save_file=None, panel_width=6, panel_height=4.5,
-                         fmt='png', plot_column_letters=False):
+                         fmt='png', plot_column_letters=False, dpi=300, 
+                         close_fig=True):
     projection = init_projection(projection)
     fig = plt.figure(figsize=(panel_width*ncols, panel_height*nrows))
     height_ratios = [20]*nrows
@@ -114,7 +121,11 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
         cf_arr.insert(i, [])
         for j in range(ncols):
             curr_spec = spec[i, j]
-            plot_args, plot_kwargs = plot_arg_tuples[i][j]
+            try:
+                plot_args, plot_kwargs = plot_arg_tuples[i][j]
+            except IndexError as e:
+                print('No panel provided for i={:d} j={:d}'.format(i, j))
+                continue
             ax = plt.subplot(curr_spec, projection=projection)
             ax.background_patch.set_facecolor('#020b36')
             plot_kwargs.update({'ax': ax})
@@ -141,15 +152,19 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
             cax = plt.subplot(cbar_spec)
             plt.colorbar(cf, cax=cax, orientation='horizontal')
 
+    #if close_fig:
     plt.tight_layout(h_pad=0.2, w_pad=0.5)
             
     if save_file is not None:
-        plt.savefig(save_file, dpi=300, fmt=fmt)
+        plt.savefig(save_file, dpi=dpi, fmt=fmt)
 
     if INTERACTIVE_PLOT:
         plt.show()
 
-    plt.close(fig)
+    if close_fig:
+        plt.close(fig)
+
+    return fig, spec
 
 
 def plot_exp_eofs(eofs_by_varkey, state, valid_data,
