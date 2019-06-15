@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # defaults to config.core.nexp in working directory
 # fig_dir = '/home/disk/p/wperkins/ipynb/lim_diagnostics/'
-fig_dir = '/home/disk/katabatic2/wperkins/pyLIM_output/production_mpi/'
+fig_dir = '/home/disk/katabatic2/wperkins/pyLIM_output/volcanic_ens_out/'
 
 # Fig Output
 plot_neofs = 10
@@ -37,13 +37,13 @@ plot_num_lim_modes = 20
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'mpi-esm-p_last_millenium'
+fcast_against = 'ccsm4_last_millenium'
 is_diff_model = False
 fcast_start_yr = 851
 
 # Only use fields specified in prior state dimension. False emulates
 # reconstruction state, including PSM required averages of fields
-base_only = False
+base_only = True
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
@@ -51,18 +51,19 @@ detrend_fcast_ref_data = True
 # Include scalar factors related to psm_required variables
 include_psm_req_output = False and not base_only
 
-do_perfect_fcast = True
+do_perfect_fcast = False
 do_scalar_verif = True
-plot_scalar_verif = True
+plot_scalar_verif = False
 do_spatial_verif = True
-plot_spatial_verif = True
+plot_spatial_verif = False
 output_spatial_field_skill = True
 
 # Ensemble noise integration forecast experiments
 do_ens_fcast = True
+save_ens_scalar_out = True
 nens = 100
-do_hist = True
-do_reliability = True
+do_hist = False
+do_reliability = False
 
 # Long integration forecast experiments
 do_long_integration = False
@@ -486,6 +487,16 @@ def ens_fcast_verification(state_lim_space, num_ens_members, lim, state_obj,
         fcast_measure = ens_1yr_fcast @ factor
         ens_scalar_output[measure_key] = (ref_measure, fcast_measure)
 
+    if save_ens_scalar_out:
+        for measure_key, measure_dat in ens_scalar_output.items():
+            ref_measure, fcast_measure = measure_dat
+            savefile = 'ens_scalar_{}_{}_{}.npz'.format(*measure_key)
+            savepath = os.path.join(ens_figdir, savefile)
+            ntimes = len(ref_measure[1:])
+            times = np.arange(fcast_start_yr, fcast_start_yr+ntimes)
+            np.savez(savepath, time=times, fcast_ens=fcast_measure,
+                     ref_data=ref_measure[1:])
+
     ens_calib_dfs = []
     for measure_key, (ref_scalar, ens_scalar) in ens_scalar_output.items():
 
@@ -804,7 +815,7 @@ if __name__ == '__main__':
     params = [25]
     # params = [29]
     pname = 'nmodes'
-    nexp = 'testdev_mpi_atmocn_sepOHC_retmodes{:d}'
+    nexp = 'testdev_ccsm4_atmocn_noOHC_retmodes{:d}'
     proxy_frac = 1.0
 
     # nens
