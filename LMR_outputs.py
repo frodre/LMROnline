@@ -65,11 +65,16 @@ def _gen_scalar_func(measure, varname, state, prior_cfg):
     lon = coord_data['lon']
     cell_area = state.var_cell_area[varname]
 
-    use_general_avg = ('glob_mean', 'nino3.4', 'nino3', 'nino4', 'npi')
+    use_general_avg = ('glob_mean', 'nino3.4', 'nino3', 'nino4', 'npi',
+                       'nh', 'sh', 'natlantic', 'europe')
     use_single_point = ('tahiti', 'darwin')
+    use_zonal_avg = ('65s', '45s')
 
     point_latlons = {'tahiti': (-17.55, 360 - 149.617), # 17.55 S 149.617 W
                      'darwin': (-12.467, 130.85)} # 12.467 S 130.85 E
+
+    zonal_avg_lats = {'65s': -65,
+                      '45s': -45}
 
     if measure in use_general_avg:
         if measure == 'glob_mean':
@@ -81,6 +86,8 @@ def _gen_scalar_func(measure, varname, state, prior_cfg):
     elif measure in use_single_point:
         lat_lon = point_latlons[measure]
         func = _get_single_gridpoint_func(*lat_lon, lat, lon)
+    elif measure in use_zonal_avg:
+        func = _get_zonal_avg_func(zonal_avg_lats[measure], lat)
     elif measure == 'pdo':
         func = _get_pdo_index_func(prior_cfg, varname)
     else:
@@ -101,11 +108,16 @@ def get_scalar_factor(measure, varname, prior_cfg, lat, lon, cell_area=None):
     # Get scalar factors for matrix multiplication against forecast space output
     # assumes lat/lon reduced to valid data locations
 
-    use_general_avg = ('glob_mean', 'nino3.4', 'nino3', 'nino4', 'npi')
+    use_general_avg = ('glob_mean', 'nino3.4', 'nino3', 'nino4', 'npi',
+                       'nh', 'sh', 'natlantic', 'europe')
     use_single_point = ('tahiti', 'darwin')
+    use_zonal_avg = ('65s', '45s')
 
     point_latlons = {'tahiti': (-17.55, 360 - 149.617),  # 17.55 S 149.617 W
                      'darwin': (-12.467, 130.85)}  # 12.467 S 130.85 E
+
+    zonal_avg_lats = {'65s': -65,
+                      '45s': -45}
 
     if measure in use_general_avg:
         if measure == 'glob_mean':
@@ -120,6 +132,8 @@ def get_scalar_factor(measure, varname, prior_cfg, lat, lon, cell_area=None):
     elif measure in use_single_point:
         lat_lon = point_latlons[measure]
         factor = get_single_gridpoint_factor(*lat_lon, lat, lon)
+    elif measure in use_zonal_avg:
+        factor = get_zonal_avg_weights(zonal_avg_lats[measure], lat)
     elif measure == 'pdo':
         factor, valid_mask, pdo_mask = _gen_pdo_index_factor(prior_cfg, varname)
         factor = _masked_to_full_space(pdo_mask, factor)
@@ -165,8 +179,13 @@ def _get_area_weights(cell_area, lat, mask=None):
 
 def _gen_latlon_grid_mask(lat, lon, latmin, latmax, lonmin, lonmax):
 
-    mask = ((lon >= lonmin) & (lon <= lonmax) &
-            (lat >= latmin) & (lat <= latmax))
+    if lonmin > lonmax:
+        # straddling the data line
+        lon_mask = (lon >= lonmin) | (lon <= lonmax)
+    else:
+        lon_mask = (lon >= lonmin) & (lon <= lonmax)
+
+    mask = (lon_mask & (lat >= latmin) & (lat <= latmax))
 
     return mask
 
@@ -184,6 +203,18 @@ def get_area_avg_mask_and_weights(lat, lon, region, cell_area=None):
     elif region == 'npi':
         # 30N - 65N, 160E - 130W
         mask = _gen_latlon_grid_mask(lat, lon, 30, 65, 160, 220)
+    elif region == 'natlantic':
+        # 0 N - 80 N, 75W - 0W
+        mask = _gen_latlon_grid_mask(lat, lon, 0, 80, 285, 360)
+    elif region == 'nh':
+        # 0 - 90 N
+        mask = _gen_latlon_grid_mask(lat, lon, 0, 90, 0, 360)
+    elif region == 'sh':
+        # 90S - 0 N
+        mask = _gen_latlon_grid_mask(lat, lon, -90, 0, 0, 360)
+    elif region == 'europe':
+        # 40 - 80 N, 20W - 40E
+        mask = _gen_latlon_grid_mask(lat, lon, 40, 80, 340, 40)
     elif region is not None:
         raise KeyError('Unrecognized region in scalar function'
                        ' generation: {}'.format(region))
@@ -212,6 +243,30 @@ def _get_area_avg_scalar_func(cell_area, lat, lon, region=None):
         return valid_region.T @ use_factor
 
     return area_avg_index
+
+
+def get_zonal_avg_weights(zon_lat, lat):
+    # Grabs closest strip of zonal gridpoints to average
+    min_val = abs(lat - zon_lat).min()
+    mask = abs(lat - zon_lat) == min_val
+    npts = mask.sum()
+    weights = np.zeros_like(mask, dtype=np.float)
+    weights[mask] = 1 / npts
+
+    return weights
+
+
+def _get_zonal_avg_func(zon_lat, lat):
+
+    zonal_factor = get_zonal_avg_weights(zon_lat, lat)
+
+    def zonal_avg(state_data):
+
+        series = state_data.T @ zonal_factor
+
+        return series
+
+    return zonal_avg
 
 
 def get_single_gridpoint_factor(pt_lat, pt_lon, lat, lon):
