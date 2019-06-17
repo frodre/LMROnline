@@ -1,5 +1,5 @@
 import matplotlib
-# matplotlib.use('agg')
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 import matplotlib.patches as patches
@@ -107,11 +107,15 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
     if cbar_type == 'single' or cbar_type == 'col':
         height_ratios += [1]
         total_nrows += 1
+        do_colorbar = False
     elif cbar_type == 'row':
         width_ratios += [1]
         total_ncols += 1
+        do_colorbar = False
     elif cbar_type is not None:
         raise ValueError('Unrecognized colorbar type: {}'.format(cbar_type))
+    else:
+        do_colorbar = True
     
     spec = gs.GridSpec(total_nrows, total_ncols, height_ratios=height_ratios,
                        width_ratios=width_ratios)
@@ -128,29 +132,32 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
                 continue
             ax = plt.subplot(curr_spec, projection=projection)
             ax.background_patch.set_facecolor('#020b36')
-            plot_kwargs.update({'ax': ax})
+            plot_kwargs.update({'ax': ax, 'do_colorbar': do_colorbar})
             cf = spatial_plotter(*plot_args, gridlines=gridlines, **plot_kwargs)
+            extend = plot_kwargs.get('extend', 'neither')
             if plot_column_letters and i == 0:
                 ax.text(-0.05, 1.1, '({})'.format(_col_letters[j]),
                         weight='bold', fontsize=14, transform=ax.transAxes)
-            cf_arr[i].append(cf)
+            cf_arr[i].append((cf, extend))
     
     if cbar_type == 'single':
         cax = plt.subplot(spec[-1, :])
-        cf = cf_arr[-1][0]
-        plt.colorbar(cf, cax=cax, orientation='horizontal')
+        cf, extend = cf_arr[-1][0]
+        plt.colorbar(cf, cax=cax, orientation='horizontal',
+                     extend=extend)
     elif cbar_type == 'row':
         for i in range(nrows):
             cbar_spec = spec[i, -1]
-            cf = cf_arr[i][-1]
+            cf, extend = cf_arr[i][-1]
             cax = plt.subplot(cbar_spec)
-            plt.colorbar(cf, cax=cax, orientation='vertical')
+            plt.colorbar(cf, cax=cax, orientation='vertical', extend=extend)
     elif cbar_type == 'col':
         for i in range(ncols):
             cbar_spec = spec[-1, i]
-            cf = cf_arr[-1][i]
+            cf, extend = cf_arr[-1][i]
             cax = plt.subplot(cbar_spec)
-            plt.colorbar(cf, cax=cax, orientation='horizontal')
+            plt.colorbar(cf, cax=cax, orientation='horizontal',
+                         extend=extend)
 
     #if close_fig:
     plt.tight_layout(h_pad=0.2, w_pad=0.5)
