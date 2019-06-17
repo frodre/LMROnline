@@ -43,6 +43,9 @@ lmr_path = '/home/katabatic/wperkins/data/LMR'
 use_from = 'LMRdb'
 # use_from = 'PAGES2kv1'
 
+# DB version (LMRdb only)
+db_version = 'v1.1.0'
+
 # Where to output the pre-calibrated PSM file
 output_dir = '/home/katabatic/wperkins/data/LMR/PSM/'
 
@@ -61,7 +64,7 @@ min_data_req_frac = 1.0
 # Perform a series of calibrations using pre-defined seasons in order to
 # determine an objective proxy seasonality definition.  Only used when
 # avg_type='seasonal'.
-test_proxy_seasonality = False
+test_proxy_seasonality = True
 
 # Years over which calibration and proxy data are considered for fits
 calib_period = (1850, 2015)
@@ -144,7 +147,8 @@ proxy_kwargs = {'use_from': use_from,
                 'proxy_availability_filter': False,
 
                 'PAGES2kv1': {'proxy_psm_type': pages_psm_map},
-                'LMRdb': {'proxy_psm_type': lmrdb_psm_map}}
+                'LMRdb': {'proxy_psm_type': lmrdb_psm_map,
+                          'dbversion': db_version}}
 
 psm_cfg_kwargs = {'calib_period': calib_period,
                   'anom_reference_period': anom_reference_period,
@@ -509,6 +513,9 @@ def calib_default_seasonality(proxies, psm_config, psm_type,
 
 
 def main():
+    # TODO Fix configuration so next line is unnecessary
+    LMR_config.proxies.LMRdb.dbversion = db_version
+
     regrid_config = LMR_config.regrid(**regrid_kwargs)
     psm_config = LMR_config.psm(regrid_config, lmr_path=lmr_path,
                                 proxy_use_from=use_from,
