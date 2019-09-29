@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('agg')
+#matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 import matplotlib.patches as patches
@@ -23,7 +23,7 @@ _VARNAME_MAP = {'tos_sfc_Omon': 'SST',
                 'zos_sfc_Omon': 'SSH',
                 'zg_500hPa_Amon': 'ZG_500hPa'}
 
-_col_letters = string.ascii_lowercase
+_panel_letters = string.ascii_lowercase
 
 
 def init_projection(projection):
@@ -95,10 +95,14 @@ def spatial_plotter(lon, lat, data, title, ax=None, do_colorbar=True,
 def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
                          projection='robinson', gridlines=True,
                          save_file=None, panel_width=6, panel_height=4.5,
-                         fmt='png', plot_column_letters=False, dpi=300, 
-                         close_fig=True):
+                         fmt='png', plot_column_letters=False, dpi=300,
+                         plot_panel_letters=False, fig=None, spec=None,
+                         close_fig=True, show_plot=True, text_x=-0.05,
+                         text_y=1.1, cbar_kwargs=None):
+
     projection = init_projection(projection)
-    fig = plt.figure(figsize=(panel_width*ncols, panel_height*nrows))
+    if fig is None:
+        fig = plt.figure(figsize=(panel_width*ncols, panel_height*nrows))
     height_ratios = [20]*nrows
     width_ratios = [20]*ncols
     total_nrows = nrows
@@ -116,10 +120,18 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
         raise ValueError('Unrecognized colorbar type: {}'.format(cbar_type))
     else:
         do_colorbar = True
-    
-    spec = gs.GridSpec(total_nrows, total_ncols, height_ratios=height_ratios,
-                       width_ratios=width_ratios)
-    
+
+    if spec is not None:
+        spec = gs.GridSpecFromSubplotSpec(total_nrows, total_ncols,
+                                          height_ratios=height_ratios,
+                                          width_ratios=width_ratios,
+                                          subplot_spec=spec)
+    else:
+        spec = gs.GridSpec(total_nrows, total_ncols,
+                           height_ratios=height_ratios,
+                           width_ratios=width_ratios)
+
+    no_panel_adj = 0
     cf_arr = []
     for i in range(nrows):
         cf_arr.insert(i, [])
@@ -129,43 +141,55 @@ def plot_multiple_fields(nrows, ncols, plot_arg_tuples, cbar_type='single',
                 plot_args, plot_kwargs = plot_arg_tuples[i][j]
             except IndexError as e:
                 print('No panel provided for i={:d} j={:d}'.format(i, j))
+                no_panel_adj += 1
                 continue
-            ax = plt.subplot(curr_spec, projection=projection)
+            except TypeError as e:
+                print('None panel provided for i={:d} j={:d}'.format(i, j))
+                no_panel_adj += 1
+                continue
+            ax = fig.add_subplot(curr_spec, projection=projection)
             ax.background_patch.set_facecolor('#020b36')
             plot_kwargs.update({'ax': ax, 'do_colorbar': do_colorbar})
             cf = spatial_plotter(*plot_args, gridlines=gridlines, **plot_kwargs)
             extend = plot_kwargs.get('extend', 'neither')
             if plot_column_letters and i == 0:
-                ax.text(-0.05, 1.1, '({})'.format(_col_letters[j]),
+                ax.text(text_x, text_y, '({})'.format(_panel_letters[j]),
+                        weight='bold', fontsize=14, transform=ax.transAxes)
+            elif plot_panel_letters:
+                ax.text(text_x, text_y,
+                        '({})'.format(_panel_letters[i*ncols + j - no_panel_adj]),
                         weight='bold', fontsize=14, transform=ax.transAxes)
             cf_arr[i].append((cf, extend))
-    
+
+    if cbar_kwargs is None:
+        cbar_kwargs = {}
     if cbar_type == 'single':
         cax = plt.subplot(spec[-1, :])
         cf, extend = cf_arr[-1][0]
         plt.colorbar(cf, cax=cax, orientation='horizontal',
-                     extend=extend)
+                     extend=extend, **cbar_kwargs)
     elif cbar_type == 'row':
         for i in range(nrows):
             cbar_spec = spec[i, -1]
             cf, extend = cf_arr[i][-1]
             cax = plt.subplot(cbar_spec)
-            plt.colorbar(cf, cax=cax, orientation='vertical', extend=extend)
+            plt.colorbar(cf, cax=cax, orientation='vertical', extend=extend,
+                         **cbar_kwargs)
     elif cbar_type == 'col':
         for i in range(ncols):
             cbar_spec = spec[-1, i]
             cf, extend = cf_arr[-1][i]
             cax = plt.subplot(cbar_spec)
             plt.colorbar(cf, cax=cax, orientation='horizontal',
-                         extend=extend)
+                         extend=extend, **cbar_kwargs)
 
-    #if close_fig:
-    plt.tight_layout(h_pad=0.2, w_pad=0.5)
+    if show_plot:
+        plt.tight_layout(h_pad=0.2, w_pad=0.5)
             
     if save_file is not None:
-        plt.savefig(save_file, dpi=dpi, fmt=fmt)
+        plt.savefig(save_file, dpi=dpi, fmt=fmt, bbox_inches='tight')
 
-    if INTERACTIVE_PLOT:
+    if INTERACTIVE_PLOT and show_plot:
         plt.show()
 
     if close_fig:

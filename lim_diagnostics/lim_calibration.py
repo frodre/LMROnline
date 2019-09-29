@@ -23,8 +23,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # defaults to config.core.nexp in working directory
-# fig_dir = '/home/disk/p/wperkins/ipynb/lim_diagnostics/'
-fig_dir = '/home/disk/katabatic2/wperkins/pyLIM_output/volcanic_ens_out/'
+# fig_dir = '/home/disk/p/wperkins/ipynb/lim_diagnostics/realistic_seasonal/'
+fig_dir = '/home/disk/katabatic2/wperkins/pyLIM_output/production_ccsm4/'
 
 # Fig Output
 plot_neofs = 10
@@ -37,13 +37,13 @@ plot_num_lim_modes = 20
 plot_lim_noise_eofs = False
 plot_num_noise_modes = 10
 
-fcast_against = 'ccsm4_last_millenium'
+fcast_against = 'ccsm4_piControl'
 is_diff_model = False
 fcast_start_yr = 851
 
 # Only use fields specified in prior state dimension. False emulates
 # reconstruction state, including PSM required averages of fields
-base_only = True
+base_only = False
 
 # Perfect Forecast Experiments
 detrend_fcast_ref_data = True
@@ -51,16 +51,16 @@ detrend_fcast_ref_data = True
 # Include scalar factors related to psm_required variables
 include_psm_req_output = False and not base_only
 
-do_perfect_fcast = False
+do_perfect_fcast = True
 do_scalar_verif = True
 plot_scalar_verif = False
 do_spatial_verif = True
 plot_spatial_verif = False
-output_spatial_field_skill = True
+output_spatial_field_skill = False
 
 # Ensemble noise integration forecast experiments
 do_ens_fcast = True
-save_ens_scalar_out = True
+save_ens_scalar_out = False
 nens = 100
 do_hist = False
 do_reliability = False
@@ -809,13 +809,14 @@ if __name__ == '__main__':
 
     ### Sensitivity Experiments
     # levels
-    # params = [10, 15, 20, 25, 30,
-    #           21, 22, 23, 24, 26, 27, 28, 29]
+    params = [10, 15, 20, 25, 30,
+              21, 22, 23, 24, 26, 27, 28, 29]
     # params = [25, 26, 27, 28, 29, 30, 31, 32, 33]
-    params = [25]
+    # params = [20]
     # params = [29]
+    # params = [27]
     pname = 'nmodes'
-    nexp = 'testdev_ccsm4_atmocn_noOHC_retmodes{:d}'
+    nexp = 'testdev_ccsm4_picLIM_atmocn_sepOHC_linobjpsm_wNRG_retmodes{:d}'
     proxy_frac = 1.0
 
     # nens
