@@ -90,6 +90,8 @@ def _gen_scalar_func(measure, varname, state, prior_cfg):
         func = _get_zonal_avg_func(zonal_avg_lats[measure], lat)
     elif measure == 'pdo':
         func = _get_pdo_index_func(prior_cfg, varname)
+    elif measure == 'nao':
+        func = _get_nao_index_func(prior_cfg, varname)
     else:
         raise KeyError('Unrecognized scalar measure {}'.format(measure))
 
@@ -137,6 +139,9 @@ def get_scalar_factor(measure, varname, prior_cfg, lat, lon, cell_area=None):
     elif measure == 'pdo':
         factor, valid_mask, pdo_mask = _gen_pdo_index_factor(prior_cfg, varname)
         factor = _masked_to_full_space(pdo_mask, factor)
+    elif measure == 'nao':
+        factor, valid_mask, nao_mask = _gen_nao_index_factor(prior_cfg, varname)
+        factor = _masked_to_full_space(nao_mask, factor)
     else:
         raise KeyError('Unrecognized scalar measure {}'.format(measure))
 
@@ -180,7 +185,7 @@ def _get_area_weights(cell_area, lat, mask=None):
 def _gen_latlon_grid_mask(lat, lon, latmin, latmax, lonmin, lonmax):
 
     if lonmin > lonmax:
-        # straddling the data line
+        # straddling the prime meridian line
         lon_mask = (lon >= lonmin) | (lon <= lonmax)
     else:
         lon_mask = (lon >= lonmin) & (lon <= lonmax)
@@ -292,8 +297,7 @@ def _get_single_gridpoint_func(pt_lat, pt_lon, lat, lon):
     return single_point
 
 
-def _gen_pdo_index_factor(prior_cfg, varname):
-    print('Generating PDO EOF for index calculation.')
+def _load_prior_var_dat(prior_cfg, varname):
     # Loads prior data and averages it.
     prior_var = PriorVariable.load(prior_cfg, varname, anomaly=True, nens=None)
     var_dobj = prior_var.forecast_var_to_pylim_dataobj()
@@ -301,6 +305,13 @@ def _gen_pdo_index_factor(prior_cfg, varname):
                                           flat=True)
     latgrid = grids['lat']
     longrid = grids['lon']
+
+    return var_dobj, latgrid, longrid
+
+
+def _gen_pdo_index_factor(prior_cfg, varname):
+    print('Generating PDO EOF for index calculation.')
+    var_dobj, latgrid, longrid = _load_prior_var_dat(prior_cfg, varname)
 
     # PDO region mask from the compressed grid
     mask = _gen_latlon_grid_mask(latgrid, longrid, 20, 70, 110, 250)
@@ -333,6 +344,39 @@ def _get_pdo_index_func(prior_cfg, varname):
         return state_npac.T @ pdo_eof
 
     return pdo_index
+
+
+def _gen_nao_index_factor(prior_cfg, varname):
+    print('Generating NAO EOF for index calculation.')
+    prior_var = PriorVariable.load(prior_cfg, varname, anomaly=True, nens=None)
+    var_dobj, latgrid, longrid = _load_prior_var_dat(prior_cfg, varname)
+
+    mask = _gen_latlon_grid_mask(latgrid, longrid, 20, 80, 270, 40)
+
+    valid_data = var_dobj.valid_data
+    var_dobj.detrend_data()
+    var_dobj.area_weight_data(use_sqrt=True)
+    data = var_dobj.data[:][:, mask]
+    natl_eofs, natl_svals = ST.calc_eofs(data, 1)
+    nao_eof = natl_eofs[:, 0]
+
+    return nao_eof, valid_data, mask
+
+
+def _get_nao_index_func(prior_cfg, varname):
+
+    nao_eof, valid_data, mask = _gen_nao_index_factor(prior_cfg, varname)
+
+    def nao_index(state_data):
+        # If valid_data set then there were NaN points, remove them
+        if valid_data is not None:
+            state_data = state_data[valid_data, :]
+
+        # Take the N Pac. region
+        state_npac = state_data[mask, :]
+        return state_npac.T @ nao_eof
+
+    return nao_index
 
 
 def prepare_field_output(outputs, state, ntimes, nens, output_dir, recon_times):
