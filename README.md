@@ -9,8 +9,10 @@ This package is based off of the original [LMR framework](https://www.github.com
 ([pyLIM](https://www.github.com/frodre/pyLIM) from Perkins & Hakim 
 [2020](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019MS001778)).
 
-For more information, please see the (in progress)
+For more information, please see the 
 [LMR documentation page.](https://atmos.washington.edu/~wperkins/LMR/docs).
+**Note** that these docs are still in progress of being updated from original LMR
+documentation.
 
 
 * Free software provided under the modified BSD License
