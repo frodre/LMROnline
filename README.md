@@ -2,8 +2,8 @@
 
 Welcome to the Last Millennium Reanalysis Online (LMR Online) framework code base-- a toolset
 for climate field reconstructions using ensemble data assimilation.  This is an offshoot of
-the original LMR Framework (Hakim et al. 2016, [LMR](https://www.github.com/modons/LMR)).
-This repository contains the code used for reconstructions in "Coupled Atmospher--Ocean
+the original LMR Framework (Hakim et al. 2016).
+This repository contains the code used for reconstructions in "Coupled Atmosphere--Ocean
 Reconstruction of the Last Millennium Using Online Data Assimilation, Perkins and Hakim,
 submitted"
 
